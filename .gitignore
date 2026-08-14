@@ -6,6 +6,7 @@
 keys.json
 .venv/
 venv/
+*.egg-info/
 __pycache__/
 *.pyc
 node_modules/

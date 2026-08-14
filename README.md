@@ -1,7 +1,22 @@
 # ToyVendor
 
-Unshipped. One-tenant proof: Soldiers' Angels talks to a chief of staff, durable Puppetmaster workers build the next operator tool, the org wiki compounds, they pay their own tokens.
+Unshipped. One-tenant proof: Soldiers' Angels talks to a chief of staff, a durable job ships the next operator tool, then screenshot steer changes it. They pay their own tokens.
 
-Default loop: long full-auto to a finished product, then screenshot steer. Screenshots always work (permanent vision sidecar when Flash is the floor). DeepSeek V4 Flash is the cheap floor. Month 2 of the same job should be a warm-cache hit, not another build.
+## Run
 
-Product memory lives in the personal wiki, not this README. Do not ship.
+```
+python3 -m venv .venv
+.venv/bin/python -m pip install -e ".[dev]"
+.venv/bin/python -m pytest tests -q
+.venv/bin/toyvendor
+```
+
+Open http://127.0.0.1:8765
+
+Describe a tool. After it ships, say `turn that button blue` or paste a screenshot. Screenshots are always accepted. Flash is the text-only floor, so a vision sidecar must transcribe them. That needs a tenant OpenRouter key in `tenant/secrets/openrouter.key` or `TOYVENDOR_TENANT_OPENROUTER_API_KEY`. Host keys are ignored on purpose.
+
+## Gates
+
+Client-pays tokens. No multi-tenant. No ship. Secrets never enter the wiki. Env vars do not grant FormAssembly / SharePoint / Salesforce.
+
+Product memory lives in the personal wiki, not this README.

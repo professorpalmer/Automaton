@@ -1,0 +1,222 @@
+:root {
+  --bg: #16130f;
+  --bg-2: #221c16;
+  --ink: #f4eee4;
+  --muted: #9b9184;
+  --brass: #c4a35a;
+  --brass-dim: rgba(196, 163, 90, 0.22);
+  --line: rgba(244, 238, 228, 0.12);
+  --display: "Syne", "Gill Sans", sans-serif;
+  --sans: "Figtree", "Segoe UI", sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+}
+
+body {
+  font-family: var(--sans);
+  background:
+    radial-gradient(900px 520px at 12% -10%, rgba(196, 163, 90, 0.16), transparent 58%),
+    radial-gradient(800px 480px at 100% 0%, rgba(70, 92, 88, 0.28), transparent 50%),
+    repeating-linear-gradient(
+      135deg,
+      rgba(255, 255, 255, 0.015) 0 1px,
+      transparent 1px 11px
+    ),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
+}
+
+.sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+
+.desk {
+  min-height: 100vh;
+  width: min(920px, calc(100% - 2rem));
+  margin: 0 auto;
+  padding: 2.25rem 0 1.5rem;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 1.5rem;
+}
+
+.mast {
+  animation: brand-settle 0.9s ease both;
+}
+
+.wordmark {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(2.8rem, 8vw, 5.4rem);
+  letter-spacing: 0.08em;
+  line-height: 0.9;
+  text-transform: uppercase;
+}
+
+.role {
+  margin: 0.7rem 0 0;
+  color: var(--muted);
+  letter-spacing: 0.04em;
+}
+
+.stage {
+  display: grid;
+  gap: 1.25rem;
+  min-height: 0;
+}
+
+.preview {
+  min-height: 42vh;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  animation: rise 0.45s ease both;
+}
+
+.preview iframe {
+  display: block;
+  width: 100%;
+  height: 48vh;
+  border: 0;
+  background: #f3efe6;
+}
+
+.talk {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 1rem;
+}
+
+.talk li {
+  max-width: 40rem;
+  line-height: 1.5;
+}
+
+.talk .chief {
+  color: var(--ink);
+}
+
+.talk .you {
+  color: var(--muted);
+}
+
+.talk .who {
+  display: block;
+  font-size: 0.72rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--brass);
+  margin-bottom: 0.25rem;
+}
+
+.compose {
+  display: grid;
+  gap: 0.7rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--line);
+}
+
+.field textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 5.5rem;
+  font: 400 1.05rem/1.45 var(--sans);
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 0.4rem 0;
+}
+
+.field textarea:focus {
+  outline: none;
+}
+
+.field textarea::placeholder {
+  color: var(--muted);
+}
+
+.compose-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+}
+
+.attach {
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.attach input {
+  display: none;
+}
+
+button {
+  font: 700 0.95rem var(--display);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--bg);
+  background: var(--brass);
+  border: 0;
+  padding: 0.7rem 1.15rem;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+
+.thumbs {
+  display: flex;
+  gap: 0.5rem;
+  animation: rise 0.35s ease both;
+}
+
+.thumbs img {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+}
+
+.busy .wordmark {
+  background: linear-gradient(90deg, var(--ink) 0%, var(--brass) 50%, var(--ink) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: brass-sweep 1.6s linear infinite;
+}
+
+@keyframes brand-settle {
+  from { letter-spacing: 0.28em; opacity: 0; transform: translateY(8px); }
+  to { letter-spacing: 0.08em; opacity: 1; transform: none; }
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes brass-sweep {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@media (max-width: 640px) {
+  .desk { width: calc(100% - 1.4rem); padding-top: 1.4rem; }
+  .wordmark { font-size: 2.4rem; }
+  .preview iframe { height: 38vh; }
+}

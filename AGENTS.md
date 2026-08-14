@@ -1,6 +1,6 @@
 # ToyVendor
 
-Unshipped product. Scaffold only. Add as we go.
+Unshipped product. Kernel and chief-of-staff loop exist; keep adding against the gates.
 
 ## What this is
 
@@ -22,9 +22,9 @@ Default loop is **full-auto then steer**: a long Full-Auto Engineering wave (sam
 
 ## Layout
 
-- `face/` — Grokbot-polish UI later (roster, chief of staff). Steal Hermes design, own the code.
-- `harness/` — Puppetmaster workers, receipts, warm cache later.
-- `tenant/` — per-org isolation later. `tenant/secrets/` is gitignored.
+- `face/` — chief of staff UI. Steal Hermes design, own the code.
+- `harness/` — gates, vault, jobs, vision, factory, steer.
+- `tenant/` — jobs, products, uploads, wiki notes. `tenant/secrets/` is gitignored.
 
 ## Wiki
 
