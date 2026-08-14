@@ -15,5 +15,13 @@ dist/
 .codegraph/
 tenant/secrets/*
 !tenant/secrets/.gitkeep
+tenant/jobs/*
+!tenant/jobs/.gitkeep
+tenant/products/*
+!tenant/products/.gitkeep
+tenant/uploads/*
+!tenant/uploads/.gitkeep
+tenant/wiki/*
+!tenant/wiki/.gitkeep
 *.sqlite
 *.sqlite-journal

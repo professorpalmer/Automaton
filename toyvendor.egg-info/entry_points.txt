@@ -1,0 +1,2 @@
+[console_scripts]
+toyvendor = face.app:main
