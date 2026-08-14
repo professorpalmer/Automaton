@@ -14,6 +14,18 @@ def test_status_does_not_leak_keys(tmp_path) -> None:
     assert "sk-or" not in status.text
 
 
+def test_tokens_and_reduced_motion_ship(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path))
+    tokens = client.get("/static/tokens.css")
+    css = client.get("/static/app.css")
+    assert tokens.status_code == 200
+    assert "--space-1:" in tokens.text
+    assert "--duration: 160ms" in tokens.text
+    assert "prefers-reduced-motion" in css.text
+    assert "13px" not in tokens.text
+    assert "13px" not in css.text
+
+
 def test_home_is_toyvendor(tmp_path) -> None:
     client = TestClient(create_app(tmp_path))
     page = client.get("/")

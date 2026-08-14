@@ -21,7 +21,7 @@
     body.textContent = text;
     item.append(label, body);
     talk.append(item);
-    item.scrollIntoView({ block: "nearest" });
+    talk.scrollTop = talk.scrollHeight;
   }
 
   function showProduct(url) {
@@ -169,4 +169,20 @@
       sendTurn();
     }
   });
+
+  document.addEventListener("keydown", function (event) {
+    if (event.key === "Escape" && state.attachments.length) {
+      state.attachments = [];
+      renderThumbs();
+    }
+    if (event.key === "/" && document.activeElement !== brief && !event.metaKey && !event.ctrlKey) {
+      event.preventDefault();
+      brief.focus();
+    }
+  });
+
+  var hint = document.getElementById("send-hint");
+  if (hint && !/Mac|iPhone|iPad/.test(navigator.platform || "")) {
+    hint.textContent = "Send Ctrl+Enter · Esc clears shots";
+  }
 })();

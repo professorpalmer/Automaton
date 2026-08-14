@@ -1,0 +1,22 @@
+:root {
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 36px;
+  --radius: 0;
+  --duration: 160ms;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --spring: cubic-bezier(0.22, 1.2, 0.36, 1);
+  --bg: #16130f;
+  --bg-2: #221c16;
+  --ink: #f4eee4;
+  --muted: #9b9184;
+  --brass: #c4a35a;
+  --line: color-mix(in oklab, var(--ink) 12%, transparent);
+  --display: "Syne", "Gill Sans", sans-serif;
+  --sans: "Figtree", "Segoe UI", sans-serif;
+  --font-body: 400 1.05rem/1.45 var(--sans);
+  --font-kicker: 700 0.72rem/1 var(--sans);
+}

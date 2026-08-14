@@ -1,20 +1,10 @@
-:root {
-  --bg: #16130f;
-  --bg-2: #221c16;
-  --ink: #f4eee4;
-  --muted: #9b9184;
-  --brass: #c4a35a;
-  --brass-dim: rgba(196, 163, 90, 0.22);
-  --line: rgba(244, 238, 228, 0.12);
-  --display: "Syne", "Gill Sans", sans-serif;
-  --sans: "Figtree", "Segoe UI", sans-serif;
-}
+@import url("tokens.css");
 
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0;
-  min-height: 100%;
+  height: 100%;
   background: var(--bg);
   color: var(--ink);
 }
@@ -22,11 +12,11 @@ html, body {
 body {
   font-family: var(--sans);
   background:
-    radial-gradient(900px 520px at 12% -10%, rgba(196, 163, 90, 0.16), transparent 58%),
-    radial-gradient(800px 480px at 100% 0%, rgba(70, 92, 88, 0.28), transparent 50%),
+    radial-gradient(900px 520px at 12% -10%, color-mix(in oklab, var(--brass) 16%, transparent), transparent 58%),
+    radial-gradient(800px 480px at 100% 0%, color-mix(in oklab, #465c58 28%, transparent), transparent 50%),
     repeating-linear-gradient(
       135deg,
-      rgba(255, 255, 255, 0.015) 0 1px,
+      color-mix(in oklab, var(--ink) 2%, transparent) 0 1px,
       transparent 1px 11px
     ),
     linear-gradient(180deg, var(--bg) 0%, var(--bg-2) 100%);
@@ -41,17 +31,17 @@ body {
 }
 
 .desk {
-  min-height: 100vh;
-  width: min(920px, calc(100% - 2rem));
+  height: 100vh;
+  width: min(920px, calc(100% - var(--space-5)));
   margin: 0 auto;
-  padding: 2.25rem 0 1.5rem;
+  padding: var(--space-5) 0 var(--space-4);
   display: grid;
-  grid-template-rows: auto 1fr auto;
-  gap: 1.5rem;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  gap: var(--space-5);
 }
 
 .mast {
-  animation: brand-settle 0.9s ease both;
+  animation: brand-settle 700ms var(--spring) both;
 }
 
 .wordmark {
@@ -65,28 +55,28 @@ body {
 }
 
 .role {
-  margin: 0.7rem 0 0;
+  margin: var(--space-3) 0 0;
   color: var(--muted);
   letter-spacing: 0.04em;
 }
 
 .stage {
   display: grid;
-  gap: 1.25rem;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--space-4);
   min-height: 0;
 }
 
 .preview {
-  min-height: 42vh;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  animation: rise 0.45s ease both;
+  animation: rise var(--duration) var(--spring) both;
 }
 
 .preview iframe {
   display: block;
   width: 100%;
-  height: 48vh;
+  height: 42vh;
   border: 0;
   background: #f3efe6;
 }
@@ -96,35 +86,36 @@ body {
   margin: 0;
   padding: 0;
   display: grid;
-  gap: 1rem;
+  align-content: start;
+  gap: var(--space-4);
+  min-height: 0;
+  overflow: auto;
 }
 
 .talk li {
   max-width: 40rem;
   line-height: 1.5;
+  animation: rise var(--duration) var(--spring) both;
 }
 
-.talk .chief {
-  color: var(--ink);
-}
-
-.talk .you {
-  color: var(--muted);
-}
+.talk .chief { color: var(--ink); }
+.talk .you { color: var(--muted); }
 
 .talk .who {
   display: block;
-  font-size: 0.72rem;
+  font: var(--font-kicker);
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--brass);
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--space-1);
 }
+
+.talk p { margin: 0; }
 
 .compose {
   display: grid;
-  gap: 0.7rem;
-  padding-top: 0.4rem;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
   border-top: 1px solid var(--line);
 }
 
@@ -132,26 +123,21 @@ body {
   width: 100%;
   resize: vertical;
   min-height: 5.5rem;
-  font: 400 1.05rem/1.45 var(--sans);
+  font: var(--font-body);
   color: var(--ink);
   background: transparent;
   border: 0;
-  padding: 0.4rem 0;
+  padding: var(--space-2) 0;
 }
 
-.field textarea:focus {
-  outline: none;
-}
-
-.field textarea::placeholder {
-  color: var(--muted);
-}
+.field textarea:focus { outline: none; }
+.field textarea::placeholder { color: var(--muted); }
 
 .compose-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 1rem;
+  gap: var(--space-4);
 }
 
 .attach {
@@ -159,8 +145,12 @@ body {
   cursor: pointer;
 }
 
-.attach input {
-  display: none;
+.attach input { display: none; }
+
+.hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
 }
 
 button {
@@ -170,7 +160,8 @@ button {
   color: var(--bg);
   background: var(--brass);
   border: 0;
-  padding: 0.7rem 1.15rem;
+  border-radius: var(--radius);
+  padding: var(--space-3) var(--space-4);
   cursor: pointer;
 }
 
@@ -181,8 +172,8 @@ button:disabled {
 
 .thumbs {
   display: flex;
-  gap: 0.5rem;
-  animation: rise 0.35s ease both;
+  gap: var(--space-2);
+  animation: rise var(--duration) var(--spring) both;
 }
 
 .thumbs img {
@@ -201,12 +192,12 @@ button:disabled {
 }
 
 @keyframes brand-settle {
-  from { letter-spacing: 0.28em; opacity: 0; transform: translateY(8px); }
+  from { letter-spacing: 0.28em; opacity: 0; transform: translateY(var(--space-2)); }
   to { letter-spacing: 0.08em; opacity: 1; transform: none; }
 }
 
 @keyframes rise {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(var(--space-3)); }
   to { opacity: 1; transform: none; }
 }
 
@@ -215,8 +206,21 @@ button:disabled {
   to { background-position: -100% 0; }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .mast,
+  .preview,
+  .talk li,
+  .thumbs,
+  .busy .wordmark {
+    animation: none;
+  }
+}
+
 @media (max-width: 640px) {
-  .desk { width: calc(100% - 1.4rem); padding-top: 1.4rem; }
+  .desk {
+    width: calc(100% - var(--space-4));
+    padding-top: var(--space-4);
+  }
   .wordmark { font-size: 2.4rem; }
-  .preview iframe { height: 38vh; }
+  .preview iframe { height: 34vh; }
 }
