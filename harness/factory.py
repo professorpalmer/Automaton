@@ -121,6 +121,8 @@ def render_tool(spec: ProductSpec) -> str:
     body {{
       font-family: var(--sans);
       color: var(--ink);
+      overscroll-behavior: contain;
+      scrollbar-gutter: stable;
       background:
         radial-gradient(1200px 600px at 10% -10%, #fff8ea 0%, transparent 55%),
         radial-gradient(900px 500px at 100% 0%, #dce8df 0%, transparent 50%),

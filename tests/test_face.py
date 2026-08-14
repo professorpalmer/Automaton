@@ -22,6 +22,15 @@ def test_tokens_and_reduced_motion_ship(tmp_path) -> None:
     assert "--space-1:" in tokens.text
     assert "--duration: 160ms" in tokens.text
     assert "prefers-reduced-motion" in css.text
+    assert "color-mix(in oklab" in tokens.text
+    assert "light-dark(" in tokens.text
+    assert "overflow-anchor: auto" in css.text
+    assert "scroll-padding-bottom" in css.text
+    assert "overscroll-behavior: contain" in css.text
+    assert "scrollbar-gutter: stable" in css.text
+    assert "content-visibility: auto" in css.text
+    assert "field-sizing: content" in css.text
+    assert "visualViewport" in client.get("/static/app.js").text
     assert "13px" not in tokens.text
     assert "13px" not in css.text
 
@@ -34,6 +43,7 @@ def test_home_is_toyvendor(tmp_path) -> None:
     assert "Chief of staff" in page.text
     assert "CodeGraph" not in page.text
     assert "swarm" not in page.text.lower()
+    assert "talk-anchor" in page.text
 
 
 def test_job_and_steer_and_product(tmp_path) -> None:

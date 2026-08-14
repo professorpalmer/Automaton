@@ -11,9 +11,10 @@ html, body {
 
 body {
   font-family: var(--sans);
+  font-feature-settings: "kern" 1;
   background:
     radial-gradient(900px 520px at 12% -10%, color-mix(in oklab, var(--brass) 16%, transparent), transparent 58%),
-    radial-gradient(800px 480px at 100% 0%, color-mix(in oklab, #465c58 28%, transparent), transparent 50%),
+    radial-gradient(800px 480px at 100% 0%, color-mix(in oklab, #465c58 22%, transparent), transparent 50%),
     repeating-linear-gradient(
       135deg,
       color-mix(in oklab, var(--ink) 2%, transparent) 0 1px,
@@ -31,7 +32,8 @@ body {
 }
 
 .desk {
-  height: 100vh;
+  container-type: inline-size;
+  height: var(--vvh, 100dvh);
   width: min(920px, calc(100% - var(--space-5)));
   margin: 0 auto;
   padding: var(--space-5) 0 var(--space-4);
@@ -70,13 +72,27 @@ body {
 .preview {
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
-  animation: rise var(--duration) var(--spring) both;
+  isolation: isolate;
+  contain: layout;
+  transition:
+    opacity var(--duration) var(--ease),
+    transform var(--duration) var(--spring);
+}
+
+.preview[hidden] { display: none; }
+
+@starting-style {
+  .preview:not([hidden]) {
+    opacity: 0;
+    transform: translateY(var(--space-3));
+  }
 }
 
 .preview iframe {
   display: block;
   width: 100%;
-  height: 42vh;
+  height: 42cqh;
+  min-height: 12rem;
   border: 0;
   background: #f3efe6;
 }
@@ -90,12 +106,37 @@ body {
   gap: var(--space-4);
   min-height: 0;
   overflow: auto;
+  overflow-anchor: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  scroll-padding-bottom: var(--space-4);
+  touch-action: pan-y;
+  isolation: isolate;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--space-4),
+    #000 calc(100% - var(--space-3)),
+    transparent
+  );
 }
 
 .talk li {
   max-width: 40rem;
   line-height: 1.5;
+  content-visibility: auto;
+  contain-intrinsic-size: auto var(--row-guess);
+  contain: layout paint;
   animation: rise var(--duration) var(--spring) both;
+}
+
+.talk .anchor {
+  overflow-anchor: auto;
+  height: 1px;
+  padding: 0;
+  margin: 0;
+  content-visibility: visible;
+  animation: none;
 }
 
 .talk .chief { color: var(--ink); }
@@ -117,12 +158,15 @@ body {
   gap: var(--space-3);
   padding-top: var(--space-2);
   border-top: 1px solid var(--line);
+  interpolate-size: allow-keywords;
 }
 
 .field textarea {
   width: 100%;
-  resize: vertical;
-  min-height: 5.5rem;
+  field-sizing: content;
+  min-height: var(--row-guess);
+  max-height: 40vh;
+  resize: none;
   font: var(--font-body);
   color: var(--ink);
   background: transparent;
@@ -151,6 +195,7 @@ body {
   color: var(--muted);
   font-size: 0.8rem;
   letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
 }
 
 button {
@@ -173,7 +218,13 @@ button:disabled {
 .thumbs {
   display: flex;
   gap: var(--space-2);
-  animation: rise var(--duration) var(--spring) both;
+  transition: opacity var(--duration) var(--ease);
+}
+
+.thumbs[hidden] { display: none; }
+
+@starting-style {
+  .thumbs:not([hidden]) { opacity: 0; }
 }
 
 .thumbs img {
@@ -208,19 +259,18 @@ button:disabled {
 
 @media (prefers-reduced-motion: reduce) {
   .mast,
-  .preview,
   .talk li,
-  .thumbs,
   .busy .wordmark {
     animation: none;
   }
+  .preview,
+  .thumbs {
+    transition: none;
+  }
 }
 
-@media (max-width: 640px) {
-  .desk {
-    width: calc(100% - var(--space-4));
-    padding-top: var(--space-4);
-  }
+@container (max-width: 640px) {
+  .desk { width: calc(100% - var(--space-4)); }
   .wordmark { font-size: 2.4rem; }
-  .preview iframe { height: 34vh; }
+  .preview iframe { height: 34cqh; }
 }

@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light dark;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -9,14 +10,15 @@
   --duration: 160ms;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --spring: cubic-bezier(0.22, 1.2, 0.36, 1);
-  --bg: #16130f;
-  --bg-2: #221c16;
-  --ink: #f4eee4;
-  --muted: #9b9184;
-  --brass: #c4a35a;
+  --bg: light-dark(#ebe6dc, #16130f);
+  --bg-2: light-dark(#ddd6c8, #221c16);
+  --ink: light-dark(#1c1914, #f4eee4);
+  --brass: light-dark(#8a6420, #c4a35a);
+  --muted: color-mix(in oklab, var(--ink) 55%, transparent);
   --line: color-mix(in oklab, var(--ink) 12%, transparent);
   --display: "Syne", "Gill Sans", sans-serif;
   --sans: "Figtree", "Segoe UI", sans-serif;
   --font-body: 400 1.05rem/1.45 var(--sans);
   --font-kicker: 700 0.72rem/1 var(--sans);
+  --row-guess: 4.5rem;
 }

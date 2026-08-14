@@ -1,5 +1,6 @@
 (function () {
   const talk = document.getElementById("talk");
+  const anchor = document.getElementById("talk-anchor");
   const compose = document.getElementById("compose");
   const brief = document.getElementById("brief");
   const files = document.getElementById("files");
@@ -11,7 +12,25 @@
 
   const state = { job: null, pending: false, attachments: [] };
 
+  function syncViewport() {
+    const port = window.visualViewport;
+    const height = port ? port.height : window.innerHeight;
+    document.documentElement.style.setProperty("--vvh", height + "px");
+  }
+
+  function followingTalk() {
+    const slack = 48;
+    return talk.scrollHeight - talk.scrollTop - talk.clientHeight < slack;
+  }
+
+  function pinTalk(follow) {
+    if (follow) {
+      talk.scrollTop = talk.scrollHeight;
+    }
+  }
+
   function say(who, text) {
+    const follow = followingTalk();
     const item = document.createElement("li");
     item.className = who === "you" ? "you" : "chief";
     const label = document.createElement("span");
@@ -20,8 +39,9 @@
     const body = document.createElement("p");
     body.textContent = text;
     item.append(label, body);
-    talk.append(item);
-    talk.scrollTop = talk.scrollHeight;
+    talk.insertBefore(item, anchor);
+    pinTalk(follow);
+    return item;
   }
 
   function showProduct(url) {
@@ -100,7 +120,10 @@
     state.attachments = [];
     renderThumbs();
     setBusy(true);
-    say("chief", state.job && state.job.product_url ? "Changing it." : "Building the tool.");
+    const pending = say(
+      "chief",
+      state.job && state.job.product_url ? "Changing it." : "Building the tool.",
+    );
     try {
       const url = state.job && state.job.product_url
         ? "/api/jobs/" + state.job.id + "/steer"
@@ -111,11 +134,11 @@
         throw new Error(payload.detail || response.statusText);
       }
       state.job = payload;
-      talk.lastChild.remove();
+      pending.remove();
       say("chief", operatorLine(payload));
       showProduct(payload.product_url);
     } catch (err) {
-      talk.lastChild.remove();
+      pending.remove();
       say("chief", String(err.message || err));
     } finally {
       setBusy(false);
@@ -181,8 +204,15 @@
     }
   });
 
-  var hint = document.getElementById("send-hint");
+  const hint = document.getElementById("send-hint");
   if (hint && !/Mac|iPhone|iPad/.test(navigator.platform || "")) {
     hint.textContent = "Send Ctrl+Enter · Esc clears shots";
   }
+
+  syncViewport();
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener("resize", syncViewport);
+    window.visualViewport.addEventListener("scroll", syncViewport);
+  }
+  window.addEventListener("resize", syncViewport);
 })();
