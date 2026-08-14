@@ -214,6 +214,18 @@ class JobStore:
         self.save(job)
         return job
 
+    def mark_ready_for_check(self, job: Job) -> Job:
+        job.official_playbook = True
+        self.save(job)
+        return job
+
+    def maker_check(self, job: Job) -> Job:
+        if not job.official_playbook:
+            raise JobError("maker must mark the job ready before checker sign-off")
+        job.maker_checked = True
+        self.save(job)
+        return job
+
     def add_receipt(self, job: Job, receipt: Receipt) -> Job:
         if receipt.cost_usd is None and receipt.source == "unknown":
             # Keep the unknown; never invent $0.

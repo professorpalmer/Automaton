@@ -58,6 +58,17 @@ def test_unknown_receipt_is_not_zero(tmp_path) -> None:
     assert store.get(job.id).receipts[0].cost_usd is None
 
 
+def test_maker_checker_store_path(tmp_path) -> None:
+    store = JobStore(tmp_path)
+    job = store.create("tool")
+    with pytest.raises(JobError, match="maker"):
+        store.maker_check(job)
+    store.mark_ready_for_check(job)
+    assert store.get(job.id).is_official() is False
+    store.maker_check(job)
+    assert store.get(job.id).is_official() is True
+
+
 def test_playbook_stays_unofficial_until_checker(tmp_path) -> None:
     store = JobStore(tmp_path)
     job = store.create("tool")

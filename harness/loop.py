@@ -9,6 +9,7 @@ from harness.factory import WAVE_NAMES, parse_spec, product_index, ship_wave, sp
 from harness.gates import FLOOR_MODEL
 from harness.jobs import Job, JobStore
 from harness.receipts import from_usage
+from harness.budget import assert_can_bill
 from harness.steer import apply_steer
 from harness.vision import PreparedVision, Sidecar, VisionResult, accept_image, prepare_for_workhorse
 from harness.wiki_job import write_job_page
@@ -98,15 +99,18 @@ def run_steer(
     *,
     root: Optional[Path] = None,
     sidecar: Optional[Sidecar] = None,
+    opener=None,
 ) -> Job:
     store = JobStore(root)
     job = store.get(job_id)
     store.begin_steer(job)
     prepared = _prepare_images(store, job, images or [], root, sidecar)
     text = instruction.strip()
-    if prepared and prepared.sidecar_text:
-        text = f"{text}\n\nFrom the screenshot: {prepared.sidecar_text}"
-    note = apply_steer(job, text, root)
+    sidecar_text = prepared.sidecar_text if prepared else None
+    if sidecar_text:
+        text = f"{text}\n\nFrom the screenshot: {sidecar_text}"
+    assert_can_bill(job.receipts, root)
+    note = apply_steer(job, text, root, sidecar_text=sidecar_text, opener=opener)
     dest = product_index(job, root)
     if not dest.is_file():
         raise RuntimeError("steer wrote nothing")

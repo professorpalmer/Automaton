@@ -3,11 +3,14 @@ from __future__ import annotations
 """Screenshot steer after report-back. Deterministic patches first; Flash later."""
 
 import re
+from pathlib import Path
 from typing import Optional, Tuple
 
 from harness.factory import COLOR_WORDS, product_index
+from harness.gates import FLOOR_MODEL
 from harness.jobs import Job, JobError
-from harness.vault import refuse_secret_payload
+from harness.vault import load_tenant_openrouter_key, refuse_secret_payload
+from harness.workhorse import WorkhorseError, rewrite_html
 
 
 class SteerError(RuntimeError):
@@ -59,13 +62,34 @@ def apply_instruction(html: str, instruction: str) -> Tuple[str, str]:
     return html, "; ".join(notes)
 
 
-def apply_steer(job: Job, instruction: str, root: Optional[Path] = None) -> str:
+def apply_steer(
+    job: Job,
+    instruction: str,
+    root: Optional[Path] = None,
+    sidecar_text: Optional[str] = None,
+    opener=None,
+) -> str:
     if not job.product_relpath and not product_index(job, root).is_file():
         raise JobError("no product to steer yet")
     dest = product_index(job, root)
     if not dest.is_file():
         raise JobError(f"product missing at {dest}")
     html = dest.read_text(encoding="utf-8")
-    updated, note = apply_instruction(html, instruction)
+    try:
+        updated, note = apply_instruction(html, instruction)
+    except SteerError:
+        if not load_tenant_openrouter_key(root):
+            raise
+        try:
+            updated = rewrite_html(
+                html,
+                instruction,
+                sidecar_text=sidecar_text,
+                root=root,
+                opener=opener,
+            )
+        except WorkhorseError as exc:
+            raise SteerError(str(exc)) from exc
+        note = f"workhorse={FLOOR_MODEL}"
     dest.write_text(updated, encoding="utf-8")
     return note

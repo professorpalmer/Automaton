@@ -11,6 +11,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
+from harness.doctor import doctor
 from harness.jobs import JobError, JobStore
 from harness.loop import run_full_auto, run_steer
 from harness.paths import products_dir, repo_root
@@ -32,6 +33,10 @@ def create_app(root: Path | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def home() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/api/status")
+    def status() -> dict:
+        return doctor(workspace)
 
     @app.get("/api/jobs")
     def list_jobs() -> dict:
@@ -57,6 +62,24 @@ def create_app(root: Path | None = None) -> FastAPI:
         except VisionUnusable as exc:
             raise HTTPException(400, str(exc)) from exc
         except Exception as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return _public(job)
+
+    @app.post("/api/jobs/{job_id}/ready")
+    def mark_ready(job_id: str) -> dict:
+        store = JobStore(workspace)
+        try:
+            job = store.mark_ready_for_check(store.get(job_id))
+        except JobError as exc:
+            raise HTTPException(404, str(exc)) from exc
+        return _public(job)
+
+    @app.post("/api/jobs/{job_id}/check")
+    def check_job(job_id: str) -> dict:
+        store = JobStore(workspace)
+        try:
+            job = store.maker_check(store.get(job_id))
+        except JobError as exc:
             raise HTTPException(400, str(exc)) from exc
         return _public(job)
 
@@ -125,7 +148,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="ToyVendor chief of staff")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8765)
+    parser.add_argument("--doctor", action="store_true")
     args = parser.parse_args()
+    if args.doctor:
+        import json
+
+        print(json.dumps(doctor(), indent=2))
+        return
     import uvicorn
 
     uvicorn.run("face.app:app", host=args.host, port=args.port, reload=False)
+
+
+if __name__ == "__main__":
+    main()

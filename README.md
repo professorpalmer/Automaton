@@ -13,6 +13,8 @@ python3 -m venv .venv
 
 Open http://127.0.0.1:8765
 
+`.venv/bin/toyvendor --doctor` reports whether a tenant key is present. Host `OPENROUTER_API_KEY` is ignored. Default job budget cap is $5 (`tenant/secrets/budget.json`). A job is not an official playbook until maker-check (`POST /api/jobs/{id}/ready` then `/check`).
+
 Describe a tool. After it ships, say `turn that button blue` or paste a screenshot. Screenshots are always accepted. Flash is the text-only floor, so a vision sidecar must transcribe them. That needs a tenant OpenRouter key in `tenant/secrets/openrouter.key` or `TOYVENDOR_TENANT_OPENROUTER_API_KEY`. Host keys are ignored on purpose.
 
 ## Gates

@@ -5,6 +5,15 @@ from fastapi.testclient import TestClient
 from face.app import create_app
 
 
+def test_status_does_not_leak_keys(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path))
+    status = client.get("/api/status")
+    assert status.status_code == 200
+    body = status.json()
+    assert body["screenshot_readable"] is False
+    assert "sk-or" not in status.text
+
+
 def test_home_is_toyvendor(tmp_path) -> None:
     client = TestClient(create_app(tmp_path))
     page = client.get("/")
@@ -36,3 +45,9 @@ def test_job_and_steer_and_product(tmp_path) -> None:
     assert steered.status_code == 200, steered.text
     again = client.get(job["product_url"])
     assert "--accent: #c4a35a" in again.text
+    ready = client.post(f"/api/jobs/{job['id']}/ready")
+    assert ready.status_code == 200
+    assert ready.json()["official_playbook"] is False
+    checked = client.post(f"/api/jobs/{job['id']}/check")
+    assert checked.status_code == 200
+    assert checked.json()["official_playbook"] is True
