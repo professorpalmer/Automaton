@@ -6,14 +6,14 @@
   <title>ToyVendor</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600;700&family=Syne:wght@600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/static/app.css" />
 </head>
 <body>
   <div class="desk">
     <header class="mast">
       <p class="wordmark">ToyVendor</p>
-      <p class="role">Chief of staff for Soldiers' Angels</p>
+      <p class="role">Chief of staff · Soldiers' Angels</p>
     </header>
     <main class="stage">
       <section class="preview" id="preview" hidden>
@@ -24,18 +24,20 @@
       </ol>
     </main>
     <form class="compose" id="compose">
-      <div class="thumbs" id="thumbs" hidden></div>
-      <label class="field">
-        <span class="sr">Message</span>
-        <textarea id="brief" name="brief" rows="3" placeholder="Describe the tool, or paste a screenshot and tell me what to change." required></textarea>
-      </label>
-      <div class="compose-row">
-        <label class="attach">
-          <input id="files" type="file" accept="image/*" multiple />
-          Screenshot
+      <div class="well">
+        <div class="thumbs" id="thumbs" hidden></div>
+        <label class="field">
+          <span class="sr">Message</span>
+          <textarea id="brief" name="brief" rows="3" placeholder="Describe the tool, or paste a screenshot and tell me what to change." required></textarea>
         </label>
-        <span class="hint" id="send-hint">Send Cmd+Enter · Esc clears shots</span>
-        <button type="submit" id="send">Send</button>
+        <div class="compose-row">
+          <label class="attach">
+            <input id="files" type="file" accept="image/*" multiple />
+            Screenshot
+          </label>
+          <span class="hint" id="send-hint">Send Cmd+Enter · Esc clears shots</span>
+          <button type="submit" id="send">Send</button>
+        </div>
       </div>
     </form>
   </div>

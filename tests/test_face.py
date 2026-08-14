@@ -33,6 +33,9 @@ def test_tokens_and_reduced_motion_ship(tmp_path) -> None:
     assert "visualViewport" in client.get("/static/app.js").text
     assert "13px" not in tokens.text
     assert "13px" not in css.text
+    assert "repeating-linear-gradient" not in css.text
+    assert "--accent:" in tokens.text
+    assert "Space Grotesk" in tokens.text
 
 
 def test_home_is_toyvendor(tmp_path) -> None:
