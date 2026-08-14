@@ -35,6 +35,7 @@ def test_tokens_and_reduced_motion_ship(tmp_path) -> None:
     assert "13px" not in css.text
     assert "repeating-linear-gradient" not in css.text
     assert "--accent:" in tokens.text
+    assert "--kicker:" in tokens.text
     assert "Space Grotesk" in tokens.text
 
 

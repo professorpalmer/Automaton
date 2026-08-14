@@ -16,7 +16,8 @@
   --ink: light-dark(#111113, #f4f4f2);
   --accent: light-dark(#111113, #f4f4f2);
   --accent-ink: light-dark(#f4f4f2, #070708);
-  --muted: color-mix(in oklab, var(--ink) 48%, transparent);
+  --muted: color-mix(in oklab, var(--ink) 52%, transparent);
+  --kicker: color-mix(in oklab, var(--ink) 78%, transparent);
   --line: color-mix(in oklab, var(--ink) 10%, transparent);
   --line-strong: color-mix(in oklab, var(--ink) 22%, transparent);
   --display: "Space Grotesk", "Helvetica Neue", sans-serif;
@@ -24,5 +25,5 @@
   --font-body: 400 1.0625rem/1.55 var(--sans);
   --font-kicker: 500 0.68rem/1 var(--sans);
   --row-guess: 4.5rem;
-  --well: color-mix(in oklab, var(--ink) 4%, var(--bg));
+  --well: color-mix(in oklab, var(--ink) 7%, var(--bg));
 }

@@ -124,10 +124,10 @@ body {
 .talk {
   list-style: none;
   margin: 0;
-  padding: var(--space-2) 0;
+  padding: var(--space-5) 0 var(--space-2);
   display: grid;
   align-content: start;
-  gap: var(--space-5);
+  gap: var(--space-6);
   min-height: 0;
   overflow: auto;
   overflow-anchor: auto;
@@ -138,9 +138,8 @@ body {
   isolation: isolate;
   mask-image: linear-gradient(
     to bottom,
-    transparent,
-    #000 var(--space-4),
-    #000 calc(100% - var(--space-3)),
+    #000 0,
+    #000 calc(100% - var(--space-5)),
     transparent
   );
 }
@@ -169,13 +168,17 @@ body {
 .talk .who {
   display: block;
   font: var(--font-kicker);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.14em;
   text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: var(--space-2);
+  color: var(--kicker);
+  margin-bottom: var(--space-3);
 }
 
-.talk p { margin: 0; }
+.talk p {
+  margin: 0;
+  font-size: 1.125rem;
+  line-height: 1.6;
+}
 
 .compose {
   interpolate-size: allow-keywords;
