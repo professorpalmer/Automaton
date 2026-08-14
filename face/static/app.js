@@ -151,6 +151,18 @@
     }
   });
 
+  fetch("/api/status")
+    .then(function (response) { return response.json(); })
+    .then(function (status) {
+      if (status && status.screenshot_readable === false) {
+        say(
+          "chief",
+          "I can build a tool from a sentence and recolor it after. Screenshots are kept, but I cannot read them until the org OpenRouter key is in the vault."
+        );
+      }
+    })
+    .catch(function () { /* status is best-effort */ });
+
   brief.addEventListener("keydown", function (event) {
     if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
       event.preventDefault();
