@@ -1,22 +1,23 @@
 :root {
-  color-scheme: light;
-  --paper: #d7dcd8;
-  --ink: #121512;
-  --mute: color-mix(in oklab, var(--ink) 54%, transparent);
-  --line: color-mix(in oklab, var(--ink) 16%, transparent);
-  --desk: #0e100f;
-  --linen: #e8e6df;
+  color-scheme: dark;
+  --void: #0c0d0c;
+  --ink: #e6e4dc;
+  --mute: color-mix(in oklab, var(--ink) 64%, transparent);
+  --line: color-mix(in oklab, var(--ink) 18%, transparent);
+  --cta: #e6e4dc;
+  --cta-ink: #101210;
   --display: "Space Grotesk", "Helvetica Neue", sans-serif;
   --sans: "IBM Plex Sans", "Helvetica Neue", "Segoe UI", sans-serif;
   --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --spring: cubic-bezier(0.22, 1.15, 0.36, 1);
+  --radius: 0;
 }
 
 * { box-sizing: border-box; }
 
 html, body {
   margin: 0;
-  background: var(--paper);
+  background: var(--void);
   color: var(--ink);
 }
 
@@ -26,37 +27,110 @@ body {
   line-height: 1.5;
 }
 
+:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 3px;
+}
+
+.skip {
+  position: absolute;
+  left: 1rem;
+  top: 0;
+  z-index: 4;
+  transform: translateY(-140%);
+  background: var(--cta);
+  color: var(--cta-ink);
+  text-decoration: none;
+  padding: 0.7rem 1rem;
+  min-height: 44px;
+}
+
+.skip:focus {
+  transform: none;
+}
+
 .hero {
+  position: relative;
+  isolation: isolate;
   min-height: 100dvh;
   display: grid;
-  grid-template-rows: auto 1fr;
+  align-items: end;
+}
+
+.field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;
+}
+
+.field-stage {
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.field-photo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 72% 42%;
+  transform: scale(1.04);
+  transform-origin: 70% 45%;
+}
+
+.field-scrim {
+  position: absolute;
+  inset: 0;
   background:
-    radial-gradient(70% 50% at 80% 20%, color-mix(in oklab, #3a4038 28%, transparent), transparent 70%),
-    var(--desk);
-  color: var(--linen);
+    linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--void) 82%, transparent) 0%,
+      color-mix(in oklab, var(--void) 48%, transparent) 38%,
+      color-mix(in oklab, var(--void) 12%, transparent) 72%,
+      transparent 100%
+    ),
+    linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--void) 28%, transparent) 0%,
+      transparent 28%,
+      color-mix(in oklab, var(--void) 55%, transparent) 100%
+    );
+}
+
+.field-bloom {
+  position: absolute;
+  inset: -8%;
+  pointer-events: none;
+  background: radial-gradient(
+    55% 40% at 78% 38%,
+    color-mix(in oklab, #c4b48a 10%, transparent),
+    transparent 70%
+  );
 }
 
 .hero-copy {
-  width: min(40rem, calc(100% - 3rem));
-  margin: 0 auto;
-  padding: 2.5rem 0 1.25rem;
-  animation: settle 900ms var(--spring) both;
+  position: relative;
+  z-index: 1;
+  width: min(38rem, calc(100% - 2.5rem));
+  margin: 0;
+  padding: clamp(2.5rem, 8vh, 6rem) 0 3.25rem 1.25rem;
 }
 
 .brand {
   margin: 0;
   font-family: var(--display);
   font-weight: 600;
-  font-size: clamp(3.4rem, 11vw, 7.2rem);
-  letter-spacing: -0.045em;
+  font-size: clamp(3.6rem, 11vw, 8.4rem);
+  letter-spacing: -0.05em;
   line-height: 0.86;
 }
 
-.hero h1 {
-  margin: 1.1rem 0 0;
+.line {
+  margin: 1.15rem 0 0;
   font-family: var(--display);
   font-weight: 500;
-  font-size: clamp(1.35rem, 2.6vw, 1.85rem);
+  font-size: clamp(1.2rem, 2.2vw, 1.7rem);
   letter-spacing: -0.02em;
   line-height: 1.2;
   max-width: 18ch;
@@ -65,76 +139,42 @@ body {
 .lede {
   margin: 0.85rem 0 0;
   max-width: 34ch;
-  color: color-mix(in oklab, var(--linen) 72%, transparent);
+  color: var(--mute);
 }
 
 .cta {
-  margin: 1.4rem 0 0;
+  margin: 1.5rem 0 0;
 }
 
-.cta a {
-  color: var(--desk);
-  background: var(--linen);
+.cta a,
+button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0.7rem 1.1rem;
+  border: 1px solid var(--cta);
+  border-radius: var(--radius);
+  background: var(--cta);
+  color: var(--cta-ink);
+  font: 500 1rem/1 var(--sans);
   text-decoration: none;
-  padding: 0.7rem 1.05rem;
-  font-weight: 500;
+  cursor: pointer;
 }
 
-.desk {
-  width: min(52rem, calc(100% - 2rem));
-  margin: 0 auto;
-  padding: 0 0 2rem;
-  display: grid;
-  grid-template-rows: auto auto 1fr auto;
-  min-height: 0;
-  animation: rise 1000ms var(--ease) 120ms both;
+.cta a:hover,
+button:hover {
+  background: transparent;
+  color: var(--cta);
 }
 
-.desk-mark {
-  margin: 0;
-  font-family: var(--display);
-  font-weight: 600;
-  font-size: 1.35rem;
-  letter-spacing: -0.03em;
-}
-
-.desk-role {
-  margin: 0.2rem 0 0;
-  color: color-mix(in oklab, var(--linen) 55%, transparent);
-  font-size: 0.92rem;
-}
-
-.talk {
-  list-style: none;
-  margin: 1.4rem 0 0;
-  padding: 1.1rem 0 0;
-  border-top: 1px solid color-mix(in oklab, var(--linen) 16%, transparent);
-  display: grid;
-  gap: 1.15rem;
-  animation: rule 900ms var(--ease) 200ms both;
-}
-
-.talk span {
-  display: block;
-  font-size: 0.68rem;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: color-mix(in oklab, var(--linen) 48%, transparent);
-}
-
-.talk p { margin: 0.2rem 0 0; }
-
-.talk .you { color: color-mix(in oklab, var(--linen) 62%, transparent); }
-
-.compose {
-  margin-top: 1.4rem;
-  padding: 0.85rem 0 0;
-  border-top: 1px solid color-mix(in oklab, var(--linen) 16%, transparent);
-  color: color-mix(in oklab, var(--linen) 42%, transparent);
+.cta a:active,
+button:active {
+  transform: scale(0.98);
 }
 
 .block {
-  width: min(40rem, calc(100% - 3rem));
+  width: min(40rem, calc(100% - 2.5rem));
   margin: 0 auto;
   padding: 5.5rem 0;
 }
@@ -143,47 +183,51 @@ body {
   margin: 0;
   font-family: var(--display);
   font-weight: 600;
-  font-size: clamp(2rem, 5vw, 3rem);
+  font-size: clamp(2rem, 5vw, 3.1rem);
   letter-spacing: -0.03em;
   line-height: 0.95;
 }
 
 .block p {
   margin: 1rem 0 0;
-  max-width: 36ch;
+  max-width: 38ch;
   color: var(--mute);
+}
+
+#box {
+  border-top: 1px solid var(--line);
 }
 
 .request form {
   margin-top: 1.75rem;
   display: grid;
-  gap: 1rem;
+  gap: 0.35rem;
 }
 
 label {
-  display: grid;
-  gap: 0.3rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  margin-top: 0.85rem;
   color: var(--mute);
+  font-size: 0.95rem;
 }
+
+label:first-of-type { margin-top: 0; }
 
 input, textarea, button {
   font: inherit;
-  text-transform: none;
-  letter-spacing: 0;
 }
 
 input, textarea {
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--radius);
   background: transparent;
   color: var(--ink);
-  padding: 0.45rem 0;
+  padding: 0.7rem 0;
+  min-height: 44px;
 }
+
+textarea { min-height: 5.5rem; resize: vertical; }
 
 input:focus, textarea:focus {
   outline: none;
@@ -192,20 +236,20 @@ input:focus, textarea:focus {
 
 button {
   justify-self: start;
-  margin-top: 0.4rem;
-  border: 0;
-  background: var(--ink);
-  color: var(--paper);
-  padding: 0.7rem 1.05rem;
-  cursor: pointer;
+  margin-top: 1.1rem;
 }
 
-button:disabled { opacity: 0.5; }
+button:disabled { opacity: 0.5; cursor: wait; }
 
-.note { margin: 0.4rem 0 0; color: var(--mute); }
+.note {
+  margin: 0.7rem 0 0;
+  color: var(--mute);
+}
+
+.note[data-kind="error"] { color: #e8c4c0; }
 
 footer {
-  width: min(40rem, calc(100% - 3rem));
+  width: min(40rem, calc(100% - 2.5rem));
   margin: 0 auto;
   padding: 0 0 3rem;
 }
@@ -213,48 +257,56 @@ footer {
 footer a {
   color: var(--mute);
   text-decoration: none;
-  font-size: 0.85rem;
-}
-
-@keyframes settle {
-  from { opacity: 0; transform: translateY(12px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes rise {
-  from { opacity: 0; transform: translateY(16px); }
-  to { opacity: 1; transform: none; }
-}
-
-@keyframes rule {
-  from { border-top-color: transparent; }
-  to { border-top-color: color-mix(in oklab, var(--linen) 16%, transparent); }
+  font-size: 0.95rem;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
 }
 
 @media (min-width: 920px) {
-  .hero {
-    grid-template-columns: minmax(22rem, 36vw) 1fr;
-    grid-template-rows: 1fr;
-    align-items: stretch;
+  .hero { align-items: center; }
+
+  .hero-copy {
+    width: min(38rem, 42vw);
+    padding: clamp(2.5rem, 7vh, 6rem) 0 4rem 6vw;
+  }
+
+  .field-photo { object-position: 78% 40%; }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .field-photo {
+    animation: field-settle 1400ms var(--ease) both;
   }
 
   .hero-copy {
-    width: auto;
-    margin: 0;
-    padding: 18vh 4vw 4rem 6vw;
-    align-self: center;
+    animation: copy-settle 900ms var(--spring) 80ms both;
   }
 
-  .desk {
-    width: auto;
-    margin: 0;
-    padding: 14vh 6vw 3rem 2vw;
+  .cta a {
+    transition: background 180ms var(--ease), color 180ms var(--ease);
+  }
+
+  button {
+    transition: background 180ms var(--ease), color 180ms var(--ease), transform 120ms var(--ease);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .field-photo { transform: none; }
+
   *, *::before, *::after {
     animation: none !important;
     transition: none !important;
   }
+}
+
+@keyframes field-settle {
+  from { transform: scale(1.08); }
+  to { transform: scale(1.04); }
+}
+
+@keyframes copy-settle {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: none; }
 }
