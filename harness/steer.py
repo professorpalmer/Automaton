@@ -6,7 +6,9 @@ import re
 from pathlib import Path
 from typing import Optional, Tuple
 
-from harness.factory import COLOR_WORDS, product_index
+import json
+
+from harness.factory import COLOR_WORDS, product_dir, product_index
 from harness.gates import FLOOR_MODEL
 from harness.jobs import Job, JobError
 from harness.vault import load_tenant_openrouter_key, refuse_secret_payload
@@ -91,5 +93,18 @@ def apply_steer(
         except WorkhorseError as exc:
             raise SteerError(str(exc)) from exc
         note = f"workhorse={FLOOR_MODEL}"
+    from harness.rewind import snapshot
+
+    snapshot(job, root, instruction)
     dest.write_text(updated, encoding="utf-8")
+    spec_path = product_dir(job, root) / "spec.json"
+    if spec_path.is_file():
+        spec = json.loads(spec_path.read_text(encoding="utf-8"))
+        found = re.search(r"--accent:\s*(#[0-9a-fA-F]{3,8})", updated)
+        if found:
+            spec["accent"] = found.group(1)
+        action = re.search(r"action=([^;]+)", note)
+        if action:
+            spec["primary_action"] = action.group(1)
+        spec_path.write_text(json.dumps(spec, indent=2) + "\n", encoding="utf-8")
     return note

@@ -3,14 +3,17 @@ from __future__ import annotations
 """Full-auto factory: brief in, operator tool out. No approval between waves."""
 
 import html
+import io
+import json
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
 from harness.gates import TENANT_DISPLAY
 from harness.jobs import Job, JobStore
-from harness.paths import products_dir
+from harness.paths import product_relpath, products_dir
 from harness.vault import refuse_secret_payload
 
 WAVE_NAMES = ["spec", "ship", "verify"]
@@ -36,6 +39,7 @@ class ProductSpec:
     primary_action: str
     accent: str
     fields: List[str] = field(default_factory=list)
+    kind: str = "poster"
 
 
 def parse_spec(brief: str, sidecar_text: Optional[str] = None) -> ProductSpec:
@@ -76,7 +80,28 @@ def parse_spec(brief: str, sidecar_text: Optional[str] = None) -> ProductSpec:
         fields.append("File")
     if re.search(r"\bcsv\b", text, flags=re.I):
         fields.append("CSV")
-    return ProductSpec(title=title, lede=lede, primary_action=action, accent=accent, fields=fields)
+    kind = "service" if wants_service(text) else "poster"
+    if kind == "service" and action == "Run":
+        action = "Run reconciliation"
+    return ProductSpec(
+        title=title,
+        lede=lede,
+        primary_action=action,
+        accent=accent,
+        fields=fields,
+        kind=kind,
+    )
+
+
+def wants_service(brief: str) -> bool:
+    return bool(
+        re.search(
+            r"\b(reconcil|workbook|\.xlsx|spreadsheet|ledger|exception queue|"
+            r"formassembly|flixbus|lyft|operator dashboard|render)\b",
+            brief or "",
+            flags=re.I,
+        )
+    )
 
 
 def product_dir(job: Job, root: Optional[Path] = None) -> Path:
@@ -184,15 +209,101 @@ def spec_wave(store: JobStore, job: Job, sidecar_text: Optional[str] = None) -> 
 
 def ship_wave(store: JobStore, job: Job, spec: ProductSpec, root: Optional[Path] = None) -> Path:
     store.begin_wave(job, "ship")
-    dest = product_index(job, root)
-    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest_dir = product_dir(job, root)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    if spec.kind == "service":
+        _ship_service(dest_dir, spec)
+        keep_operator_workbook(job, dest_dir)
+        store.pass_wave(job, "ship", f"wrote {product_relpath(job.id, 'app.py')} service")
+        return dest_dir / "app.py"
+    dest = dest_dir / "index.html"
     dest.write_text(render_tool(spec), encoding="utf-8")
-    store.pass_wave(job, "ship", f"wrote tenant/products/{job.id}/index.html")
+    store.pass_wave(job, "ship", f"wrote {product_relpath(job.id)}")
     return dest
+
+
+def keep_operator_workbook(job: Job, dest_dir: Path) -> None:
+    for record in job.files:
+        if record.kind != "workbook":
+            continue
+        src = Path(record.path)
+        if not src.is_file():
+            continue
+        dest_dir.joinpath("intake" + (src.suffix or ".xlsx")).write_bytes(src.read_bytes())
+        return
+
+
+def _ship_service(dest_dir: Path, spec: ProductSpec) -> None:
+    here = Path(__file__).resolve().parent
+    shutil.copy2(here / "recon_engine.py", dest_dir / "engine.py")
+    shutil.copy2(here / "service_app.py", dest_dir / "app.py")
+    (dest_dir / "spec.json").write_text(
+        json.dumps(
+            {
+                "kind": "service",
+                "title": spec.title,
+                "lede": spec.lede,
+                "primary_action": spec.primary_action,
+                "accent": spec.accent,
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    (dest_dir / "requirements.txt").write_text(
+        "fastapi>=0.115\nuvicorn[standard]>=0.32\npython-multipart>=0.0.12\nopenpyxl>=3.1\n",
+        encoding="utf-8",
+    )
+    (dest_dir / "render.yaml").write_text(
+        "services:\n"
+        "  - type: web\n"
+        "    runtime: python\n"
+        "    plan: free\n"
+        "    buildCommand: pip install -r requirements.txt\n"
+        "    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT\n",
+        encoding="utf-8",
+    )
+    (dest_dir / "index.html").write_text(render_tool(spec), encoding="utf-8")
 
 
 def verify_wave(store: JobStore, job: Job, spec: ProductSpec, dest: Path) -> None:
     store.begin_wave(job, "verify")
+    if spec.kind == "service":
+        dest_dir = dest if dest.is_dir() else dest.parent
+        missing = [
+            name
+            for name in ("app.py", "engine.py", "spec.json", "render.yaml", "requirements.txt")
+            if not (dest_dir / name).is_file()
+        ]
+        if missing:
+            store.fail_wave(job, "verify", "missing " + ", ".join(missing))
+            raise RuntimeError("verify failed: " + ", ".join(missing))
+        from harness.recon_engine import run_workbook
+        from openpyxl import Workbook
+
+        book = Workbook()
+        fa = book.active
+        fa.title = "FA"
+        fa.append(["id", "name"])
+        fa.append(["1", "Ann"])
+        fa.append(["2", "Ben"])
+        lyft = book.create_sheet("Lyft")
+        lyft.append(["id", "status"])
+        lyft.append(["1", "Ride"])
+        lyft.append(["2", "Cancel"])
+        buf = io.BytesIO()
+        book.save(buf)
+        result = run_workbook(buf.getvalue(), "sample.xlsx")
+        notes = " ".join(result.get("notes") or [])
+        if "FormAssembly" not in notes:
+            store.fail_wave(job, "verify", "engine hid the access boundary")
+            raise RuntimeError("verify failed: access boundary")
+        if result.get("matched") != 1 or result.get("non_matchable") != 1:
+            store.fail_wave(job, "verify", "two-sheet match did not skip cancels")
+            raise RuntimeError("verify failed: two-sheet match")
+        store.pass_wave(job, "verify", "service files and two-sheet workbook match")
+        return
     if not dest.is_file():
         store.fail_wave(job, "verify", "index.html missing")
         raise RuntimeError("shipped tool missing")

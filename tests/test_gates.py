@@ -3,16 +3,23 @@ from __future__ import annotations
 from harness.gates import (
     FLOOR_MODEL,
     TENANT_SLUG,
+    TENANT_SLUG_ENV,
     env_grants_data_access,
     job_is_official_playbook,
     may_bundle_host_keys,
     may_sell_inference,
+    tenant_slug,
     workhorse_is_text_only,
 )
 
 
-def test_soldiers_angels_is_the_only_named_tenant() -> None:
+def test_soldiers_angels_is_the_default_tenant() -> None:
     assert TENANT_SLUG == "soldiers-angels"
+    assert tenant_slug({}) == "soldiers-angels"
+
+
+def test_tenant_slug_follows_env() -> None:
+    assert tenant_slug({TENANT_SLUG_ENV: "acme-relief"}) == "acme-relief"
 
 
 def test_flash_is_text_only_floor() -> None:

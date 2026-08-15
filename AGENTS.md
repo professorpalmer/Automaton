@@ -1,12 +1,12 @@
-# ToyVendor
+# Automaton
 
 Unshipped product. Kernel and chief-of-staff loop exist; keep adding against the gates.
 
 ## What this is
 
-A harness face over a durable Puppetmaster team for one org. First tenant is Soldiers' Angels. The operator talks to a chief of staff.
+The org box of employees. Same suite as Puppetmaster (engine), Marionette (builder desktop), and portablellm.wiki (substrate). First tenant is Soldiers' Angels. The operator talks to a chief of staff.
 
-Default loop is **full-auto then steer**: a long Full-Auto Engineering wave (same contract as the skill + Marionette backend) ships a finished product and reports back. After that, the operator steers in real time — screenshots, "turn that button green" — and each turn implements the asked change. Infrastructure stays hidden.
+Default loop is **team then polish**: the first sentence starts a durable worker. The chief keeps taking files and worker asks while that team builds. When the project is ready, the box deploys it to the tenant's Render and the chief hands over the live URL. Steer continues until the operator says it is done. Infrastructure stays hidden.
 
 ## Gates
 
@@ -24,7 +24,8 @@ Default loop is **full-auto then steer**: a long Full-Auto Engineering wave (sam
 
 - `face/` — chief of staff UI. Steal Hermes design, own the code.
 - `harness/` — gates, vault, jobs, vision, factory, steer.
-- `tenant/` — jobs, products, uploads, wiki notes. `tenant/secrets/` is gitignored.
+- `provision/` — our host. Stamps isolated Automaton boxes onto the client's Render. Does not make Automaton multi-tenant.
+- `tenant/soldiers-angels/` — the self-serve org box: `secrets/`, `catalog/`, `jobs/`, `products/`, `uploads/`, `projects/<slug>/`. Secrets stay in the box vault. The catalog is an internal JSON graph, not Portable LLM Wiki.
 
 ## Wiki
 

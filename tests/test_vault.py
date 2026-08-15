@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from harness.gates import HOST_KEY_ENV, TENANT_KEY_ENV
+from harness.gates import HOST_KEY_ENV, TENANT_KEY_ENV, TENANT_KEY_ENV_LEGACY
 from harness.vault import (
     VaultError,
     load_tenant_openrouter_key,
@@ -25,6 +25,9 @@ def test_tenant_env_and_file(tmp_path, monkeypatch) -> None:
     assert load_tenant_openrouter_key(tmp_path) == "sk-or-v1-tenant"
     monkeypatch.setenv(TENANT_KEY_ENV, "sk-or-v1-from-env")
     assert load_tenant_openrouter_key(tmp_path) == "sk-or-v1-from-env"
+    monkeypatch.delenv(TENANT_KEY_ENV, raising=False)
+    monkeypatch.setenv(TENANT_KEY_ENV_LEGACY, "sk-or-v1-legacy")
+    assert load_tenant_openrouter_key(tmp_path) == "sk-or-v1-legacy"
 
 
 def test_refuse_wiki_write(tmp_path) -> None:

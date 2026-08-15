@@ -44,6 +44,15 @@ def from_usage(
     )
 
 
+def from_cache(*, note: str = "") -> Receipt:
+    return Receipt(
+        source="cache",
+        model="replay",
+        cost_usd=0.0,
+        note=note or "reused a prior product",
+    )
+
+
 def job_spend_usd(receipts: list[Receipt]) -> Optional[float]:
     known = [row.cost_usd for row in receipts if row.cost_usd is not None]
     if not known:

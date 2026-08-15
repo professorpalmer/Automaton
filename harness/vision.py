@@ -162,7 +162,7 @@ class TenantOpenRouterSidecar:
             return VisionResult(
                 "",
                 model=self.name,
-                error="tenant OpenRouter key missing; put it in tenant/secrets/openrouter.key",
+                error="tenant OpenRouter key missing; put it in tenant/soldiers-angels/secrets/openrouter.key",
             )
         path = Path(image_path)
         raw = path.read_bytes()

@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from harness.loop import ScriptedSidecar, run_full_auto, run_steer
+from harness.paths import catalog_dir, products_dir
 from harness.vision import VisionUnusable
 
 PNG_ONE_PIXEL = (
@@ -20,10 +21,10 @@ def test_full_auto_then_color_steer(tmp_path) -> None:
     assert job.status == "report_back"
     assert job.phase == "steer"
     assert job.title.lower().startswith("waitlist")
-    product = tmp_path / "tenant" / "products" / job.id / "index.html"
+    product = products_dir(tmp_path) / job.id / "index.html"
     assert product.is_file()
     assert "Submit" in product.read_text(encoding="utf-8")
-    wiki = tmp_path / "tenant" / "wiki" / f"{job.id}.md"
+    wiki = catalog_dir(tmp_path) / "jobs" / f"{job.id}.json"
     assert wiki.is_file()
     steered = run_steer(job.id, "turn that button blue", root=tmp_path)
     assert "--accent: #4472c4" in product.read_text(encoding="utf-8")
@@ -38,7 +39,7 @@ def test_screenshot_is_kept_and_sidecar_text_reaches_spec(tmp_path) -> None:
         sidecar=ScriptedSidecar("big green Submit in the header"),
     )
     assert job.images and job.images[0].dropped is False
-    html = (tmp_path / "tenant" / "products" / job.id / "index.html").read_text(encoding="utf-8")
+    html = (products_dir(tmp_path) / job.id / "index.html").read_text(encoding="utf-8")
     assert "big green Submit" in html
 
 

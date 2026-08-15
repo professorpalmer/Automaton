@@ -6,7 +6,16 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from harness.gates import HOST_KEY_ENV, TENANT_KEY_ENV, TENANT_KEY_FILENAME, may_bundle_host_keys
+from harness.gates import (
+    HOST_KEY_ENV,
+    TENANT_GITHUB_ENV,
+    TENANT_GITHUB_FILENAME,
+    TENANT_KEY_ENV,
+    TENANT_KEY_ENV_LEGACY,
+    TENANT_KEY_FILENAME,
+    env_get,
+    may_bundle_host_keys,
+)
 from harness.paths import secrets_dir
 
 
@@ -14,7 +23,7 @@ class VaultError(RuntimeError):
     pass
 
 
-_WIKI_PARTS = frozenset({"wiki", "raw", "conversations", "articles"})
+_WIKI_PARTS = frozenset({"wiki", "raw", "conversations", "articles", "catalog"})
 
 
 def path_is_wiki(path: Path) -> bool:
@@ -49,10 +58,12 @@ def load_tenant_openrouter_key(
     Host ``OPENROUTER_API_KEY`` is Cary's key. We never fall back to it.
     """
     env = environ if environ is not None else os.environ
-    if not may_bundle_host_keys() and env.get(HOST_KEY_ENV) and not env.get(TENANT_KEY_ENV):
+    if not may_bundle_host_keys() and env.get(HOST_KEY_ENV) and not env_get(
+        env, TENANT_KEY_ENV, TENANT_KEY_ENV_LEGACY
+    ):
         # Presence of a host key must not become the tenant key.
         pass
-    from_env = (env.get(TENANT_KEY_ENV) or "").strip()
+    from_env = env_get(env, TENANT_KEY_ENV, TENANT_KEY_ENV_LEGACY)
     if from_env:
         return from_env
     path = tenant_key_path(root)
@@ -61,6 +72,38 @@ def load_tenant_openrouter_key(
     assert_not_wiki(path)
     text = path.read_text(encoding="utf-8").strip()
     return text or None
+
+
+def github_token_path(root: Optional[Path] = None) -> Path:
+    return secrets_dir(root) / TENANT_GITHUB_FILENAME
+
+
+def load_tenant_github_token(
+    root: Optional[Path] = None,
+    environ: Optional[dict] = None,
+) -> Optional[str]:
+    env = environ if environ is not None else os.environ
+    from_env = env_get(env, TENANT_GITHUB_ENV)
+    if from_env:
+        return from_env
+    path = github_token_path(root)
+    if not path.is_file():
+        return None
+    assert_not_wiki(path)
+    text = path.read_text(encoding="utf-8").strip()
+    return text or None
+
+
+def write_tenant_github_token(token: str, root: Optional[Path] = None) -> Path:
+    dest = github_token_path(root)
+    assert_not_wiki(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    cleaned = (token or "").strip()
+    if not cleaned:
+        raise VaultError("refusing to write an empty GitHub token")
+    dest.write_text(cleaned + "\n", encoding="utf-8")
+    dest.chmod(0o600)
+    return dest
 
 
 def write_tenant_openrouter_key(key: str, root: Optional[Path] = None) -> Path:
@@ -81,6 +124,7 @@ def refuse_secret_payload(text: str) -> None:
     markers = (
         "sk-or-",
         "sk-or-v1-",
+        "rnd_",
         "begin rsa private key",
         "aws_secret_access_key",
     )

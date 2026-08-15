@@ -16,7 +16,7 @@ def test_full_auto_waves_then_steer(tmp_path) -> None:
     store.pass_wave(job, "ship", "wrote index.html")
     store.begin_wave(job, "verify")
     store.pass_wave(job, "verify", "button present")
-    store.report_back(job, "Ready. Open the product and tell me what to change.", "tenant/products/x/index.html")
+    store.report_back(job, "Ready. Open the product and tell me what to change.", "tenant/soldiers-angels/products/x/index.html")
     reloaded = store.get(job.id)
     assert reloaded.status == STATUS_REPORT_BACK
     assert reloaded.phase == PHASE_STEER

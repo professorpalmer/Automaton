@@ -42,7 +42,9 @@ def test_accept_image_never_refuses(tmp_path) -> None:
     )
     assert record.dropped is False
     assert record.bytes == len(PNG_ONE_PIXEL)
-    assert (tmp_path / "tenant" / "uploads" / "job-1").exists()
+    from harness.paths import uploads_dir
+
+    assert (uploads_dir(tmp_path) / "job-1").exists()
 
 
 def test_text_only_floor_uses_sidecar_not_pixels() -> None:

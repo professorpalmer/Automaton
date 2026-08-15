@@ -24,5 +24,9 @@ tenant/uploads/*
 !tenant/uploads/.gitkeep
 tenant/wiki/*
 !tenant/wiki/.gitkeep
+tenant/soldiers-angels/*
+!tenant/soldiers-angels/.gitkeep
+!tenant/soldiers-angels/box.json
 *.sqlite
 *.sqlite-journal
+var/

@@ -51,7 +51,9 @@ def test_richer_steer_uses_workhorse_when_key_present(tmp_path) -> None:
         root=tmp_path,
         opener=_opener,
     )
-    html = (tmp_path / "tenant" / "products" / job.id / "index.html").read_text(encoding="utf-8")
+    from harness.paths import products_dir
+
+    html = (products_dir(tmp_path) / job.id / "index.html").read_text(encoding="utf-8")
     assert "reviewed" in html
     assert "workhorse=" in steered.report
 

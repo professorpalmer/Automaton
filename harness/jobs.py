@@ -4,22 +4,26 @@ from __future__ import annotations
 
 import json
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from harness.attachments import FileRecord
 from harness.gates import (
     PHASE_FULL_AUTO,
+    PHASE_INTAKE,
     PHASE_STEER,
     STATUS_DONE,
     STATUS_FAILED,
+    STATUS_INTAKE,
     STATUS_PENDING,
     STATUS_REPORT_BACK,
     STATUS_RUNNING,
     STATUS_STEERING,
     job_is_official_playbook,
 )
+from harness.box import ensure_box
 from harness.paths import jobs_dir
 from harness.vault import refuse_secret_payload
 
@@ -86,8 +90,20 @@ class Job:
     status: str = STATUS_PENDING
     waves: List[Wave] = field(default_factory=list)
     images: List[ImageRecord] = field(default_factory=list)
+    files: List[FileRecord] = field(default_factory=list)
+    needed: List[dict] = field(default_factory=list)
     receipts: List[Receipt] = field(default_factory=list)
     product_relpath: str = ""
+    project_relpath: str = ""
+    slug: str = ""
+    vision_note: str = ""
+    worker_pid: int = 0
+    ask_round: int = 0
+    replay_key: str = ""
+    live_url: str = ""
+    sealed: bool = False
+    asks: List[dict] = field(default_factory=list)
+    crew: List[dict] = field(default_factory=list)
     official_playbook: bool = False
     maker_checked: bool = False
     report: str = ""
@@ -102,19 +118,22 @@ class Job:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Job":
-        waves = [Wave(**row) for row in data.get("waves") or []]
-        images = [ImageRecord(**row) for row in data.get("images") or []]
-        receipts = [Receipt(**row) for row in data.get("receipts") or []]
         payload = dict(data)
-        payload["waves"] = waves
-        payload["images"] = images
-        payload["receipts"] = receipts
-        return cls(**payload)
+        payload["waves"] = [Wave(**row) for row in payload.get("waves") or []]
+        payload["images"] = [ImageRecord(**row) for row in payload.get("images") or []]
+        payload["files"] = [FileRecord(**row) for row in payload.get("files") or []]
+        payload["receipts"] = [Receipt(**row) for row in payload.get("receipts") or []]
+        payload["needed"] = list(payload.get("needed") or [])
+        payload["asks"] = list(payload.get("asks") or [])
+        payload["crew"] = list(payload.get("crew") or [])
+        allowed = {item.name for item in fields(cls)}
+        return cls(**{key: value for key, value in payload.items() if key in allowed})
 
 
 class JobStore:
     def __init__(self, root: Optional[Path] = None) -> None:
         self.root = Path(root) if root is not None else None
+        ensure_box(self.root)
         self.directory = jobs_dir(self.root)
         self.directory.mkdir(parents=True, exist_ok=True)
 
@@ -161,9 +180,26 @@ class JobStore:
         self.save(job)
         return job
 
+    def accept_file(self, job: Job, record: FileRecord) -> Job:
+        if record.dropped:
+            raise JobError("files must never be dropped")
+        job.files.append(record)
+        self.save(job)
+        return job
+
+    def open_intake(self, job: Job, needed: List[dict], report: str) -> Job:
+        refuse_secret_payload(report)
+        job.phase = PHASE_INTAKE
+        job.status = STATUS_INTAKE
+        job.needed = needed
+        job.report = report
+        self.save(job)
+        return job
+
     def start_full_auto(self, job: Job, wave_names: List[str]) -> Job:
-        if job.phase != PHASE_FULL_AUTO:
+        if job.product_relpath or job.phase == PHASE_STEER:
             raise JobError("full-auto already finished; use steer")
+        job.phase = PHASE_FULL_AUTO
         job.status = STATUS_RUNNING
         job.waves = [Wave(name=name) for name in wave_names]
         self.save(job)

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from harness.receipts import from_usage, job_spend_usd
+from harness.receipts import from_cache, from_usage, job_spend_usd
 
 
 def test_provider_cost_wins() -> None:
@@ -18,3 +18,10 @@ def test_unknown_does_not_become_zero() -> None:
 
 def test_empty_job_spend_is_zero() -> None:
     assert job_spend_usd([]) == 0.0
+
+
+def test_cache_receipt_is_zero() -> None:
+    row = from_cache(note="reused abc")
+    assert row.source == "cache"
+    assert row.cost_usd == 0.0
+    assert job_spend_usd([row]) == 0.0

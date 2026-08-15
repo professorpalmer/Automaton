@@ -1,0 +1,23 @@
+# Render blueprint for an Automaton box. The host stamps this onto their account.
+# JSON is the product config format. This file is Render's required blueprint.
+services:
+  - type: web
+    name: soldiers-angels-automaton
+    runtime: python
+    plan: starter
+    region: oregon
+    autoDeploy: false
+    buildCommand: pip install -e .
+    startCommand: automaton --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/status
+    disk:
+      name: soldiers-angels-box
+      mountPath: /var/data
+      sizeGB: 10
+    envVars:
+      - key: AUTOMATON_ROOT
+        value: /var/data
+      - key: AUTOMATON_TENANT_SLUG
+        value: soldiers-angels
+      - key: AUTOMATON_TENANT_DISPLAY
+        value: Soldiers' Angels

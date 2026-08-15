@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Host</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="desk">
+    <header class="mast">
+      <p class="wordmark">Host</p>
+      <p class="role">Stamp an Automaton box onto their Render.</p>
+    </header>
+    <ul class="boxes" id="boxes"></ul>
+    <p class="empty" id="empty">No boxes yet.</p>
+    <form id="stamp">
+      <label>Org slug
+        <input name="slug" value="soldiers-angels" autocomplete="off" required />
+      </label>
+      <label>Display name
+        <input name="display" value="Soldiers' Angels" required />
+      </label>
+      <label>Their Render API key
+        <input name="render_api_key" type="password" autocomplete="off" required />
+      </label>
+      <label>Their OpenRouter key
+        <input name="openrouter_api_key" type="password" autocomplete="off" />
+      </label>
+      <label>Their GitHub token
+        <input name="github_token" type="password" autocomplete="off" />
+      </label>
+      <label>Host token
+        <input name="host_token" type="password" autocomplete="off" />
+      </label>
+      <button type="submit" id="send">Stamp box</button>
+      <p class="note" id="note" hidden></p>
+    </form>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
