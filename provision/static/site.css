@@ -74,7 +74,7 @@ body {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 72% 42%;
+  object-position: 50% 58%;
   transform: scale(1.04);
   transform-origin: 70% 45%;
 }
@@ -85,16 +85,15 @@ body {
   background:
     linear-gradient(
       90deg,
-      color-mix(in oklab, var(--void) 82%, transparent) 0%,
-      color-mix(in oklab, var(--void) 48%, transparent) 38%,
-      color-mix(in oklab, var(--void) 12%, transparent) 72%,
-      transparent 100%
+      color-mix(in oklab, var(--void) 70%, transparent) 0%,
+      color-mix(in oklab, var(--void) 28%, transparent) 42%,
+      transparent 78%
     ),
     linear-gradient(
       180deg,
-      color-mix(in oklab, var(--void) 28%, transparent) 0%,
-      transparent 28%,
-      color-mix(in oklab, var(--void) 55%, transparent) 100%
+      color-mix(in oklab, var(--void) 18%, transparent) 0%,
+      transparent 36%,
+      color-mix(in oklab, var(--void) 42%, transparent) 100%
     );
 }
 
@@ -103,9 +102,9 @@ body {
   inset: -8%;
   pointer-events: none;
   background: radial-gradient(
-    55% 40% at 78% 38%,
-    color-mix(in oklab, #c4b48a 10%, transparent),
-    transparent 70%
+    80% 18% at 50% 62%,
+    color-mix(in oklab, #e6e4dc 8%, transparent),
+    transparent 72%
   );
 }
 
@@ -271,7 +270,7 @@ footer a {
     padding: clamp(2.5rem, 7vh, 6rem) 0 4rem 6vw;
   }
 
-  .field-photo { object-position: 78% 40%; }
+  .field-photo { object-position: 50% 55%; }
 }
 
 @media (prefers-reduced-motion: no-preference) {
