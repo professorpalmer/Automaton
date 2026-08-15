@@ -165,6 +165,15 @@ def open_request(
     store.save(job)
     _take_files(store, job, uploads or [], root)
     job = store.get(job.id)
+    from harness.known import apply_known_update, is_known_link_update
+
+    if is_known_link_update(brief):
+        from harness.artifacts import write_handoff
+
+        job.needed = []
+        store.save(job)
+        write_handoff(job, root, reason="open")
+        return apply_known_update(store, job, brief, root)
     needs = needs_for(brief)
     job.needed = needs
     store.save(job)

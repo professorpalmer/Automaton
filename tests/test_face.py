@@ -51,6 +51,7 @@ def test_tokens_and_reduced_motion_ship(tmp_path) -> None:
     assert "Change the tool to match this screenshot." in js
     assert "I've got someone working on that." in js
     assert "Let me pull that up." in js
+    assert 'kind !== "open"' in js
     assert "I've got a team working on your request." in js
     assert "add to wiki" not in js.lower()
     assert "13px" not in tokens.text
@@ -119,3 +120,26 @@ def test_job_and_steer_and_product(tmp_path) -> None:
     checked = client.post(f"/api/jobs/{job['id']}/check")
     assert checked.status_code == 200
     assert checked.json()["official_playbook"] is True
+
+
+def test_hotb_update_is_one_honest_answer(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path))
+    created = client.post(
+        "/api/jobs",
+        data={
+            "brief": (
+                "Can you make these updates to the sa-hotb render app? "
+                "Reimbursement - https://soldiersangels.tfaforms.net/188 "
+                "Event Detail Information : https://soldiersangels.tfaforms.net/189"
+            )
+        },
+    )
+    assert created.status_code == 200, created.text
+    job = created.json()
+    assert job["status"] == "report_back"
+    assert job["waiting"] is False
+    assert not job["product_url"]
+    assert job["live_url"] == "https://sa-hotb.onrender.com"
+    assert len(job["bubbles"]) <= 2
+    assert "workbook" not in job["report"].lower()
+    assert "Home of the Brave" in job["report"]

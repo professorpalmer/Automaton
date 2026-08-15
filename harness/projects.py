@@ -55,6 +55,7 @@ _STOP = {
 }
 _ALIASES = (
     (re.compile(r"\b(transport|lyft|flix|reconcil)", re.I), "transport-recon"),
+    (re.compile(r"\b(sa-hotb|hotb|homeofthebrave|home of the brave)\b", re.I), "sa-hotb"),
     (re.compile(r"\bwaitlist\b", re.I), "waitlist"),
     (re.compile(r"\b(donation|letter)\b", re.I), "letter-pack"),
 )

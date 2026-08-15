@@ -13,6 +13,7 @@ from harness.loop import run_full_auto
 def test_waitlist_stays_a_poster() -> None:
     assert wants_service("Build a waitlist upload page with a Submit button") is False
     assert parse_spec("Build a waitlist upload page with a Submit button").kind == "poster"
+    assert wants_service("update the sa-hotb render app FormAssembly links") is False
 
 
 def test_transport_brief_ships_a_render_service(tmp_path) -> None:

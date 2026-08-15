@@ -21,7 +21,7 @@ ENOUGH = re.compile(
     re.I,
 )
 WORKBOOK = re.compile(
-    r"\b(reconcil|workbook|\.xlsx|spreadsheet|excel|ledger|lyft|flix|formassembly)\b",
+    r"\b(reconcil|workbook|\.xlsx|spreadsheet|excel|ledger|lyft|flix)\b",
     re.I,
 )
 SAMPLE = re.compile(r"\b(letter|donation|pdf pack|sample (export|output|report))\b", re.I)
@@ -50,8 +50,11 @@ def feature_for(brief: str, name: str = "") -> str:
 
 def needs_for(brief: str) -> List[dict]:
     from harness.factory import wants_service
+    from harness.known import is_known_link_update
 
     text = brief or ""
+    if is_known_link_update(text):
+        return []
     needs: List[dict] = []
     named = []
     seen = set()
@@ -221,7 +224,7 @@ def intake_bubbles(
 ) -> List[str]:
     ask = ask_text(brief, needs, have)
     if first:
-        return [YES, NEED_THINGS, ask]
+        return [YES, ask]
     return [TEAM, ask]
 
 

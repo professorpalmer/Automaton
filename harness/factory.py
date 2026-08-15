@@ -97,7 +97,7 @@ def wants_service(brief: str) -> bool:
     return bool(
         re.search(
             r"\b(reconcil|workbook|\.xlsx|spreadsheet|ledger|exception queue|"
-            r"formassembly|flixbus|lyft|operator dashboard|render)\b",
+            r"flixbus|lyft|operator dashboard)\b",
             brief or "",
             flags=re.I,
         )

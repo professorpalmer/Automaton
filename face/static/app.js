@@ -271,7 +271,9 @@
     state.attachments = [];
     renderThumbs();
     setBusy(true);
-    say("chief", ack);
+    if (kind !== "open") {
+      say("chief", ack);
+    }
     try {
       const response = await fetch(url, { method: "POST", body: data });
       const payload = await response.json().catch(function () { return {}; });
@@ -279,9 +281,9 @@
         throw new Error(payload.detail || response.statusText);
       }
       state.job = payload;
-      speakJob(payload, ack);
+      speakJob(payload, kind === "open" ? "" : ack);
       if (payload.building) {
-        watchBuild(payload.id, ack);
+        watchBuild(payload.id, "I've got someone working on that.");
       }
     } catch (err) {
       say("chief", String(err.message || err));

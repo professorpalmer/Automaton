@@ -37,8 +37,8 @@ def test_website_ask_waits_for_a_drop_or_go() -> None:
     assert ready_to_build(needs, set(), brief) is False
     bubbles = intake_bubbles(brief, needs, set(), first=True)
     assert bubbles[0] == YES
-    assert bubbles[1] == "We will need some things from you before we can finish, though."
-    assert "Drag it here" in bubbles[2]
+    assert "Drag it here" in bubbles[1]
+    assert "We will need some things" not in "\n".join(bubbles)
     assert legal_first(ack_for("intake"), "ack")
 
 
@@ -234,6 +234,59 @@ def test_shop_url_stays_intake_until_a_screenshot(tmp_path) -> None:
     assert "screenshot" in job.report.lower()
     assert "available here" not in job.report
     assert "finished" not in job.report.lower()
+
+
+SARA_HOTB = (
+    "Can you make these updates to the sa-hotb render app? "
+    "Can we update these links? "
+    "Reimbursement - https://soldiersangels.tfaforms.net/188 "
+    "Event Coordinator Registration - https://soldiersangels.tfaforms.net/185 "
+    "VA Site Registration - https://soldiersangels.tfaforms.net/187 "
+    "Volunteer Registration Form - https://soldiersangels.tfaforms.net/186 "
+    "Here is the link for Event Detail Information : https://soldiersangels.tfaforms.net/189"
+)
+
+
+def test_hotb_link_update_does_not_ask_for_a_workbook(tmp_path) -> None:
+    assert needs_for(SARA_HOTB) == []
+    job = open_request(SARA_HOTB, root=tmp_path)
+    assert job.status == "report_back"
+    assert job.product_relpath == ""
+    assert job.slug == "sa-hotb"
+    assert job.live_url == "https://sa-hotb.onrender.com"
+    assert "workbook" not in job.report.lower()
+    assert "screenshot" not in job.report.lower()
+    assert "I've got someone working" not in job.report
+    assert "We will need some things" not in job.report
+    assert "available here" not in job.report
+    assert "Home of the Brave" in job.report
+    assert "already match" in job.report
+    assert job.report.count("\n\n") <= 1
+
+
+def test_hotb_link_update_applies_when_the_repo_is_in_the_box(tmp_path) -> None:
+    from harness.paths import projects_dir
+
+    seed = {
+        "links": [
+            {
+                "label": "Event Detail Information",
+                "url": "https://soldiersangels-groups.monday.com/",
+                "category": "ops",
+            }
+        ]
+    }
+    dest = projects_dir(tmp_path) / "sa-hotb"
+    dest.mkdir(parents=True)
+    (dest / "hotb_2026.json").write_text(
+        __import__("json").dumps(seed),
+        encoding="utf-8",
+    )
+    job = open_request(SARA_HOTB, root=tmp_path)
+    assert job.status == "report_back"
+    assert "now points at https://soldiersangels.tfaforms.net/189" in job.report
+    written = __import__("json").loads((dest / "hotb_2026.json").read_text(encoding="utf-8"))
+    assert written["links"][0]["url"] == "https://soldiersangels.tfaforms.net/189"
 
 
 def test_any_workbook_name_satisfies_generic_need() -> None:
