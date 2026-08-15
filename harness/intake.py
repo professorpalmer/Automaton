@@ -102,7 +102,7 @@ def needs_for(brief: str) -> List[dict]:
                 "label": "a screenshot of the current page",
                 "example": "page.png",
                 "feature": feature_for(text) or "layout",
-                "required": False,
+                "required": True,
             }
         )
     return needs
@@ -250,7 +250,9 @@ def closing_bubbles(
         lines.append("I can put it on Render when you drop a Render API key.")
     kind = getattr(spec, "kind", None)
     files = getattr(job, "files", None) or []
-    needed = getattr(job, "needed", None) or needs_for(getattr(job, "brief", "") or "")
+    needed = getattr(job, "needed", None)
+    if needed is None:
+        needed = needs_for(getattr(job, "brief", "") or "")
     service = kind == "service" or any(item.get("kind") == "workbook" for item in needed)
     if service:
         if any(getattr(record, "kind", "") == "workbook" for record in files):
@@ -260,5 +262,5 @@ def closing_bubbles(
     if leftover:
         lines.append(still_ask(leftover[0]))
     else:
-        lines.append("Open it, then tell me what to change — a screenshot is enough.")
+        lines.append("Open it, then tell me what to change. A screenshot is enough.")
     return lines

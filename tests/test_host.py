@@ -29,7 +29,7 @@ def test_missing_render_key_stays_honest(tmp_path) -> None:
 
 def test_render_key_file_goes_to_the_vault(tmp_path) -> None:
     job = open_request(
-        "Build a waitlist upload page with a Submit button",
+        "Build a waitlist upload page with a Submit button. go ahead",
         [(b"rnd_test-key\n", "render.api.key", "text/plain")],
         root=tmp_path,
         host=ScriptedHost("https://sa-waitlist.onrender.com"),

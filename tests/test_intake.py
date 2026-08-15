@@ -68,10 +68,26 @@ def test_open_request_asks_then_continue_ships(tmp_path) -> None:
         "We need a website built that does all of these things.",
         root=tmp_path,
     )
-    assert job.status == "report_back"
-    assert "available here" in job.report
-    assert job.product_relpath
+    assert job.status == "intake"
+    assert job.product_relpath == ""
+    assert "I've got someone working on that." in job.report
     assert "screenshot" in job.report.lower()
+    assert "available here" not in job.report
+    png = (
+        b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
+        b"\x08\x02\x00\x00\x00\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc\xf8\x0f\x00"
+        b"\x00\x01\x01\x00\x05\x18\xd8N\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+    shipped = continue_intake(
+        job.id,
+        "",
+        [(png, "page.png", "image/png")],
+        root=tmp_path,
+        sidecar=ScriptedSidecar("a waitlist page"),
+    )
+    assert shipped.status == "report_back"
+    assert shipped.product_relpath
+    assert "available here" in shipped.report
 
 
 def test_workbook_drop_unblocks_recon(tmp_path) -> None:
@@ -79,7 +95,7 @@ def test_workbook_drop_unblocks_recon(tmp_path) -> None:
         "Transportation reconciliation: match Lyft to FormAssembly from an xlsx workbook",
         root=tmp_path,
     )
-    assert job.status == "report_back"
+    assert job.status == "intake"
     assert "workbook" in job.report
     shipped = continue_intake(
         job.id,
@@ -108,10 +124,10 @@ def test_keeps_asking_until_ready(tmp_path) -> None:
         root=tmp_path,
     )
     first = continue_intake(job.id, "we also want the VA letters later", root=tmp_path)
-    assert first.status == "report_back"
+    assert first.status == "intake"
     assert first.ask_round >= 1
     second = continue_intake(job.id, "not sure which columns yet", root=tmp_path)
-    assert second.status == "report_back"
+    assert second.status == "intake"
     assert second.ask_round >= 2
     assert "workbook" in second.report.lower()
 
@@ -121,7 +137,7 @@ def test_named_files_are_asked_one_at_a_time(tmp_path) -> None:
         "Match lyft.csv to fa.xlsx and export the exception queue",
         root=tmp_path,
     )
-    assert job.status == "report_back"
+    assert job.status == "intake"
     assert "lyft.csv" in job.report
     mid = continue_intake(
         job.id,
@@ -129,7 +145,7 @@ def test_named_files_are_asked_one_at_a_time(tmp_path) -> None:
         [(b"id,status\n1,Ride\n", "lyft.csv", "text/csv")],
         root=tmp_path,
     )
-    assert mid.status == "report_back"
+    assert mid.status == "intake"
     assert "fa.xlsx" in mid.report
     shipped = continue_intake(
         job.id,
@@ -146,11 +162,11 @@ def test_go_ahead_still_asks_after_the_product_is_live(tmp_path) -> None:
         "Reconcile Lyft to FormAssembly from an xlsx workbook",
         root=tmp_path,
     )
-    assert job.status == "report_back"
-    assert "available here at /product/" in job.report
-    assert "still need" in job.report
+    assert job.status == "intake"
+    assert "available here" not in job.report
     shipped = continue_intake(job.id, "go ahead", root=tmp_path)
     assert shipped.status == "report_back"
+    assert "available here at /product/" in shipped.report
     assert "still need" in shipped.report
     assert "this month's workbook" in shipped.report
     filled = continue_intake(
@@ -165,7 +181,7 @@ def test_go_ahead_still_asks_after_the_product_is_live(tmp_path) -> None:
 
 def test_build_flies_in_a_subprocess(tmp_path) -> None:
     job = open_request(
-        "Build a waitlist upload page with a Submit button",
+        "Build a waitlist upload page with a Submit button. go ahead",
         root=tmp_path,
         wait=False,
     )
@@ -186,8 +202,14 @@ def test_face_intake_then_go_ahead(tmp_path) -> None:
     )
     assert created.status_code == 200, created.text
     job = created.json()
-    assert job["status"] in ("running", "report_back")
+    assert job["status"] == "intake"
     assert job["bubbles"][0] == YES
+    assert job["waiting"] is True
+    assert not job["product_url"]
+    started = client.post(f"/api/jobs/{job['id']}/continue", data={"note": "go ahead"})
+    assert started.status_code == 200, started.text
+    job = started.json()
+    assert job["status"] in ("running", "report_back")
     assert job["building"] or job["product_url"]
     deadline = time.time() + 20
     body = job
@@ -199,6 +221,19 @@ def test_face_intake_then_go_ahead(tmp_path) -> None:
     assert body["status"] == "report_back"
     assert body["product_url"].endswith("/")
     assert "available here" in body["report"]
+
+
+def test_shop_url_stays_intake_until_a_screenshot(tmp_path) -> None:
+    job = open_request(
+        "Can you optimize our shop? https://shop.soldiersangels.org/",
+        root=tmp_path,
+    )
+    assert job.status == "intake"
+    assert job.product_relpath == ""
+    assert "I've got someone working on that." in job.report
+    assert "screenshot" in job.report.lower()
+    assert "available here" not in job.report
+    assert "finished" not in job.report.lower()
 
 
 def test_any_workbook_name_satisfies_generic_need() -> None:
@@ -218,7 +253,7 @@ def test_named_file_still_wants_that_name(tmp_path) -> None:
         [(b"id,status\n1,Ride\n", "rides.xlsx", "text/csv")],
         root=tmp_path,
     )
-    assert mid.status == "report_back"
+    assert mid.status == "intake"
     assert "lyft.csv" in mid.report
 
 
@@ -248,6 +283,7 @@ def test_go_dismisses_live_product_ask(tmp_path) -> None:
         "Reconcile Lyft to FormAssembly from an xlsx workbook",
         root=tmp_path,
     )
-    assert "still need" in job.report
+    assert job.status == "intake"
+    assert "workbook" in job.report.lower()
     done = continue_intake(job.id, "that's all", root=tmp_path)
     assert "still need" not in done.report

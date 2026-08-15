@@ -82,7 +82,7 @@ def test_job_and_steer_and_product(tmp_path) -> None:
     client = TestClient(create_app(tmp_path))
     created = client.post(
         "/api/jobs",
-        data={"brief": "Build a waitlist upload page with a Submit button"},
+        data={"brief": "Build a waitlist upload page with a Submit button. go ahead"},
     )
     assert created.status_code == 200, created.text
     opened = created.json()
@@ -92,8 +92,7 @@ def test_job_and_steer_and_product(tmp_path) -> None:
     assert job["status"] == "report_back"
     assert job["product_url"].endswith("/")
     assert "available here" in job["bubbles"][0]
-    assert "still need" in " ".join(job["bubbles"]).lower()
-    assert job["waiting"] is False
+    assert job["waiting"] is True
     assert job["can_undo"] is False
     assert "waves" not in job
     product = client.get(job["product_url"])

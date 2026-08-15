@@ -168,17 +168,24 @@ def open_request(
     needs = needs_for(brief)
     job.needed = needs
     store.save(job)
+    from harness.artifacts import sync_asks, write_handoff
+
+    sync_asks(job)
+    write_handoff(job, root, reason="open")
+    store.save(job)
     if should_recall(brief) and not ready_to_build(needs, job, brief):
         bubbles = ["I do not have a project that matches that yet."] + intake_bubbles(
             brief, needs, job, first=True
         )
         store.open_intake(job, needs, "\n\n".join(bubbles))
         return store.get(job.id)
-    from harness.artifacts import sync_asks, write_handoff
-
-    sync_asks(job)
-    write_handoff(job, root, reason="open")
-    store.save(job)
+    if not ready_to_build(needs, job, brief):
+        store.open_intake(
+            job,
+            needs,
+            "\n\n".join(intake_bubbles(brief, needs, job, first=True)),
+        )
+        return store.get(job.id)
     launched = launch_build(job, None, root=root, sidecar=sidecar, wait=wait, host=host)
     if launched.status == STATUS_RUNNING:
         leftover = still_needed(launched.needed or needs, launched)
@@ -214,9 +221,12 @@ def continue_intake(
     if note.strip():
         job.brief = (job.brief + "\n" + note.strip()).strip()
         job.needed = merge_needs(job.needed, needs_for(job.brief))
+        store.save(job)
     _take_files(store, job, uploads or [], root)
     job = store.get(job.id)
-    needs = job.needed or needs_for(job.brief)
+    needs = list(job.needed) if job.needed is not None else needs_for(job.brief)
+    if operator_said_enough(note):
+        needs = keep_met(needs, job)
     job.needed = needs
     job.ask_round = (job.ask_round or 0) + 1
     store.save(job)
