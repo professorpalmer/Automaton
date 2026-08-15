@@ -9,6 +9,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from harness.gates import env_get
+from harness.vault import VaultError
+from provision.inquiries import InquiryError, InquiryStore
 from provision.spec import StampError
 from provision.stamp import stamp_box, update_box
 from provision.store import BoxStore, host_root
@@ -22,7 +24,7 @@ STATIC_DIR = PROVISION_DIR / "static"
 def create_app(root: Path | None = None, client: object | None = None, token: str | None = None) -> FastAPI:
     workspace = Path(root) if root is not None else _default_root()
     required = (token if token is not None else env_get(os.environ, HOST_TOKEN_ENV)).strip()
-    app = FastAPI(title="Automaton Host", docs_url=None, redoc_url=None)
+    app = FastAPI(title="Automaton", docs_url=None, redoc_url=None)
 
     def _guard(authorization: str = "") -> None:
         if not required:
@@ -37,15 +39,34 @@ def create_app(root: Path | None = None, client: object | None = None, token: st
     def home() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
 
+    @app.get("/admin", response_class=HTMLResponse)
+    def admin() -> FileResponse:
+        return FileResponse(STATIC_DIR / "admin.html")
+
     @app.get("/api/status")
-    def status(authorization: str = Header(default="")) -> dict:
+    def status() -> dict:
+        return {"product": "Automaton", "ok": True}
+
+    @app.post("/api/inquiries")
+    async def create_inquiry(request: Request) -> dict:
+        payload = await request.json()
+        if not isinstance(payload, dict):
+            raise HTTPException(400, "send a JSON object")
+        try:
+            row = InquiryStore(workspace).add(
+                org=str(payload.get("org") or ""),
+                name=str(payload.get("name") or ""),
+                email=str(payload.get("email") or ""),
+                note=str(payload.get("note") or ""),
+            )
+        except (InquiryError, VaultError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return {"ok": True, "id": row.id}
+
+    @app.get("/api/inquiries")
+    def list_inquiries(authorization: str = Header(default="")) -> dict:
         _guard(authorization)
-        boxes = BoxStore(workspace).list_boxes()
-        return {
-            "product": "Automaton Host",
-            "boxes": len(boxes),
-            "live": sum(1 for box in boxes if box.status == "live" and box.url),
-        }
+        return {"inquiries": [row.public() for row in InquiryStore(workspace).list_inquiries()]}
 
     @app.get("/api/boxes")
     def list_boxes(authorization: str = Header(default="")) -> dict:
@@ -108,7 +129,7 @@ app = create_app()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Automaton host — stamp client boxes")
+    parser = argparse.ArgumentParser(description="Automaton — public site and host admin")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8766)
     args = parser.parse_args()

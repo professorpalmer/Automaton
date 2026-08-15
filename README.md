@@ -31,4 +31,4 @@ We stamp isolated Automaton boxes onto the client's Render. They pay Render, tok
 .venv/bin/automaton-host
 ```
 
-Open http://127.0.0.1:8766. The host never uses Cary's keys. A stamp needs their Render API key. The box URL is what they open.
+Open http://127.0.0.1:8766 for the public site. `/admin` is the stamp desk. The host never uses Cary's keys. A stamp needs their Render API key. The box URL is what they open.

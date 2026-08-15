@@ -1,6 +1,8 @@
 (function () {
   const boxes = document.getElementById("boxes");
   const empty = document.getElementById("empty");
+  const inquiries = document.getElementById("inquiries");
+  const inquiryEmpty = document.getElementById("inquiry-empty");
   const form = document.getElementById("stamp");
   const send = document.getElementById("send");
   const note = document.getElementById("note");
@@ -19,7 +21,7 @@
     note.textContent = text || "";
   }
 
-  function draw(rows) {
+  function drawBoxes(rows) {
     boxes.replaceChildren();
     empty.hidden = rows.length > 0;
     for (const box of rows) {
@@ -42,14 +44,37 @@
     }
   }
 
+  function drawInquiries(rows) {
+    inquiries.replaceChildren();
+    inquiryEmpty.hidden = rows.length > 0;
+    for (const row of rows) {
+      const item = document.createElement("li");
+      const org = document.createElement("span");
+      org.className = "org";
+      org.textContent = row.org;
+      const meta = document.createElement("span");
+      meta.textContent = row.name + " · " + row.email;
+      item.append(org, meta);
+      if (row.note) {
+        const noteLine = document.createElement("span");
+        noteLine.textContent = row.note;
+        item.append(noteLine);
+      }
+      inquiries.append(item);
+    }
+  }
+
   async function refresh() {
-    const response = await fetch("/api/boxes", { headers: headers() });
-    if (!response.ok) {
-      show(response.status === 401 ? "Host token required." : "Could not list boxes.");
+    const listed = await fetch("/api/boxes", { headers: headers() });
+    if (!listed.ok) {
+      show(listed.status === 401 ? "Host token required." : "Could not list boxes.");
       return;
     }
-    const body = await response.json();
-    draw(body.boxes || []);
+    drawBoxes((await listed.json()).boxes || []);
+    const inbox = await fetch("/api/inquiries", { headers: headers() });
+    if (inbox.ok) {
+      drawInquiries((await inbox.json()).inquiries || []);
+    }
   }
 
   form.addEventListener("submit", async function (event) {

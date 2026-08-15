@@ -30,6 +30,14 @@ def test_tenant_env_and_file(tmp_path, monkeypatch) -> None:
     assert load_tenant_openrouter_key(tmp_path) == "sk-or-v1-legacy"
 
 
+def test_legacy_tenant_secrets_path_still_loads(tmp_path) -> None:
+    old = tmp_path / "tenant" / "secrets" / "openrouter.key"
+    old.parent.mkdir(parents=True)
+    old.write_text("sk-or-v1-yesterday\n", encoding="utf-8")
+    assert load_tenant_openrouter_key(tmp_path, environ={}) == "sk-or-v1-yesterday"
+    assert (tmp_path / "tenant" / "soldiers-angels" / "secrets" / "openrouter.key").is_file()
+
+
 def test_refuse_wiki_write(tmp_path) -> None:
     wiki = tmp_path / "wiki" / "secrets" / "openrouter.key"
     wiki.parent.mkdir(parents=True)

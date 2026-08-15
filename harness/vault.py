@@ -16,7 +16,7 @@ from harness.gates import (
     env_get,
     may_bundle_host_keys,
 )
-from harness.paths import secrets_dir
+from harness.paths import secrets_dir, tenant_root
 
 
 class VaultError(RuntimeError):
@@ -49,6 +49,19 @@ def tenant_key_path(root: Optional[Path] = None) -> Path:
     return secrets_dir(root) / TENANT_KEY_FILENAME
 
 
+def legacy_tenant_key_path(root: Optional[Path] = None) -> Path:
+    """Pre-box vault. Yesterday's key landed here."""
+    return tenant_root(root) / "secrets" / TENANT_KEY_FILENAME
+
+
+def _read_key_file(path: Path) -> Optional[str]:
+    if not path.is_file():
+        return None
+    assert_not_wiki(path)
+    text = path.read_text(encoding="utf-8").strip()
+    return text or None
+
+
 def load_tenant_openrouter_key(
     root: Optional[Path] = None,
     environ: Optional[dict] = None,
@@ -66,12 +79,17 @@ def load_tenant_openrouter_key(
     from_env = env_get(env, TENANT_KEY_ENV, TENANT_KEY_ENV_LEGACY)
     if from_env:
         return from_env
-    path = tenant_key_path(root)
-    if not path.is_file():
+    text = _read_key_file(tenant_key_path(root))
+    if text:
+        return text
+    legacy = _read_key_file(legacy_tenant_key_path(root))
+    if not legacy:
         return None
-    assert_not_wiki(path)
-    text = path.read_text(encoding="utf-8").strip()
-    return text or None
+    try:
+        write_tenant_openrouter_key(legacy, root)
+    except VaultError:
+        pass
+    return legacy
 
 
 def github_token_path(root: Optional[Path] = None) -> Path:

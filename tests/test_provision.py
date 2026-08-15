@@ -68,12 +68,38 @@ def test_update_without_stored_key_stays_honest(tmp_path) -> None:
     assert record.url == "https://soldiers-angels-automaton.onrender.com"
 
 
-def test_host_face_returns_their_url(tmp_path) -> None:
+def test_public_site_is_not_the_admin_desk(tmp_path) -> None:
     client = TestClient(create_app(tmp_path, client=ScriptedRender()))
     page = client.get("/")
     assert page.status_code == 200
-    assert "Host" in page.text
     assert "Automaton" in page.text
+    assert "Request a box" in page.text
+    assert "Stamp box" not in page.text
+    admin = client.get("/admin")
+    assert admin.status_code == 200
+    assert "Stamp box" in admin.text
+
+
+def test_client_can_request_a_box(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path, client=ScriptedRender()))
+    sent = client.post(
+        "/api/inquiries",
+        json={
+            "org": "Soldiers' Angels",
+            "name": "Jen",
+            "email": "jen@soldiersangels.org",
+            "note": "transport recon next",
+        },
+    )
+    assert sent.status_code == 200
+    inbox = client.get("/api/inquiries")
+    assert inbox.status_code == 200
+    assert inbox.json()["inquiries"][0]["org"] == "Soldiers' Angels"
+    assert "sk-or" not in inbox.text
+
+
+def test_host_face_returns_their_url(tmp_path) -> None:
+    client = TestClient(create_app(tmp_path, client=ScriptedRender()))
     created = client.post(
         "/api/boxes",
         json={
@@ -93,6 +119,8 @@ def test_host_face_returns_their_url(tmp_path) -> None:
 def test_host_token_is_required_when_set(tmp_path) -> None:
     client = TestClient(create_app(tmp_path, client=ScriptedRender(), token="host-secret"))
     assert client.get("/api/boxes").status_code == 401
+    assert client.get("/api/inquiries").status_code == 401
+    assert client.get("/").status_code == 200
     ok = client.get("/api/boxes", headers={"Authorization": "Bearer host-secret"})
     assert ok.status_code == 200
 
