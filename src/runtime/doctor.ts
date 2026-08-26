@@ -1,9 +1,12 @@
 import { spawnSync } from 'node:child_process'
+import { chromeBinary } from './chrome'
 
 export type DoctorReport = {
   ok: boolean
   python: string
   puppetmaster: string
+  chrome: 'found' | 'missing'
+  chromePath?: string
   error?: string
 }
 
@@ -30,17 +33,23 @@ export function doctorPuppetmaster(): DoctorReport {
     const { status, text } = run(command, args)
     last = text
     if (status === 0 && /ok\s+python/.test(text)) {
+      const bin = chromeBinary()
       return {
         ok: true,
         python: [command, ...args].join(' '),
         puppetmaster: 'reachable',
+        chrome: bin ? 'found' : 'missing',
+        chromePath: bin ?? undefined,
       }
     }
   }
+  const bin = chromeBinary()
   return {
     ok: false,
     python: 'puppetmaster | python -m puppetmaster',
     puppetmaster: 'failed',
+    chrome: bin ? 'found' : 'missing',
+    chromePath: bin ?? undefined,
     error: last.slice(0, 800),
   }
 }

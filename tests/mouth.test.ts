@@ -18,7 +18,7 @@ describe('mouth sidecar', () => {
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-${Date.now()}.sqlite`))
     store.remember({
       ownerAgentId: 'kernel',
-      text: 'Insert undo is restored.',
+      text: 'The ledger replay is deterministic.',
       source: 'job',
       jobId: 'job_1',
     })
@@ -30,7 +30,7 @@ describe('mouth sidecar', () => {
       jobs: [],
       pendingFanout: null,
     }
-    session = send(session, 'what did Kernel find about insert undo')
+    session = send(session, 'what did Kernel find about ledger replay')
     const turn = pendingMouthTurns(session)[0]
     let spoken = ''
     let calls = 0
@@ -51,7 +51,7 @@ describe('mouth sidecar', () => {
       },
     )
     expect(calls).toBe(0)
-    expect(spoken).toBe('Insert undo is restored.')
+    expect(spoken).toBe('The ledger replay is deterministic.')
     expect(store.listClaims()).toHaveLength(before)
     const receipt = store.receipt(turn.itemId)
     expect(receipt?.outcome).toBe('hit')
@@ -73,7 +73,7 @@ describe('mouth sidecar', () => {
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-chat-${Date.now()}.sqlite`))
     store.remember({
       ownerAgentId: 'kernel',
-      text: 'Insert undo is restored.',
+      text: 'The ledger replay is deterministic.',
       source: 'job',
       jobId: 'job_1',
     })
@@ -309,6 +309,140 @@ describe('mouth sidecar', () => {
     expect(receipt?.inferenceAttempted).toBe(true)
     expect(receipt?.status).toBe('failed')
     expect(store.metrics().inferenceCalls).toBe(1)
+  })
+
+  test('vague recall of an arbitrary recent claim misses', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-arbitrary-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      source: 'job',
+      jobId: 'job_1',
+    })
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'what did you find')
+    const turn = pendingMouthTurns(session)[0]
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'Staff. I coordinate Kernel and Research.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(spoken).not.toBe('The ledger replay is deterministic.')
+    const receipt = store.receipt(turn.itemId)
+    expect(receipt?.outcome).toBe('miss')
+    expect(receipt?.inferenceAvoided).toBe(false)
+    expect(receipt?.inferenceAttempted).toBe(true)
+  })
+
+  test('stale claim is not spoken as a hit', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-stale-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      source: 'job',
+      jobId: 'job_1',
+      taskKey: 'kernel:analyze:ledger replay',
+      artifactKind: 'analyze',
+      freshness: 'stale',
+    })
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'what did Kernel find about ledger replay')
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'should infer'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(spoken).toBe('should infer')
+  })
+
+  test('implement claim is not spoken as an analyze finding', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-implement-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      source: 'job',
+      jobId: 'job_1',
+      taskKey: 'kernel:implement:ledger replay',
+      artifactKind: 'implement',
+      freshness: 'fresh',
+    })
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'what did Kernel find about ledger replay')
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'should infer'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(spoken).toBe('should infer')
   })
 
   test('OpenRouter usage stays unknown when the provider omits it', () => {

@@ -6,13 +6,15 @@ import {
   type MouthState,
   type Thread,
   composerEnterBusy,
-  jobKindFor,
+  emptyThreads,
+  jobKindForKit,
   mentionedAgentIds,
   needsFanoutConfirm,
   nextId,
   sanitizeSpeak,
   visibleAgents,
 } from './domain'
+import { kitForAgent } from './runtime/profile'
 
 export type Session = {
   agents: Agent[]
@@ -20,6 +22,7 @@ export type Session = {
   threads: Record<AgentId, Thread>
   jobs: JobHandle[]
   pendingFanout: { text: string; targets: AgentId[] } | null
+  pendingDelete?: AgentId | null
 }
 
 function thread(session: Session, id: AgentId): Thread {
@@ -47,11 +50,73 @@ export function setActive(session: Session, agentId: AgentId): Session {
 }
 
 export function setDraft(session: Session, text: string): Session {
+  if (!session.threads[session.activeAgentId]) return session
   return setThread(session, session.activeAgentId, { draft: text })
+}
+
+export function queuePaths(session: Session, paths: string[]): Session {
+  const active = session.activeAgentId
+  if (!session.threads[active]) return session
+  const current = thread(session, active).pendingPaths ?? []
+  const next = [...current]
+  for (const path of paths) {
+    if (path && !next.includes(path)) next.push(path)
+  }
+  return setThread(session, active, { pendingPaths: next })
+}
+
+export function dropPendingPath(session: Session, path: string): Session {
+  const active = session.activeAgentId
+  if (!session.threads[active]) return session
+  const current = thread(session, active).pendingPaths ?? []
+  return setThread(session, active, { pendingPaths: current.filter((item) => item !== path) })
+}
+
+export function clearPendingPaths(session: Session): Session {
+  const active = session.activeAgentId
+  if (!session.threads[active]) return session
+  return setThread(session, active, { pendingPaths: [] })
 }
 
 export function dismissFanout(session: Session): Session {
   return { ...session, pendingFanout: null }
+}
+
+export function askDelete(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  return { ...session, pendingDelete: agentId }
+}
+
+export function dismissDelete(session: Session): Session {
+  return { ...session, pendingDelete: null }
+}
+
+export function addLiveAgent(session: Session, agent: Agent, focus = true): Session {
+  const agents = session.agents.some((row) => row.id === agent.id)
+    ? session.agents.map((row) => (row.id === agent.id ? agent : row))
+    : [...session.agents, agent]
+  const threads = session.threads[agent.id]
+    ? session.threads
+    : { ...session.threads, ...emptyThreads([agent]) }
+  const steal = focus || !session.activeAgentId || !session.threads[session.activeAgentId]
+  return { ...session, agents, threads, activeAgentId: steal ? agent.id : session.activeAgentId }
+}
+
+export function dropLiveAgent(session: Session, agentId: AgentId): Session {
+  const agents = session.agents.filter((agent) => agent.id !== agentId)
+  const threads = { ...session.threads }
+  delete threads[agentId]
+  const jobs = session.jobs.filter((job) => job.ownerAgentId !== agentId)
+  const activeAgentId =
+    session.activeAgentId === agentId ? (agents[0]?.id ?? '') : session.activeAgentId
+  return { ...session, agents, threads, jobs, activeAgentId, pendingDelete: null }
+}
+
+export function patchLiveAgent(session: Session, agent: Agent): Session {
+  return {
+    ...session,
+    agents: session.agents.map((row) => (row.id === agent.id ? agent : row)),
+  }
 }
 
 export function confirmFanout(session: Session): Session {
@@ -78,10 +143,11 @@ function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Sessi
 }
 
 /** User send on the focused mouth. Jobs do not lock other mouths. */
-export function send(session: Session, raw: string): Session {
+export function send(session: Session, raw: string, attachmentIds: string[] = []): Session {
   const text = raw.trim()
-  if (!text) return session
   const active = session.activeAgentId
+  if (!active || !session.threads[active]) return session
+  if (!text && attachmentIds.length === 0) return session
   if (composerEnterBusy(thread(session, active).mouth)) return session
 
   const mentioned = mentionedAgentIds(text, visibleAgents(session.agents))
@@ -97,7 +163,7 @@ export function send(session: Session, raw: string): Session {
   if (targets.length > 1) {
     return fanout(next, body, targets)
   }
-  return deliverTo(next, targets[0], body, active)
+  return deliverTo(next, targets[0], body, active, attachmentIds)
 }
 
 function fanout(session: Session, text: string, targets: AgentId[]): Session {
@@ -124,19 +190,29 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
   return wakeMouth(next, focused, 'idle')
 }
 
-function deliverTo(session: Session, agentId: AgentId, text: string, focused: AgentId): Session {
-  let next = append(
-    session,
+function deliverTo(
+  session: Session,
+  agentId: AgentId,
+  text: string,
+  focused: AgentId,
+  attachmentIds: string[] = [],
+): Session {
+  const item: FeedItem = {
+    kind: 'msg',
+    id: nextId('item'),
+    from: 'user',
     agentId,
-    { kind: 'msg', id: nextId('item'), from: 'user', agentId, text },
-    focused,
-  )
+    text,
+    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+  }
+  let next = append(session, agentId, item, focused)
   next = setThread(next, agentId, {
     draft: agentId === focused ? '' : thread(next, agentId).draft,
+    pendingPaths: agentId === focused ? [] : thread(next, agentId).pendingPaths,
     mouth: 'must_first',
   })
   const agent = next.agents.find((item) => item.id === agentId)
-  const kind = jobKindFor(agentId, text)
+  const kind = jobKindForKit(kitForAgent(agentId), text)
   if (kind) {
     next = speak(next, agentId, ackLine(agent?.name ?? 'Agent'), focused)
     next = wakeMouth(next, agentId, 'ack')

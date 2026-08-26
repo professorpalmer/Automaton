@@ -23,6 +23,8 @@ export type JobStatus = 'running' | 'complete' | 'failed'
 
 export type JobKind = 'analyze' | 'implement'
 
+export type AgentKit = 'coordinator' | 'code' | 'lookup' | 'blank'
+
 export type JobHandle = {
   id: string
   ownerAgentId: AgentId
@@ -34,13 +36,14 @@ export type JobHandle = {
 }
 
 export type FeedItem =
-  | { kind: 'msg'; id: string; from: 'user' | 'agent'; agentId: AgentId; text: string }
+  | { kind: 'msg'; id: string; from: 'user' | 'agent'; agentId: AgentId; text: string; attachmentIds?: string[] }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
 
 export type Thread = {
   agentId: AgentId
   items: FeedItem[]
   draft: string
+  pendingPaths: string[]
   mouth: MouthState
   unread: number
 }
@@ -102,15 +105,23 @@ export function looksLikeLookup(text: string): boolean {
   )
 }
 
-/** Staff never jobs. Kernel jobs implement. Research jobs analyze. */
-export function jobKindFor(agentId: AgentId, text: string): JobKind | null {
-  if (agentId === 'staff') return null
-  if (agentId === 'research') {
+/** Kit sets default job policy. Blank and coordinator never dispatch. */
+export function jobKindForKit(kit: AgentKit, text: string): JobKind | null {
+  if (kit === 'coordinator' || kit === 'blank') return null
+  if (kit === 'lookup') {
     return looksLikeJob(text) || looksLikeLookup(text) ? 'analyze' : null
   }
   if (looksLikeJob(text)) return 'implement'
   if (looksLikeLookup(text)) return 'analyze'
   return null
+}
+
+/** Seed ids keep the historic policy so existing tests stay pinned. */
+export function jobKindFor(agentId: AgentId, text: string): JobKind | null {
+  if (agentId === 'staff') return jobKindForKit('coordinator', text)
+  if (agentId === 'research') return jobKindForKit('lookup', text)
+  if (agentId === 'kernel') return jobKindForKit('code', text)
+  return jobKindForKit('blank', text)
 }
 
 const MENTION = /@([A-Za-z][A-Za-z0-9_-]*)/g
@@ -136,6 +147,7 @@ export function emptyThreads(agents: Agent[]): Record<AgentId, Thread> {
       agentId: agent.id,
       items: [],
       draft: '',
+      pendingPaths: [],
       mouth: 'idle',
       unread: 0,
     }

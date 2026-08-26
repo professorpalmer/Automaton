@@ -10,7 +10,7 @@ The left rail lists named mouths. Clicking one swaps the feed and draft. Hidden 
 
 ## How to get to it (user POV)
 
-Launch Automaton. The rail is on the left under Agents.
+Launch Automaton. The rail is on the left under Agents. Click Kernel — the titlebar switches to Kernel. Typing in Staff's composer is not the same as selecting Kernel.
 
 ## Driving it with bun test / GPUIX TestRenderer
 

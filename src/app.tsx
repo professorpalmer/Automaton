@@ -4,22 +4,41 @@ import {
   DEFAULT_AGENTS,
   emptyThreads,
   isMouthBusy,
+  nextId,
   type Agent,
   type FeedItem,
   type JobHandle,
 } from './domain'
+import { ingestPath, pickLocalFiles } from './runtime/attachments'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
+import { createAgent, destroyAgent, hydrateSession, liveAgentFromProfile } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey } from './runtime/keys'
 import { ensureMouth } from './runtime/mouth'
-import { openStaffStore } from './runtime/store'
+import { readProfile, writeProfile, type AgentProfile } from './runtime/profile'
+import { openStaffStore, type StaffStore } from './runtime/store'
+import { claimTaskKey } from './runtime/working-set'
 import {
+  Inspector,
+  inspectorChord,
+  isStoreAnswer,
+  kernelSandboxHint,
+  lastMouthJob,
+} from './inspector'
+import {
+  addLiveAgent,
+  askDelete,
   attachPmJob,
   completeJob,
   completeMouth,
   confirmFanout,
+  dismissDelete,
   dismissFanout,
+  dropLiveAgent,
+  dropPendingPath,
   failJob,
   failMouth,
+  patchLiveAgent,
+  queuePaths,
   runningJobs,
   send,
   setActive,
@@ -27,7 +46,11 @@ import {
   stopJob,
   type Session,
 } from './session'
+import { SisterBlob } from './blob'
+import { Settings } from './settings'
 import { CHAT_THEME, T } from './tokens'
+
+type Pane = 'none' | 'inspector' | 'settings'
 
 const TRAFFIC =
   typeof process !== 'undefined' && process.platform === 'darwin'
@@ -41,18 +64,33 @@ function emptySeed(): Session {
     threads: emptyThreads(DEFAULT_AGENTS),
     jobs: [],
     pendingFanout: null,
+    pendingDelete: null,
   }
 }
 
-export function App() {
+export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const store = useMemo(() => {
+    if (providedStore) return providedStore
     adoptMarionetteOpenRouterKey()
     return openStaffStore()
-  }, [])
-  const [session, setSession] = useState<Session>(() => store.load() ?? emptySeed())
+  }, [providedStore])
+  const [session, setSession] = useState<Session>(() => hydrateSession(store.load() ?? emptySeed()))
+  const [pane, setPane] = useState<Pane>('none')
   const active = session.agents.find((agent) => agent.id === session.activeAgentId)
   const thread = session.threads[session.activeAgentId]
   const jobs = runningJobs(session)
+  const metrics = store.metrics()
+  const claims = store.listClaims()
+  const lastJob = active ? lastMouthJob(session.jobs, active.id) : undefined
+  const profile = active ? readProfile(active.id) : null
+  const sandboxHint = active ? kernelSandboxHint(active.id, profile?.kit) : null
+  const mouthEpoch = Object.values(session.threads)
+    .map((row) => `${row.agentId}:${row.mouth}`)
+    .join('|')
+
+  const toggleInspector = () => {
+    setPane((current) => (current === 'inspector' ? 'none' : 'inspector'))
+  }
 
   useEffect(() => {
     store.save(session)
@@ -67,7 +105,7 @@ export function App() {
         setSession((current) => failMouth(current, agentId, spoken))
       },
     })
-  }, [store, session.threads.staff.mouth, session.threads.kernel.mouth, session.threads.research.mouth])
+  }, [store, mouthEpoch])
 
   useEffect(() => {
     for (const job of runningJobs(session)) {
@@ -85,6 +123,13 @@ export function App() {
               text: spoken,
               source: 'job',
               jobId: pmIdentity,
+              taskKey: claimTaskKey({
+                ownerAgentId: job.ownerAgentId,
+                kind: job.kind,
+                goal: job.goal,
+              }),
+              artifactKind: job.kind,
+              freshness: 'fresh',
             })
             setSession((current) => completeJob(current, job.id, spoken))
           },
@@ -98,7 +143,52 @@ export function App() {
   }, [store, session.jobs.map((job) => `${job.id}:${job.status}`).join('|')])
 
   const onSend = () => {
-    setSession((current) => send(current, current.threads[current.activeAgentId].draft))
+    if (!thread || !active) return
+    setSession((current) => {
+      const row = current.threads[current.activeAgentId]
+      if (!row) return current
+      const ids: string[] = []
+      for (const path of row.pendingPaths ?? []) {
+        try {
+          const attachment = ingestPath(current.activeAgentId, path, nextId('att'))
+          store.recordAttachment(attachment)
+          ids.push(attachment.id)
+        } catch {
+          /* missing path stays off the bubble */
+        }
+      }
+      const next = send(current, row.draft, ids)
+      const last = [...(next.threads[next.activeAgentId]?.items ?? [])]
+        .reverse()
+        .find((item) => item.kind === 'msg' && item.from === 'user')
+      if (last?.kind === 'msg') store.bindAttachments(ids, last.id)
+      return next
+    })
+  }
+
+  const onAttach = () => {
+    const paths = pickLocalFiles()
+    if (paths.length === 0) return
+    setSession((current) => queuePaths(current, paths))
+  }
+
+  const onCreateAgent = () => {
+    const created = createAgent()
+    setSession((current) => addLiveAgent(current, created.agent, true))
+    setPane('inspector')
+  }
+
+  const onPatchProfile = (patch: Partial<AgentProfile>) => {
+    if (!active) return
+    const current = readProfile(active.id)
+    if (!current) return
+    const next = {
+      ...current,
+      ...patch,
+      namedBy: patch.name && patch.name !== current.name ? ('user' as const) : current.namedBy,
+    }
+    writeProfile(next)
+    setSession((row) => patchLiveAgent(row, liveAgentFromProfile(next)))
   }
 
   return (
@@ -111,10 +201,21 @@ export function App() {
         backgroundColor: T.canvas,
         color: T.text,
       }}
+      onKeyDown={(event) => {
+        if (inspectorChord(event)) toggleInspector()
+      }}
     >
       <Rail
         session={session}
-        onSelect={(id) => setSession((current) => setActive(current, id))}
+        onSelect={(id) => {
+          setSession((current) => setActive(current, id))
+          setPane((current) => (current === 'settings' ? 'none' : current))
+        }}
+        onCreate={onCreateAgent}
+        onDeleteAsk={(id) => setSession((current) => askDelete(current, id))}
+        onSettings={() => {
+          setPane((current) => (current === 'settings' ? 'none' : 'settings'))
+        }}
       />
       <div
         style={{
@@ -125,34 +226,97 @@ export function App() {
           backgroundColor: T.canvas,
         }}
       >
-        <Titlebar name={active?.name ?? 'Staff'} title={active?.title ?? ''} />
-        <Feed items={thread.items} agents={session.agents} />
-        {jobs.length > 0 ? (
-          <JobStrip
-            jobs={jobs}
-            agents={session.agents}
-            onStop={(id) => {
-              abandonJob(id)
-              setSession((current) => stopJob(current, id))
-            }}
-          />
-        ) : null}
-        {session.pendingFanout ? (
-          <FanoutCard
-            names={session.pendingFanout.targets
-              .map((id) => session.agents.find((agent) => agent.id === id)?.name)
-              .filter(Boolean)
-              .join(', ')}
-            onConfirm={() => setSession((current) => confirmFanout(current))}
-            onDismiss={() => setSession((current) => dismissFanout(current))}
-          />
-        ) : null}
-        <Composer
-          value={thread.draft}
-          locked={isMouthBusy(thread.mouth)}
-          onChange={(value) => setSession((current) => setDraft(current, value))}
-          onSend={onSend}
+        <Titlebar
+          name={active?.name ?? 'Automaton'}
+          title={active?.title ?? ''}
+          onInspect={toggleInspector}
         />
+        {pane === 'settings' ? (
+          <Settings metrics={metrics} onClose={() => setPane('none')} />
+        ) : (
+          <>
+            <div
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                flexGrow: 1,
+                minHeight: 0,
+                minWidth: 0,
+              }}
+            >
+              <Feed
+                items={thread?.items ?? []}
+                agents={session.agents}
+                storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
+                attachmentsFor={(ids) =>
+                  ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
+                }
+              />
+              {pane === 'inspector' && active ? (
+                <Inspector
+                  agent={active}
+                  profile={profile}
+                  claims={claims}
+                  lastJob={lastJob}
+                  metrics={metrics}
+                  sandboxHint={sandboxHint}
+                  onClose={() => setPane('none')}
+                  onPatch={onPatchProfile}
+                />
+              ) : null}
+            </div>
+            {jobs.length > 0 ? (
+              <JobStrip
+                jobs={jobs}
+                agents={session.agents}
+                onStop={(id) => {
+                  abandonJob(id)
+                  setSession((current) => stopJob(current, id))
+                }}
+              />
+            ) : null}
+            {session.pendingFanout ? (
+              <ConfirmCard
+                testId="fanout-confirm"
+                prompt={`Message ${session.pendingFanout.targets
+                  .map((id) => session.agents.find((agent) => agent.id === id)?.name)
+                  .filter(Boolean)
+                  .join(', ')}?`}
+                confirmId="fanout-confirm-yes"
+                dismissId="fanout-confirm-no"
+                confirmLabel="Confirm"
+                onConfirm={() => setSession((current) => confirmFanout(current))}
+                onDismiss={() => setSession((current) => dismissFanout(current))}
+              />
+            ) : null}
+            {session.pendingDelete ? (
+              <ConfirmCard
+                testId="delete-confirm"
+                prompt={`Delete ${session.agents.find((agent) => agent.id === session.pendingDelete)?.name ?? 'this agent'}?`}
+                confirmId="delete-confirm-yes"
+                dismissId="delete-confirm-no"
+                confirmLabel="Delete"
+                danger
+                onConfirm={() => {
+                  const id = session.pendingDelete
+                  if (!id) return
+                  destroyAgent(id)
+                  setSession((current) => dropLiveAgent(current, id))
+                }}
+                onDismiss={() => setSession((current) => dismissDelete(current))}
+              />
+            ) : null}
+            <Composer
+              value={thread?.draft ?? ''}
+              pendingPaths={thread?.pendingPaths ?? []}
+              locked={!thread || isMouthBusy(thread.mouth)}
+              onChange={(value) => setSession((current) => setDraft(current, value))}
+              onAttach={onAttach}
+              onDropPending={(path) => setSession((current) => dropPendingPath(current, path))}
+              onSend={onSend}
+            />
+          </>
+        )}
       </div>
     </div>
   )
@@ -160,9 +324,15 @@ export function App() {
 function Rail({
   session,
   onSelect,
+  onCreate,
+  onDeleteAsk,
+  onSettings,
 }: {
   session: Session
   onSelect: (id: string) => void
+  onCreate: () => void
+  onDeleteAsk: (id: string) => void
+  onSettings: () => void
 }) {
   const agents = session.agents.filter((agent) => !agent.hidden)
   return (
@@ -193,7 +363,7 @@ function Rail({
       >
         <div style={{ fontSize: T.type.sm, color: T.secondary }}>Agents</div>
       </div>
-      {agents.map((agent) => {
+      {agents.map((agent, index) => {
         const row = session.threads[agent.id]
         const selected = agent.id === session.activeAgentId
         return (
@@ -216,25 +386,33 @@ function Rail({
               cursor: 'pointer',
               backgroundColor: selected ? T.overlayStrong : T.clear,
               hover: { backgroundColor: selected ? T.overlayStrong : T.overlay },
+              active: { backgroundColor: selected ? T.overlayStrong : T.overlay },
               userSelect: 'none',
             }}
             onClick={() => onSelect(agent.id)}
+            onMouseDown={(event) => {
+              if (event.isRightClick || event.button === 2) {
+                onSelect(agent.id)
+                onDeleteAsk(agent.id)
+              }
+            }}
           >
-            <div
-              style={{
-                width: T.size.dot,
-                height: T.size.dot,
-                borderRadius: T.radius.dot,
-                backgroundColor: isMouthBusy(row.mouth) ? agent.color : T.ghost,
-                flexShrink: 0,
-              }}
+            <SisterBlob
+              agent={agent}
+              selected={selected}
+              unread={row?.unread ?? 0}
+              mouthBusy={isMouthBusy(row?.mouth ?? 'idle')}
+              index={index}
             />
             <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
               <div style={{ fontSize: T.type.md, color: T.text }}>{agent.name}</div>
               <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{agent.title}</div>
             </div>
-            {row.unread > 0 ? (
-              <div
+            {row?.unread ? (
+              <motion.div
+                initial={{ opacity: 0, width: 0, height: T.size.badge }}
+                animate={{ opacity: 1, width: T.size.badge, height: T.size.badge }}
+                transition={{ duration: T.motion.unread, ease: 'easeOut' }}
                 style={{
                   minWidth: T.size.badge,
                   paddingLeft: T.space.inset,
@@ -246,17 +424,71 @@ function Rail({
                 }}
               >
                 {String(row.unread)}
-              </div>
+              </motion.div>
             ) : null}
           </div>
         )
       })}
+      <div style={{ flexGrow: 1 }} />
+      <div
+        testId="new-agent"
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingLeft: T.space.md,
+          paddingRight: T.space.md,
+          paddingTop: T.space.sm,
+          paddingBottom: T.space.sm,
+          marginLeft: T.space.sm,
+          marginRight: T.space.sm,
+          marginBottom: T.space.xxs,
+          borderRadius: T.radius.sm,
+          cursor: 'pointer',
+          hover: { backgroundColor: T.overlay },
+          userSelect: 'none',
+        }}
+        onClick={onCreate}
+      >
+        <div style={{ fontSize: T.type.sm, color: T.secondary }}>New agent</div>
+      </div>
+      <div
+        testId="settings-open"
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          paddingLeft: T.space.md,
+          paddingRight: T.space.md,
+          paddingTop: T.space.sm,
+          paddingBottom: T.space.sm,
+          marginLeft: T.space.sm,
+          marginRight: T.space.sm,
+          marginBottom: T.space.md,
+          borderRadius: T.radius.sm,
+          cursor: 'pointer',
+          hover: { backgroundColor: T.overlay },
+          userSelect: 'none',
+        }}
+        onClick={onSettings}
+      >
+        <div style={{ fontSize: T.type.sm, color: T.secondary }}>Settings</div>
+      </div>
     </motion.div>
   )
 }
-function Titlebar({ name, title }: { name: string; title: string }) {
+function Titlebar({
+  name,
+  title,
+  onInspect,
+}: {
+  name: string
+  title: string
+  onInspect: () => void
+}) {
   return (
     <div
+      testId="titlebar"
       style={{
         height: T.layout.titlebarHeight,
         display: 'flex',
@@ -268,38 +500,62 @@ function Titlebar({ name, title }: { name: string; title: string }) {
         borderBottomColor: T.border,
         userSelect: 'none',
         flexShrink: 0,
+        cursor: 'pointer',
       }}
+      onClick={onInspect}
     >
-      <div style={{ fontSize: T.type.md, color: T.text }}>{name}</div>
+      <div testId="titlebar-name" style={{ fontSize: T.type.md, color: T.text }}>
+        {name}
+      </div>
       <div style={{ fontSize: T.type.sm, color: T.tertiary, marginLeft: T.space.sm }}>{title}</div>
     </div>
   )
 }
 
-function Feed({ items, agents }: { items: FeedItem[]; agents: Agent[] }) {
+function precedingUserId(items: FeedItem[], index: number): string | null {
+  for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
+    const prior = items[cursor]
+    if (prior?.kind === 'msg' && prior.from === 'user') return prior.id
+  }
+  return null
+}
+
+const feedScrollStyle = {
+  display: 'flex',
+  flexDirection: 'column',
+  flexGrow: 1,
+  minHeight: 0,
+  minWidth: 0,
+  overflowY: 'scroll',
+  overflowAnchor: 'auto',
+  scrollPaddingBottom: T.space.lg,
+  paddingLeft: T.space.xl,
+  paddingRight: T.space.xl,
+  paddingTop: T.space.lg,
+  paddingBottom: T.space.lg,
+  gap: T.space.md,
+}
+
+export function Feed({
+  items,
+  agents,
+  storeAnswer,
+  attachmentsFor,
+}: {
+  items: FeedItem[]
+  agents: Agent[]
+  storeAnswer: (userItemId: string) => boolean
+  attachmentsFor?: (ids: string[]) => { id: string; path: string; kind: 'image' | 'file' }[]
+}) {
   const nameOf = (id: string) => agents.find((agent) => agent.id === id)?.name ?? id
   return (
-    <div
-      testId="feed"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        flexGrow: 1,
-        minHeight: 0,
-        overflowY: 'scroll',
-        paddingLeft: T.space.xl,
-        paddingRight: T.space.xl,
-        paddingTop: T.space.lg,
-        paddingBottom: T.space.lg,
-        gap: T.space.md,
-      }}
-    >
+    <div testId="feed" style={feedScrollStyle}>
       {items.length === 0 ? (
         <div style={{ color: T.tertiary, fontSize: T.type.md }}>
           Send stays Send. Jobs are handles, not chat.
         </div>
       ) : null}
-      {items.map((item) => {
+      {items.map((item, index) => {
         if (item.kind === 'agent_note') {
           return (
             <div key={item.id} style={{ fontSize: T.type.sm, color: T.tertiary }}>
@@ -308,6 +564,9 @@ function Feed({ items, agents }: { items: FeedItem[]; agents: Agent[] }) {
           )
         }
         const mine = item.from === 'user'
+        const userItemId = mine ? null : precedingUserId(items, index)
+        const fromStore = userItemId ? storeAnswer(userItemId) : false
+        const files = item.attachmentIds?.length ? attachmentsFor?.(item.attachmentIds) ?? [] : []
         return (
           <div
             key={item.id}
@@ -317,6 +576,30 @@ function Feed({ items, agents }: { items: FeedItem[]; agents: Agent[] }) {
               alignItems: mine ? 'flex-end' : 'flex-start',
             }}
           >
+            {files.map((file) =>
+              file.kind === 'image' ? (
+                <div
+                  key={file.id}
+                  testId={`thumb-${file.id}`}
+                  style={{ marginBottom: T.space.xs }}
+                >
+                  <img
+                    src={file.path}
+                    objectFit="contain"
+                    alt=""
+                    style={{
+                      width: T.attach.thumb,
+                      height: T.attach.thumb,
+                    }}
+                  />
+                </div>
+              ) : (
+                <div key={file.id} testId={`file-${file.id}`} style={{ marginBottom: T.space.xs }}>
+                  <code code={file.path} language="text" theme={CHAT_THEME} />
+                </div>
+              ),
+            )}
+            {item.text ? (
             <div
               style={{
                 maxWidth: T.layout.contentMax,
@@ -328,11 +611,26 @@ function Feed({ items, agents }: { items: FeedItem[]; agents: Agent[] }) {
                 paddingRight: T.space.md,
                 fontSize: T.type.md,
                 lineHeight: T.line.md,
+                minHeight: T.line.md,
                 color: T.text,
               }}
             >
-              {item.text}
+              {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
+            ) : null}
+            {fromStore ? (
+              <div
+                testId="query-hit"
+                style={{
+                  fontSize: T.type.xs,
+                  color: T.tertiary,
+                  marginTop: T.space.xxs,
+                  paddingLeft: T.space.md,
+                }}
+              >
+                answered from store
+              </div>
+            ) : null}
           </div>
         )
       })}
@@ -340,7 +638,7 @@ function Feed({ items, agents }: { items: FeedItem[]; agents: Agent[] }) {
   )
 }
 
-function JobStrip({
+export function JobStrip({
   jobs,
   agents,
   onStop,
@@ -367,6 +665,7 @@ function JobStrip({
     >
       {jobs.map((job) => {
         const owner = agents.find((agent) => agent.id === job.ownerAgentId)
+        const label = `${owner?.name ?? 'Agent'} · ${job.kind} · ${job.goal}`
         return (
           <div
             key={job.id}
@@ -377,9 +676,7 @@ function JobStrip({
               gap: T.space.sm,
             }}
           >
-            <div style={{ fontSize: T.type.sm, color: T.secondary, flexGrow: 1 }}>
-              {owner?.name ?? 'Agent'} · {job.kind} · {job.goal}
-            </div>
+            <div style={{ fontSize: T.type.sm, color: T.secondary, flexGrow: 1 }}>{label}</div>
             <div
               testId={`stop-${job.id}`}
               style={{
@@ -405,18 +702,28 @@ function JobStrip({
   )
 }
 
-function FanoutCard({
-  names,
+function ConfirmCard({
+  testId,
+  prompt,
+  confirmId,
+  dismissId,
+  confirmLabel,
+  danger,
   onConfirm,
   onDismiss,
 }: {
-  names: string
+  testId: string
+  prompt: string
+  confirmId: string
+  dismissId: string
+  confirmLabel: string
+  danger?: boolean
   onConfirm: () => void
   onDismiss: () => void
 }) {
   return (
     <div
-      testId="fanout-confirm"
+      testId={testId}
       style={{
         marginLeft: T.space.xl,
         marginRight: T.space.xl,
@@ -431,30 +738,28 @@ function FanoutCard({
         gap: T.space.sm,
       }}
     >
-      <div style={{ fontSize: T.type.sm, color: T.secondary }}>
-        Message {names}? This fans out.
-      </div>
+      <div style={{ fontSize: T.type.sm, color: T.secondary }}>{prompt}</div>
       <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
         <div
-          testId="fanout-confirm-yes"
+          testId={confirmId}
           style={{
             paddingLeft: T.space.md,
             paddingRight: T.space.md,
             paddingTop: T.space.xs,
             paddingBottom: T.space.xs,
             borderRadius: T.radius.sm,
-            backgroundColor: T.inverse,
-            color: T.onInverse,
+            backgroundColor: danger ? T.danger : T.inverse,
+            color: danger ? T.inverse : T.onInverse,
             fontSize: T.type.sm,
             cursor: 'pointer',
             userSelect: 'none',
           }}
           onClick={onConfirm}
         >
-          Send
+          {confirmLabel}
         </div>
         <div
-          testId="fanout-confirm-no"
+          testId={dismissId}
           style={{
             paddingLeft: T.space.md,
             paddingRight: T.space.md,
@@ -478,16 +783,22 @@ function FanoutCard({
 
 function Composer({
   value,
+  pendingPaths,
   locked,
   onChange,
+  onAttach,
+  onDropPending,
   onSend,
 }: {
   value: string
+  pendingPaths: string[]
   locked: boolean
   onChange: (value: string) => void
+  onAttach: () => void
+  onDropPending: (path: string) => void
   onSend: () => void
 }) {
-  const ready = value.trim().length > 0 && !locked
+  const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
   return (
     <div
       style={{
@@ -515,6 +826,55 @@ function Composer({
           paddingBottom: T.space.sm,
         }}
       >
+        {pendingPaths.length > 0 ? (
+          <div
+            testId="pending-files"
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: T.space.xxs,
+              paddingLeft: T.space.md,
+              paddingRight: T.space.md,
+              paddingBottom: T.space.xs,
+            }}
+          >
+            {pendingPaths.map((path, index) => (
+              <div
+                key={path}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  justifyContent: 'space-between',
+                  gap: T.space.sm,
+                }}
+              >
+                <div style={{ fontSize: T.type.xs, color: T.tertiary, minWidth: 0, flexGrow: 1 }}>
+                  {path.split('/').pop()}
+                </div>
+                <div
+                  testId={`pending-drop-${index}`}
+                  style={{
+                    paddingLeft: T.space.sm,
+                    paddingRight: T.space.sm,
+                    paddingTop: T.space.control,
+                    paddingBottom: T.space.control,
+                    borderRadius: T.radius.sm,
+                    color: T.secondary,
+                    fontSize: T.type.xs,
+                    cursor: locked ? 'default' : 'pointer',
+                    userSelect: 'none',
+                  }}
+                  onClick={() => {
+                    if (!locked) onDropPending(path)
+                  }}
+                >
+                  Remove
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
         <textarea
           testId="composer"
           value={value}
@@ -544,12 +904,30 @@ function Composer({
             display: 'flex',
             flexDirection: 'row',
             alignItems: 'center',
-            justifyContent: 'flex-end',
+            justifyContent: 'space-between',
             paddingLeft: T.space.md,
             paddingRight: T.space.md,
             paddingTop: T.space.sm,
           }}
         >
+          <div
+            testId="attach"
+            style={{
+              paddingLeft: T.space.md,
+              paddingRight: T.space.md,
+              paddingTop: T.space.control,
+              paddingBottom: T.space.control,
+              borderRadius: T.radius.sm,
+              backgroundColor: T.overlay,
+              color: T.text,
+              fontSize: T.type.sm,
+              cursor: 'pointer',
+              userSelect: 'none',
+            }}
+            onClick={onAttach}
+          >
+            +
+          </div>
           <div
             testId="send"
             style={{

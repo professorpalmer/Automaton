@@ -3,6 +3,8 @@ import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 export function automatonHome(): string {
+  const override = process.env.AUTOMATON_HOME?.trim()
+  if (override) return override
   return join(homedir(), '.automaton')
 }
 
@@ -65,6 +67,10 @@ export function listOpenRouterKeys(input?: KeyLookup): ResolvedKey[] {
 
 export function resolveOpenRouterKey(input?: KeyLookup): ResolvedKey {
   return listOpenRouterKeys(input)[0] ?? { key: '', source: 'missing' }
+}
+
+export function writeOpenRouterKey(key: string, home = automatonHome()): void {
+  writeAutomatonKey(automatonKeysPath(home), key.trim())
 }
 
 function writeAutomatonKey(dest: string, key: string): void {

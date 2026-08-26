@@ -17,6 +17,7 @@ Click Research. Send `Look up why Send stays Send in Automaton staff.` The strip
 
 - `tests/domain.test.ts` jobKindFor
 - `tests/session.test.ts` Research lookup + Staff never jobs
+- Native walkthrough: Research lookup must paint a `Research · analyze` handle; no implement sandbox should be created.
 
 ## Gotchas
 

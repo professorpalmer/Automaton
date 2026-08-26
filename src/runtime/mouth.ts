@@ -1,7 +1,10 @@
 import type { AgentId } from '../domain'
 import type { Session } from '../session'
 import { pendingMouthTurns } from '../session'
+import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from './connector-client'
+import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
+import { readProfile } from './profile'
 import type { StaffStore, TurnReceipt } from './store'
 import { buildWorkingSet, queryFirst, type ChatTurn } from './working-set'
 
@@ -139,7 +142,9 @@ export async function ensureMouth(
         continue
       }
       const claims = store.recall(turn.userText)
-      const recalled = queryFirst(turn.userText, claims)
+      const attached = store.attachmentsForItem(turn.itemId)
+      const hasVision = attached.some((row) => row.kind === 'image')
+      const recalled = hasVision ? null : queryFirst(turn.userText, claims)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
         hooks.onComplete(turn.agentId, recalled)
@@ -156,6 +161,8 @@ export async function ensureMouth(
         agent,
         thread: session.threads[turn.agentId],
         claims,
+        rules: readProfile(turn.agentId)?.rules,
+        attachments: attached,
       })
       let spoken = ''
       let usage = unknownUsage()
@@ -197,21 +204,21 @@ export async function chatOpenRouter(
   messages: ChatTurn[],
   key: string,
   model: string,
+  seams?: Pick<ConnectorFetchSeams, 'fetch' | 'home'>,
 ): Promise<ChatResult> {
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${key}`,
-      'Content-Type': 'application/json',
-      'HTTP-Referer': 'https://github.com/professorpalmer',
-      'X-Title': 'Automaton',
+  const response = await connectorFetch(
+    OPENROUTER_ID,
+    OPENROUTER_CHAT_PATH,
+    {
+      method: 'POST',
+      body: JSON.stringify({
+        model,
+        messages,
+        max_tokens: 280,
+      }),
     },
-    body: JSON.stringify({
-      model,
-      messages,
-      max_tokens: 280,
-    }),
-  })
+    { fetch: seams?.fetch, home: seams?.home, bearer: key },
+  )
   if (!response.ok) {
     throw new Error(`openrouter ${response.status}`)
   }

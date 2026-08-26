@@ -5,6 +5,7 @@ import {
   emptyThreads,
   isMouthBusy,
   jobKindFor,
+  jobKindForKit,
   looksLikeJob,
   mentionedAgentIds,
   needsFanoutConfirm,
@@ -49,6 +50,17 @@ describe('mouth vs job', () => {
       'analyze',
     )
     expect(jobKindFor('kernel', 'Look up why Send stays Send in Automaton staff.')).toBe('analyze')
+  })
+
+  test('kit policy: coordinator and blank never job; lookup never implements', () => {
+    const job = 'Kernel, the mention insert breaks undo on the composer.'
+    const lookup = 'Look up why Send stays Send in Automaton staff.'
+    expect(jobKindForKit('coordinator', job)).toBeNull()
+    expect(jobKindForKit('blank', job)).toBeNull()
+    expect(jobKindForKit('lookup', job)).toBe('analyze')
+    expect(jobKindForKit('lookup', lookup)).toBe('analyze')
+    expect(jobKindForKit('code', job)).toBe('implement')
+    expect(jobKindForKit('code', lookup)).toBe('analyze')
   })
 
   test('threads are per agent', () => {

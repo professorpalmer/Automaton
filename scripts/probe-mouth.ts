@@ -10,6 +10,7 @@ import {
   type ChatFn,
 } from '../src/runtime/mouth'
 import { openStaffStore, type LedgerMetrics, type TurnReceipt } from '../src/runtime/store'
+import { claimTaskKey } from '../src/runtime/working-set'
 import { completeMouth, pendingMouthTurns, send } from '../src/session'
 
 const PRODUCT_ROOT = join(import.meta.dir, '..')
@@ -136,12 +137,15 @@ export async function runMouthProbe(input?: {
 
   store.remember({
     ownerAgentId: 'kernel',
-    text: 'Insert undo is restored.',
+    text: 'The ledger replay is deterministic.',
     source: 'job',
     jobId: 'job_probe_seed',
+    taskKey: claimTaskKey({ ownerAgentId: 'kernel', kind: 'analyze', goal: 'ledger replay' }),
+    artifactKind: 'analyze',
+    freshness: 'fresh',
   })
 
-  session = send(session, 'what did Kernel find about insert undo')
+  session = send(session, 'what did Kernel find about ledger replay')
   const recallTurn = pendingMouthTurns(session)[0]
   let recallSpoken = ''
   let recallFailed = false

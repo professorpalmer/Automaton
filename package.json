@@ -10,6 +10,7 @@
     "start": "bun src/main.tsx",
     "test": "bun test",
     "doctor": "bun scripts/doctor.ts",
+    "bake:marks": "bun scripts/bake-marks.ts",
     "probe:kernel": "bun scripts/probe-kernel.ts",
     "probe:mouth": "bun scripts/probe-mouth.ts"
   },

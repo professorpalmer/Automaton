@@ -19,6 +19,7 @@ Click Kernel. Send a long fix request. The strip shows `Kernel · implement · �
 - Kind routing: `tests/domain.test.ts`, `tests/session.test.ts`
 - Config/sandbox: `tests/pm.test.ts` (`writeImplementConfig`, worktree seed)
 - Analyze live attach remains `bun scripts/probe-kernel.ts` (read-only). Nested Cursor-agent CLI implement hits SDK `status:error`; the native Automaton window is the spawn host.
+- A native flying implement handle is still required for a complete Michael walkthrough; the current live PM probe is recorded as failed rather than simulated.
 
 ## Gotchas
 

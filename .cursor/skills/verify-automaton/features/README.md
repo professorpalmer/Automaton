@@ -11,3 +11,6 @@ Automaton GPUIX staff. Isolated from Marionette Home and ToyVendor boxes.
 - [Kernel Puppetmaster analyze](./kernel-pm.md)
 - [Kernel implement-in-sandbox](./kernel-implement.md)
 - [Research lookup](./research-lookup.md)
+- [Header inspector](./inspector.md)
+- [Usage and settings](./ledger.md)
+- [Sister blobs](./blobs.md)

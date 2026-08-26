@@ -31,14 +31,61 @@ export const T = {
     inset: 5,
   },
   size: {
-    dot: 8,
     badge: 16,
+  },
+  staff: {
+    face: '#C8C8C8',
+  },
+  kernel: {
+    face: '#8FBF8F',
+  },
+  research: {
+    face: '#8FA8C8',
+  },
+  catalog: {
+    black: '#000000',
+    brown: '#936439',
+    red: '#FF263C',
+    orange: '#FF6700',
+    yellow: '#FF9800',
+    green: '#00C972',
+    cyan: '#00BCA6',
+    blue: '#1084FE',
+    violet: '#9159FE',
+    magenta: '#FF309B',
+    gray: '#777777',
+  },
+  blob: {
+    size: 28,
+    slot: 32,
+    enterSize: 20,
+    selectedLift: -2,
+    chewMs: 320,
+    breatheMs: 2000,
+    stagger: 0.05,
+    hover: 0.7,
+    active: 0.55,
+  },
+  attach: {
+    thumb: 96,
+    barMs: 0.16,
+  },
+  inspector: {
+    width: 280,
+  },
+  jobStrip: {
+    height: 44,
+  },
+  window: {
+    width: 1180,
+    height: 820,
+    trafficLightX: 16,
+    trafficLightY: 17,
   },
   radius: {
     sm: 6,
     md: 10,
     lg: 14,
-    dot: 4,
     badge: 8,
   },
   type: {
@@ -54,6 +101,14 @@ export const T = {
   },
   motion: {
     sidebarMs: 200,
+    blob: 0.22,
+    enter: 0.28,
+    strip: 0.2,
+    pane: 0.2,
+    selected: 0.16,
+    unread: 0.2,
+    chew: 0.32,
+    breathe: 2,
   },
   layout: {
     sidebarWidth: 252,
