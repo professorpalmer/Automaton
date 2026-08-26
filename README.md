@@ -2,8 +2,7 @@
 
 A GPUI window of named automata. They speak, then dispatch. Puppetmaster
 runs jobs. Workers stay out of chat. One local Docker Linux is the shared
-computer; each automaton is a screen on that box, not a VM. This repository
-is that desktop app. It is not a hosted org-box or a Render tenant stamp.
+computer; each automaton is a screen on that box, not a VM.
 
 ## Docs
 
