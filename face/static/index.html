@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Automaton</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="desk">
+    <header class="mast">
+      <p class="wordmark">Automaton</p>
+      <p class="role">Chief of staff · Soldiers' Angels</p>
+    </header>
+    <main class="stage">
+      <section class="preview" id="preview" hidden>
+        <iframe id="product-frame" title="Shipped tool"></iframe>
+        <button type="button" class="rewind" id="undo" hidden>Undo</button>
+      </section>
+      <ol class="talk" id="talk" aria-live="polite">
+        <li class="anchor" id="talk-anchor" aria-hidden="true"></li>
+      </ol>
+    </main>
+    <form class="compose" id="compose">
+      <div class="well">
+        <div class="thumbs" id="thumbs" hidden></div>
+        <label class="field">
+          <span class="sr">Message</span>
+          <textarea id="brief" name="brief" rows="3" placeholder="What do you need built? Drop the files you have — a workbook, a screenshot, a sample."></textarea>
+        </label>
+        <div class="compose-row">
+          <label class="attach">
+            <input id="files" type="file" accept=".xlsx,.xlsm,.xls,.csv,.pdf,.docx,image/*" multiple />
+            Add files
+          </label>
+          <span class="hint" id="send-hint">Send Cmd+Enter · Esc clears files</span>
+          <button type="submit" id="send">Send</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
