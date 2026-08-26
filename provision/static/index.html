@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#0c0d0c" />
+  <meta name="description" content="Automaton is a chief of staff that ships the next tool. You ask. The team builds. The tool lands live on your Render." />
+  <title>Automaton</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/site.css" />
+</head>
+<body>
+  <a class="skip" href="#request">Request a box</a>
+  <main>
+    <section class="hero">
+      <div class="field" aria-hidden="true">
+        <div class="field-stage">
+          <img
+            class="field-photo"
+            src="/static/hero-field.jpg"
+            alt=""
+            width="1536"
+            height="1024"
+            fetchpriority="high"
+          />
+        </div>
+        <div class="field-scrim"></div>
+        <div class="field-bloom"></div>
+      </div>
+      <div class="hero-copy">
+        <h1 class="brand">Automaton</h1>
+        <p class="line">A chief of staff that ships the next tool.</p>
+        <p class="lede">You ask. The team builds. The next tool lands live on your Render.</p>
+        <p class="cta">
+          <a href="#request">Request a box</a>
+        </p>
+      </div>
+    </section>
+
+    <section class="block" id="box">
+      <h2>Your box. Your tools.</h2>
+      <p>A private Automaton on your Render. You ask once. The team builds. You get the live URL. We keep the box current.</p>
+    </section>
+
+    <section class="block request" id="request">
+      <h2>Request a box</h2>
+      <p>Name the org. We stand the box up and send the link.</p>
+      <form id="inquiry">
+        <label for="org">Organization</label>
+        <input id="org" name="org" autocomplete="organization" required />
+        <label for="name">Your name</label>
+        <input id="name" name="name" autocomplete="name" required />
+        <label for="email">Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" required />
+        <label for="need">What should the first tool do?</label>
+        <textarea id="need" name="note" rows="3"></textarea>
+        <button type="submit" id="send">Send request</button>
+        <p class="note" id="note" role="status" aria-live="polite" hidden></p>
+      </form>
+    </section>
+  </main>
+  <footer>
+    <a href="/admin">Admin</a>
+  </footer>
+  <script src="/static/site.js"></script>
+</body>
+</html>

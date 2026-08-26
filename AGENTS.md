@@ -1,31 +1,70 @@
-# ToyVendor
+# Automaton
 
-Unshipped product. Scaffold only. Add as we go.
+This repository contains the Automaton product and its native GPUIX staff
+surface. The staff surface is not Marionette, ToyVendor, or a second
+orchestrator.
 
-## What this is
+## Native staff
 
-A harness face over a durable Puppetmaster team for one org. First tenant is Soldiers' Angels. The operator talks to a chief of staff.
+Named mouths (Staff, Kernel, Research) have their own threads. Agents speak,
+then dispatch. Puppetmaster is the only job runtime. Workers never appear as
+chat.
 
-Default loop is **full-auto then steer**: a long Full-Auto Engineering wave (same contract as the skill + Marionette backend) ships a finished product and reports back. After that, the operator steers in real time — screenshots, "turn that button green" — and each turn implements the asked change. Infrastructure stays hidden.
+The native face is React authored and rendered through Zed GPUI using
+`@gpuix/react`. The domain in `src/domain.ts` and `src/session.ts` is pure.
+Jobs live in `src/runtime/pm.ts` and `src/runtime/jobs.ts`; implement workers
+use a sandbox cwd and never the live checkout. Tokens live in `src/tokens.ts`.
 
-## Gates
+Run the native staff surface with:
 
-- Client pays tokens (BYOK). Never bundle Cary's keys. Never sell inference.
-- Pin DeepSeek V4 Flash as the cheap floor. Escalate once if needed, then write the rule so Flash owns the rerun.
-- Secrets stay in a vault, never in the wiki, never in git.
-- Data-access-first: env vars do not grant FormAssembly / SharePoint / Salesforce.
-- Default job is long full-auto: waves, wave-boundary verification, report back. Do not ask the operator for routine approval between waves.
-- After report-back, screenshot steer is first-class. Hide swarms / CodeGraph / wiki ingest from the operator.
-- Always-on vision. Screenshots must always work. Permanent sidecar when the floor model is text-only (Flash). Native pixels if a later workhorse is vision-capable. Never refuse or silently drop an image.
-- Proof is not "IT team for $100." Proof is: Flash + their key + durable wiki ships the next SA tool without Cary in the loop, a non-technical person can screenshot-steer one visible change, and the same job again is near $0 billed.
-- Do not ship. Do not stand up multi-tenant. Do not claim hundreds of clients.
+```sh
+bun install
+bun test
+bun --hot src/main.tsx
+```
 
-## Layout
+`bun scripts/probe-kernel.ts` exercises a read-only PM analyze launch.
+`bun scripts/probe-mouth.ts` exercises the bounded OpenRouter mouth and its
+zero-call query path.
 
-- `face/` — Grokbot-polish UI later (roster, chief of staff). Steal Hermes design, own the code.
-- `harness/` — Puppetmaster workers, receipts, warm cache later.
-- `tenant/` — per-org isolation later. `tenant/secrets/` is gitignored.
+Native invariants:
 
-## Wiki
+- Running a job is not mouth busy. Composer stays Send.
+- Fan-out to 3+ agents needs confirmation. Dismiss means no send.
+- Completion wakes the owning mouth. It is unread when the user is on another
+  thread.
+- No job ids in spoken lines unless the user asked.
+- Do not commit, push, or rename GitHub remotes unless the owner asked.
 
-Founding brief: ingest `2026-08-14-toyvendor-founding`. Cross-link Soldiers' Angels, Data-Access-First Automation, Non-Technical Operator UI, Wiki Credential Exclusion, Durable State Architecture, Cost Lever Durable State Caching, Aligned Incentives Positioning, Product Honesty Gate.
+## Existing org-box host
+
+The Python org-box host remains under `face/`, `harness/`, and `provision/`.
+It is a separate product surface in this repository and should not be
+conflated with the native `src/` runtime.
+
+Its first tenant is Soldiers' Angels. The operator talks to a chief of staff;
+the host stamps isolated boxes onto the client's Render. It is not a
+multi-tenant claim.
+
+Host gates:
+
+- Clients pay their own tokens, Render, and git costs. Never bundle Cary's
+  keys or sell inference.
+- Secrets stay in the box vault, never in the wiki or git.
+- Environment variables do not grant FormAssembly, SharePoint, or Salesforce
+  access.
+- Product memory lives in the org-box catalog, not Portable LLM Wiki.
+- Do not ship or claim hundreds of clients without the corresponding proof.
+
+Host layout:
+
+- `face/` — chief-of-staff UI.
+- `harness/` — gates, vault, jobs, vision, factory, and steer.
+- `provision/` — host that stamps isolated boxes onto Render.
+- `tenant/soldiers-angels/` — the first isolated org box.
+
+## Shared safety
+
+- The conserved ToyVendor operator box at `~/Projects/ToyVendor` is separate;
+  leave it alone.
+- Do not put secrets in git, the wiki, or public write-ups.
