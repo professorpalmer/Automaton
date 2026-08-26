@@ -12,7 +12,8 @@
     "doctor": "bun scripts/doctor.ts",
     "bake:marks": "bun scripts/bake-marks.ts",
     "probe:kernel": "bun scripts/probe-kernel.ts",
-    "probe:mouth": "bun scripts/probe-mouth.ts"
+    "probe:mouth": "bun scripts/probe-mouth.ts",
+    "prove:durable": "bun scripts/prove-native-durable.ts"
   },
   "dependencies": {
     "@gpuix/react": "^0.4.0",

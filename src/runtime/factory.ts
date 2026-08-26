@@ -1,12 +1,12 @@
-import { existsSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Agent } from '../domain'
-import { nextId } from '../domain'
+import { nextId, type Agent, type HomeBind } from '../domain'
 import type { Session } from '../session'
 import { addLiveAgent, idleOrphanMouths } from '../session'
-import { MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
+import { MARK_BAKE_REV, MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
 import { T } from '../tokens'
 import { deal, markForId, seedOverride } from './deal'
+import { resolveHomePath } from './home'
 import { teardownBrowserDesktop } from './chrome'
 import { ensureDesktop } from './desktop'
 import { automatonHome } from './keys'
@@ -21,6 +21,8 @@ import {
 } from './profile'
 
 const SHIPPED_MARKS = join(import.meta.dir, '..', 'marks')
+
+export const FACTORY_NAME = 'New automaton'
 
 export function catalogHex(tint: string): string {
   if (tint === 'staff') return T.staff.face
@@ -47,10 +49,22 @@ export function resolveFramePath(shape: string, tint: string, frame: MarkFrame, 
 export function ensureMarkFrames(shape: string, tint: string, home = automatonHome()): void {
   const hex = catalogHex(tint)
   const cacheRoot = join(home, 'marks')
+  const stampDir = join(cacheRoot, shape, tint)
+  const stamp = join(stampDir, '.rev')
+  let stamped = ''
+  try {
+    stamped = readFileSync(stamp, 'utf8').trim()
+  } catch {
+    stamped = ''
+  }
+  const stale = stamped !== String(MARK_BAKE_REV)
   for (const frame of MARK_FRAMES) {
-    if (existsSync(resolveFramePath(shape, tint, frame, home))) continue
+    if (existsSync(shippedFramePath(shape, tint, frame))) continue
+    if (!stale && existsSync(cacheFramePath(shape, tint, frame, home))) continue
     writeFrame(cacheRoot, shape, tint, hex, frame)
   }
+  mkdirSync(stampDir, { recursive: true })
+  writeFileSync(stamp, String(MARK_BAKE_REV))
 }
 
 export function liveAgentFromProfile(profile: AgentProfile): Agent {
@@ -74,11 +88,11 @@ export function createAgent(input?: {
   const mark = seedOverride(id) ?? deal(id)
   const profile: AgentProfile = {
     id,
-    name: input?.name?.trim() || 'New Bot',
+    name: input?.name?.trim() || FACTORY_NAME,
     title: '',
     description: '',
     rules: '',
-    kit: input?.kit ?? 'blank',
+    kit: input?.kit ?? 'code',
     avatarShape: mark.shape,
     avatarColor: mark.color,
     namedBy: input?.name?.trim() ? 'user' : 'app',
@@ -86,11 +100,35 @@ export function createAgent(input?: {
     notifyOnUpdates: true,
     hiddenFromRail: false,
     createdAt: new Date().toISOString(),
+    homeRepo: '',
+    homePath: '',
   }
   writeProfile(profile, home)
   ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)
   ensureDesktop(profile.id, home)
   return { agent: liveAgentFromProfile(profile), profile }
+}
+
+export function applyHomeBinds(
+  binds: HomeBind[],
+  home = automatonHome(),
+): Agent[] {
+  const live: Agent[] = []
+  for (const bind of binds) {
+    const profile = readProfile(bind.agentId, home)
+    if (!profile) continue
+    const path = resolveHomePath(bind.slug) ?? ''
+    const next = {
+      ...profile,
+      homeRepo: bind.slug,
+      homePath: path,
+      title: bind.slug,
+      description: `On ${bind.slug} for product work. Not Automaton.`,
+    }
+    writeProfile(next, home)
+    live.push(liveAgentFromProfile(next))
+  }
+  return live
 }
 
 export function destroyAgent(id: string, home = automatonHome()): void {
@@ -104,11 +142,24 @@ export function markForAgent(id: string, home = automatonHome()): { shape: strin
 
 export function hydrateSession(session: Session, home = automatonHome()): Session {
   ensureSeedProfiles(home)
-  let next = session
+  const onDisk = new Set(listProfileIds(home))
+  onDisk.add('staff')
+  const agents = session.agents.filter((agent) => onDisk.has(agent.id))
+  const threads = Object.fromEntries(
+    Object.entries(session.threads).filter(([id]) => onDisk.has(id)),
+  )
+  const activeAgentId = agents.some((agent) => agent.id === session.activeAgentId)
+    ? session.activeAgentId
+    : 'staff'
+  const jobs = session.jobs.filter((job) => onDisk.has(job.ownerAgentId))
+  let next: Session = { ...session, agents, threads, jobs, activeAgentId }
   for (const id of listProfileIds(home)) {
     const profile = readProfile(id, home)
     if (!profile) continue
     ensureDesktop(id, home)
+    if (profile.avatarShape && profile.avatarColor) {
+      ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)
+    }
     const live = liveAgentFromProfile(profile)
     if (!next.agents.some((agent) => agent.id === id)) {
       next = addLiveAgent(next, live, false)

@@ -1,17 +1,17 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests } from '../src/domain'
+import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import {
   addLiveAgent,
-  askDelete,
   attachPmJob,
   completeJob,
   completeMouth,
   confirmFanout,
-  dismissDelete,
   dropLiveAgent,
   dropPendingPath,
   failJob,
+  failMouth,
   idleOrphanMouths,
+  pendingMouthTurns,
   queuePaths,
   send,
   setActive,
@@ -21,10 +21,11 @@ import {
 
 function fresh(): Session {
   resetIdsForTests()
+  const agents = staffWithSisters()
   return {
-    agents: DEFAULT_AGENTS,
+    agents,
     activeAgentId: 'staff',
-    threads: emptyThreads(DEFAULT_AGENTS),
+    threads: emptyThreads(agents),
     jobs: [],
     pendingFanout: null,
   }
@@ -98,13 +99,12 @@ describe('teammate session', () => {
     expect(s.threads.kernel.unread).toBeGreaterThan(0)
   })
 
-  test('Staff never dispatches a job; mouth waits for durable reply', () => {
+  test('Staff books implement when the line is a job and no sister is named', () => {
     const s = send(fresh(), 'Kernel, the ledger replay breaks on the composer path.')
-    expect(s.jobs).toHaveLength(0)
-    expect(s.threads.staff.mouth).toBe('answer')
-    expect(s.threads.staff.items.some((item) => item.kind === 'msg' && item.from === 'agent')).toBe(
-      false,
-    )
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0].ownerAgentId).toBe('staff')
+    expect(s.jobs[0].kind).toBe('implement')
+    expect(s.threads.staff.mouth).toBe('working')
   })
 
   test('Research lookup dispatches analyze, not implement', () => {
@@ -146,7 +146,7 @@ describe('teammate session', () => {
     expect(s.threads.agent_1.mouth).toBe('answer')
   })
 
-  test('delete confirm then drop removes the thread', () => {
+  test('drop removes a sister without changing the focused mouth', () => {
     const bot = {
       id: 'agent_1',
       name: 'New Bot',
@@ -157,14 +157,10 @@ describe('teammate session', () => {
     }
     let s = addLiveAgent(fresh(), bot, false)
     expect(s.activeAgentId).toBe('staff')
-    s = askDelete(s, 'agent_1')
-    expect(s.pendingDelete).toBe('agent_1')
-    s = dismissDelete(s)
-    expect(s.pendingDelete).toBeNull()
-    s = askDelete(s, 'agent_1')
     s = dropLiveAgent(s, 'agent_1')
     expect(s.agents.map((agent) => agent.id)).toEqual(['staff', 'kernel', 'research'])
     expect(s.threads.agent_1).toBeUndefined()
+    expect(s.activeAgentId).toBe('staff')
   })
 
   test('image-only send lands attachment ids and a blank kit still answers', () => {
@@ -175,6 +171,7 @@ describe('teammate session', () => {
     if (item.kind === 'msg') {
       expect(item.text).toBe('')
       expect(item.attachmentIds).toEqual(['att_1'])
+      expect(typeof item.at).toBe('number')
     }
     expect(s.jobs).toHaveLength(0)
     expect(s.threads.staff.mouth).toBe('answer')
@@ -198,5 +195,238 @@ describe('teammate session', () => {
     s = idleOrphanMouths(s)
     expect(s.threads.staff.mouth).toBe('idle')
     expect(s.threads.kernel.mouth).toBe('working')
+  })
+
+  test('Staff ping asks Research without a job and skips OpenRouter on Staff', () => {
+    const s = send(fresh(), 'Can you ask research if he is online?')
+    expect(s.pendingFanout).toBeNull()
+    expect(s.jobs).toHaveLength(0)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.activeAgentId).toBe('staff')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Asking Research.',
+      ),
+    ).toBe(true)
+    expect(s.threads.staff.items.at(-1)?.kind).toBe('relay')
+    expect(s.threads.research.mouth).toBe('answer')
+    expect(
+      s.threads.research.items.some(
+        (item) => item.kind === 'agent_note' && item.fromId === 'staff' && item.text === 'The operator asked if you are around.',
+      ),
+    ).toBe(true)
+  })
+
+  test('Staff see-if a factory mouth delivers to that thread, not a Staff OpenRouter turn', () => {
+    const pm = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), pm]
+    resetIdsForTests()
+    const s = send(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      'Can you see if Puppetmaster has any open issues or PRs for us?',
+    )
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Puppetmaster.',
+      ),
+    ).toBe(true)
+    expect(s.threads.agent_pm.mouth).toBe('answer')
+    expect(
+      s.threads.agent_pm.items.some(
+        (item) => item.kind === 'agent_note' && item.fromId === 'staff',
+      ),
+    ).toBe(true)
+  })
+
+  test('Staff two-name lookup dispatches without a fan-out card', () => {
+    const s = send(fresh(), '@Kernel @Research look this up')
+    expect(s.pendingFanout).toBeNull()
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Kernel and Research.',
+      ),
+    ).toBe(true)
+    expect(s.threads.kernel.items.length).toBeGreaterThan(0)
+    expect(s.threads.research.items.length).toBeGreaterThan(0)
+  })
+
+  test('Staff has-Research lookup books an analyze job on Research', () => {
+    const s = send(fresh(), 'Have Research look up why Send stays Send in Automaton staff.')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0].ownerAgentId).toBe('research')
+    expect(s.jobs[0].kind).toBe('analyze')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.research.mouth).toBe('working')
+  })
+
+  test('Research ping return beat lands on Staff without a job id', () => {
+    let s = send(fresh(), 'Can you ask research if he is online?')
+    s = completeMouth(s, 'research', 'Yes, I am here.')
+    expect(s.threads.research.mouth).toBe('idle')
+    const from = s.threads.staff.items.find((item) => item.kind === 'relay' && item.lane === 'from')
+    expect(from?.kind === 'relay' && from.peerId === 'research' && from.text === 'Yes, I am here.').toBe(true)
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(s.threads.staff.items.at(-1)?.kind).toBe('relay')
+    const pending = pendingMouthTurns(s)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.agentId).toBe('staff')
+    expect(pending[0]?.mode).toBe('assess')
+    expect(pending[0]?.userText).toContain('Research answered:')
+    s = completeMouth(
+      s,
+      'staff',
+      'Research is online. What would you like the research automaton to run?',
+    )
+    const staffLast = s.threads.staff.items.at(-1)
+    expect(staffLast?.kind).toBe('msg')
+    if (staffLast?.kind === 'msg') {
+      expect(staffLast.from).toBe('agent')
+      expect(staffLast.text).toBe('Research is online. What would you like the research automaton to run?')
+      expect(staffLast.text).not.toBe('Yes, I am here.')
+      expect(staffLast.text).not.toMatch(/job_/)
+    }
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some((item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'research'),
+    ).toBe(true)
+  })
+
+  test('Staff-dispatched Research job returns a short beat on Staff', () => {
+    let s = send(fresh(), 'Have Research look up why Send stays Send in Automaton staff.')
+    const jobId = s.jobs[0].id
+    s = completeJob(s, jobId, 'Send stays Send while a job flies.')
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(s.threads.staff.items.at(-1)?.kind).toBe('relay')
+    expect(
+      s.threads.staff.items.some(
+        (item) =>
+          item.kind === 'relay' &&
+          item.lane === 'from' &&
+          item.peerId === 'research' &&
+          item.text === 'Send stays Send while a job flies.',
+      ),
+    ).toBe(true)
+    s = completeMouth(s, 'staff', 'Research found that Send stays Send. Ask them to check the composer next.')
+    const staffLast = s.threads.staff.items.at(-1)
+    expect(staffLast?.kind).toBe('msg')
+    if (staffLast?.kind === 'msg') {
+      expect(staffLast.from).toBe('agent')
+      expect(staffLast.text).toBe('Research found that Send stays Send. Ask them to check the composer next.')
+      expect(staffLast.text).not.toBe('Send stays Send while a job flies.')
+    }
+  })
+
+  test('Staff assess fail falls back without parroting the sister', () => {
+    let s = send(fresh(), 'Can you ping research?')
+    s = completeMouth(s, 'research', "I'm here to assist you. How can I help?")
+    s = failMouth(s, 'staff', 'Need an OpenRouter key.')
+    const staffLast = s.threads.staff.items.at(-1)
+    expect(staffLast?.kind).toBe('msg')
+    if (staffLast?.kind === 'msg') {
+      expect(staffLast.text).toBe('Research is on the rail.')
+      expect(staffLast.text).not.toBe("I'm here to assist you. How can I help?")
+      expect(staffLast.text).not.toBe('Need an OpenRouter key.')
+    }
+  })
+
+  test('Staff create-automaton line acks and does not steal focus', () => {
+    const s = send(fresh(), 'Create an automaton for Marionette and one for Puppetmaster')
+    expect(s.activeAgentId).toBe('staff')
+    expect(s.jobs).toHaveLength(0)
+    expect(s.threads.staff.mouth).toBe('idle')
+    const staffLast = s.threads.staff.items.at(-1)
+    expect(staffLast?.kind).toBe('msg')
+    if (staffLast?.kind === 'msg') {
+      expect(staffLast.text).toBe('Created Marionette and Puppetmaster.')
+    }
+  })
+
+  test('Staff bind homes pings the product mouths and skips jobs', () => {
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const puppetmaster = {
+      id: 'agent_p',
+      name: 'Puppetmaster',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    let s = addLiveAgent(fresh(), marionette, false)
+    s = addLiveAgent(s, puppetmaster, false)
+    s = send(
+      s,
+      'Associate Puppetmaster and Marionette with https://github.com/example/Puppetmaster and https://github.com/example/marionette/',
+    )
+    expect(s.activeAgentId).toBe('staff')
+    expect(s.jobs).toHaveLength(0)
+    expect(
+      s.threads.staff.items.some(
+        (item) =>
+          item.kind === 'msg' &&
+          item.from === 'agent' &&
+          item.text ===
+            "Bound. Puppetmaster's home is example/Puppetmaster. Marionette's is example/marionette.",
+      ),
+    ).toBe(true)
+    expect(s.threads.agent_p.mouth).toBe('answer')
+    expect(s.threads.agent_m.mouth).toBe('answer')
+    expect(
+      s.threads.agent_p.items.some(
+        (item) =>
+          item.kind === 'agent_note' &&
+          item.text === 'Your home is example/Puppetmaster. Work for this product goes there, not Automaton.',
+      ),
+    ).toBe(true)
+  })
+
+  test('Staff rename line acks and keeps focus', () => {
+    const bot = {
+      id: 'agent_9',
+      name: 'New Bot',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    let s = addLiveAgent(fresh(), bot, false)
+    s = send(s, 'rename New Bot to Puppetmaster')
+    expect(s.activeAgentId).toBe('staff')
+    expect(s.agents.find((agent) => agent.id === 'agent_9')?.name).toBe('Puppetmaster')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Renamed. New Bot is now Puppetmaster.',
+      ),
+    ).toBe(true)
+    s = addLiveAgent(fresh(), bot, false)
+    s = send(s, "Rename the 'New Bot' to Puppetmaster please.")
+    expect(s.agents.find((agent) => agent.id === 'agent_9')?.name).toBe('Puppetmaster')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Renamed. New Bot is now Puppetmaster.',
+      ),
+    ).toBe(true)
   })
 })

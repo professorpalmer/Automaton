@@ -2,8 +2,9 @@
 
 export const T = {
   canvas: '#141414',
-  sidebar: '#161616',
-  raised: '#1F1F1F',
+  sidebar: '#181818',
+  raised: '#222222',
+  selected: '#2A2A2A',
   composer: '#1C1C1C',
   overlay: '#E6EAF214',
   overlayStrong: '#E6EAF224',
@@ -11,13 +12,13 @@ export const T = {
   border: '#E6EAF218',
   borderStrong: '#E6EAF230',
   sidebarBorder: '#2A2A2A',
-  text: '#E8E8E8',
-  secondary: '#A8A8A8',
-  tertiary: '#7A7A7A',
+  text: '#F2F2F2',
+  secondary: '#B4B4B4',
+  tertiary: '#8A8A8A',
   ghost: '#5A5A5A',
   accent: '#D4D4D4',
   inverse: '#ECECEC',
-  onInverse: '#161616',
+  onInverse: '#181818',
   danger: '#C45C5C',
   space: {
     xxs: 2,
@@ -37,10 +38,10 @@ export const T = {
     face: '#C8C8C8',
   },
   kernel: {
-    face: '#8FBF8F',
+    face: '#00C972',
   },
   research: {
-    face: '#8FA8C8',
+    face: '#1084FE',
   },
   catalog: {
     black: '#000000',
@@ -69,6 +70,11 @@ export const T = {
   attach: {
     thumb: 96,
     barMs: 0.16,
+  },
+  desk: {
+    viewH: 158,
+    stageMinH: 420,
+    pollMs: 250,
   },
   inspector: {
     width: 280,
@@ -111,10 +117,26 @@ export const T = {
     breathe: 2,
   },
   layout: {
+    sidebarMin: 64,
+    sidebarCompact: 140,
     sidebarWidth: 252,
+    sidebarMax: 380,
+    railHandle: 8,
     titlebarHeight: 48,
     contentMax: 720,
     trafficLightClearance: 86,
+    menuMin: 160,
+    menuMax: 280,
+  },
+  feed: {
+    gutter: 24,
+    stack: 8,
+    turn: 24,
+    mark: 16,
+    padX: 16,
+    padY: 12,
+    max: 640,
+    clockGapMs: 15 * 60 * 1000,
   },
   stroke: {
     none: 0,

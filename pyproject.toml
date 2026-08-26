@@ -1,7 +1,7 @@
 [project]
 name = "automaton"
 version = "0.1.0"
-description = "Org box of employees. First tenant is Soldiers' Angels. Unshipped."
+description = "Org-box host and native staff. Isolated tenant boxes; clients pay their own inference."
 requires-python = ">=3.11"
 dependencies = [
   "fastapi>=0.115",
@@ -16,7 +16,6 @@ dev = ["pytest>=8.0", "httpx>=0.27"]
 [project.scripts]
 automaton = "face.app:main"
 automaton-host = "provision.app:main"
-toyvendor = "face.app:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -7,12 +7,15 @@ import {
   captureScreen,
   chromeAvailable,
   chromeBinary,
+  chromeLaunch,
+  chromeMode,
   devtoolsPath,
   ensureBrowser,
   readHandle,
   teardownBrowserDesktop,
   type ChromeSeams,
 } from '../src/runtime/chrome'
+import { BOX_NAME } from '../src/runtime/computer'
 import { desktopDir, desktopPreview, ensureDesktop, teardownDesktop } from '../src/runtime/desktop'
 
 const TINY_PNG = Buffer.from(
@@ -30,6 +33,23 @@ describe('browser helper', () => {
   test('missing binary is false and does not throw', () => {
     expect(chromeAvailable({ binary: null })).toBe(false)
     expect(chromeBinary({ binary: null })).toBeNull()
+    expect(chromeMode({ binary: null })).toBe('none')
+  })
+
+  test('box launch is docker exec on a shared display, not a second VM', () => {
+    const home = tmpHome()
+    const launch = chromeLaunch({ agentId: 'kernel', port: 9333, mode: 'box', home })
+    expect(launch.bin).toBe('docker')
+    expect(launch.display).toBe(2)
+    expect(launch.argv).toContain(BOX_NAME)
+    expect(launch.argv.join(' ')).toContain('DISPLAY=:2')
+    expect(launch.argv.join(' ')).toContain('/home/box/desktops/kernel/box-chrome')
+    expect(launch.argv.join(' ')).toContain('--no-sandbox')
+    expect(launch.argv.join(' ')).toContain('--disable-dev-shm-usage')
+    expect(launch.argv.join(' ')).not.toContain('Xvfb')
+    expect(launch.argv.join(' ')).not.toContain('novnc')
+    expect(launch.argv.join(' ')).not.toContain('headless')
+    rmSync(home, { recursive: true, force: true })
   })
 
   test('fake child records pid/port and capture writes a png', async () => {
@@ -56,8 +76,8 @@ describe('browser helper', () => {
       },
     }
     const handle = await ensureBrowser('staff', home, seams)
-    expect(handle).toEqual({ pid: 4242, port: 9333 })
-    expect(readHandle('staff', home)).toEqual({ pid: 4242, port: 9333 })
+    expect(handle).toEqual({ pid: 4242, port: 9333, display: 1, via: 'host' })
+    expect(readHandle('staff', home)).toEqual({ pid: 4242, port: 9333, display: 1, via: 'host' })
     const dest = await captureScreen('staff', home, seams)
     expect(dest).toBe(join(desktopDir('staff', home), 'screen.png'))
     expect(existsSync(dest!)).toBe(true)

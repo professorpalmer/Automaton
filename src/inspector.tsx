@@ -1,12 +1,19 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import type { Agent, AgentKit, JobHandle } from './domain'
+import { useGpuix } from '@gpuix/react'
+import type { Agent, AgentKit } from './domain'
 import type { LedgerMetrics, StaffStore } from './runtime/store'
 import type { AgentProfile } from './runtime/profile'
+import { boxStatus, computerLabel } from './runtime/box'
 import { captureScreen } from './runtime/chrome'
+import { mouthScreen } from './runtime/computer'
+import {
+  captureDesk,
+} from './runtime/desk'
 import { desktopPreview } from './runtime/desktop'
 import { automatonHome } from './runtime/keys'
+import { runningTests } from './runtime/test-env'
 import { listSkills } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
 import { CHAT_THEME, T } from './tokens'
@@ -23,8 +30,9 @@ export function lastMouthClaims(claims: Claim[], ownerAgentId: string, limit = 3
   return claims.filter((claim) => claim.ownerAgentId === ownerAgentId).slice(-limit).reverse()
 }
 
-export function lastMouthJob(jobs: JobHandle[], ownerAgentId: string): JobHandle | undefined {
-  return [...jobs].reverse().find((job) => job.ownerAgentId === ownerAgentId)
+export function computerLine(agentId: string): string {
+  const screen = mouthScreen(agentId)
+  return `${computerLabel(boxStatus())} · display :${screen.display}`
 }
 
 export function formatKnown(
@@ -86,6 +94,26 @@ export function inspectorChord(event: {
   return event.key === 'i' && Boolean(event.modifiers?.cmd && event.modifiers?.shift)
 }
 
+export function quitChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  const key = event.key?.toLowerCase()
+  return Boolean(event.modifiers?.cmd) && !event.modifiers?.shift && !event.modifiers?.alt && (key === 'q' || key === 'w')
+}
+
+export function pasteChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return (
+    event.key?.toLowerCase() === 'v' &&
+    Boolean(event.modifiers?.cmd) &&
+    !event.modifiers?.shift &&
+    !event.modifiers?.alt
+  )
+}
+
 export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId: string }) {
   return (
     <div testId={testId} style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
@@ -107,45 +135,78 @@ export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId
   )
 }
 
+const HIT = {
+  cursor: 'pointer' as const,
+  pointerEvents: 'auto' as const,
+  userSelect: 'none' as const,
+}
+
+function passScrollTo(
+  renderer: { getScrollOffset?: (id: number) => number[] | null; scrollTo?: (id: number, x: number, y: number) => void } | null,
+  node: { id: number } | null,
+  event: { deltaX?: number; deltaY?: number },
+) {
+  if (!renderer?.scrollTo || !node) return
+  const dy = event.deltaY ?? 0
+  if (!dy) return
+  const now = renderer.getScrollOffset?.(node.id) ?? [0, 0]
+  renderer.scrollTo(node.id, now[0], now[1] - dy)
+}
+
 export function Inspector({
   agent,
   profile,
   claims,
-  lastJob,
-  metrics,
   sandboxHint,
   onClose,
   onPatch,
+  controlling = false,
+  onTakeControl,
 }: {
   agent: Agent
   profile?: AgentProfile | null
   claims: Claim[]
-  lastJob?: JobHandle
-  metrics: LedgerMetrics
   sandboxHint: string | null
   onClose: () => void
   onPatch?: (patch: Partial<AgentProfile>) => void
+  controlling?: boolean
+  onTakeControl?: () => void
 }) {
+  const ref = useRef<{ id: number } | null>(null)
+  const { renderer } = useGpuix()
+  const passWheel = (event: { deltaX?: number; deltaY?: number }) => passScrollTo(renderer, ref.current, event)
   const recent = lastMouthClaims(claims, agent.id)
   const kit = profile?.kit ?? 'blank'
   const markLabel = profile ? `${profile.avatarShape} · ${profile.avatarColor}` : ''
   const preview = desktopPreview(agent.id)
   const [screen, setScreen] = useState<string | null>(preview.screen)
+  const [frame, setFrame] = useState(0)
+  const viewRef = useRef<{ id: number } | null>(null)
   const recapture = async () => {
-    const path = await captureScreen(agent.id)
+    const path = captureDesk(agent.id) ?? (await captureScreen(agent.id))
     setScreen(path)
+    if (path) setFrame((n) => n + 1)
   }
   useEffect(() => {
     void recapture()
   }, [agent.id])
+  useEffect(() => {
+    if (runningTests()) return
+    const tick = setInterval(() => {
+      void recapture()
+    }, T.desk.pollMs)
+    return () => clearInterval(tick)
+  }, [agent.id])
   const library = listSkills()
   return (
     <div
+      ref={ref}
       testId="inspector"
       style={{
         width: T.layout.sidebarWidth,
         flexShrink: 0,
-        height: '100%',
+        minHeight: 0,
+        alignSelf: 'stretch',
         display: 'flex',
         flexDirection: 'column',
         backgroundColor: T.sidebar,
@@ -156,55 +217,149 @@ export function Inspector({
         paddingTop: T.space.md,
         paddingBottom: T.space.lg,
         gap: T.space.md,
+        overflowX: 'hidden',
         overflowY: 'scroll',
       }}
     >
-      <PaneHeader title="Inspector" onClose={onClose} closeId="inspector-close" />
+      <PaneHeader title="Inspector" onClose={onClose} closeId="inspector-close" onScroll={passWheel} />
       <div testId="inspector-mouth" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>
-        <div style={{ fontSize: T.type.md, color: T.text }}>{agent.name}</div>
+        {onPatch ? (
+          <textarea
+            testId="inspector-name"
+            value={agent.name}
+            placeholder="Name"
+            minRows={1}
+            maxRows={2}
+            theme={CHAT_THEME}
+            style={{
+              width: '100%',
+              fontSize: T.type.md,
+              lineHeight: T.line.md,
+              color: T.text,
+              backgroundColor: T.composer,
+              borderWidth: T.stroke.hairline,
+              borderColor: T.border,
+              borderRadius: T.radius.sm,
+              paddingLeft: T.space.sm,
+              paddingRight: T.space.sm,
+              paddingTop: T.space.xs,
+              paddingBottom: T.space.xs,
+            }}
+            onScroll={passWheel}
+            onChange={(event) => {
+              const name = (event.value ?? '').trim()
+              if (name) onPatch({ name })
+            }}
+          />
+        ) : (
+          <div style={{ fontSize: T.type.md, color: T.text }}>{agent.name}</div>
+        )}
         <div style={{ fontSize: T.type.sm, color: T.secondary }}>{agent.title}</div>
         <div style={{ fontSize: T.type.sm, color: T.tertiary, lineHeight: T.line.sm }}>{agent.description}</div>
       </div>
+      <Section title="Computer">
+        <div testId="inspector-computer" style={{ fontSize: T.type.sm, color: T.text }}>
+          {computerLine(agent.id)}
+        </div>
+      </Section>
       <Section title="Desktop">
         <div testId="inspector-desktop" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
-          {screen ? (
-            <img
-              src={screen}
-              objectFit="contain"
-              alt=""
-              style={{ width: '100%', height: T.attach.thumb, cursor: 'pointer' }}
+          <div
+            ref={viewRef}
+            testId="desk-view"
+            tabIndex={0}
+            style={{
+              width: '100%',
+              height: T.desk.viewH,
+              backgroundColor: T.canvas,
+              borderRadius: T.radius.sm,
+              overflow: 'hidden',
+              cursor: 'pointer',
+              pointerEvents: 'auto',
+            }}
+            onClick={(event) => {
+              if (event.isRightClick || event.button === 2) return
+              void recapture()
+            }}
+            onScroll={passWheel}
+          >
+            {screen ? (
+              <img
+                key={frame}
+                src={screen}
+                objectFit="contain"
+                alt=""
+                style={{ width: '100%', height: T.desk.viewH, pointerEvents: 'none' }}
+              />
+            ) : (
+              <div
+                style={{
+                  width: '100%',
+                  height: T.desk.viewH,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: T.type.sm,
+                  color: T.tertiary,
+                }}
+              >
+                No screen yet
+              </div>
+            )}
+          </div>
+          <div style={{ fontSize: T.type.xs, color: T.secondary }}>{`${agent.name}'s screen`}</div>
+          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: T.space.xs }}>
+            <div
+              testId="desk-control"
+              style={{
+                paddingLeft: T.space.sm,
+                paddingRight: T.space.sm,
+                paddingTop: T.space.xxs,
+                paddingBottom: T.space.xxs,
+                borderRadius: T.radius.sm,
+                backgroundColor: controlling ? T.inverse : T.raised,
+                color: controlling ? T.onInverse : T.text,
+                fontSize: T.type.xs,
+                ...HIT,
+              }}
+              onClick={() => {
+                onTakeControl?.()
+                void recapture()
+              }}
+              onScroll={passWheel}
+            >
+              {controlling ? 'Release' : 'Take control'}
+            </div>
+            <div
+              testId="desktop-refresh"
+              style={{
+                paddingLeft: T.space.sm,
+                paddingRight: T.space.sm,
+                paddingTop: T.space.xxs,
+                paddingBottom: T.space.xxs,
+                borderRadius: T.radius.sm,
+                backgroundColor: T.raised,
+                fontSize: T.type.xs,
+                color: T.text,
+                ...HIT,
+              }}
               onClick={() => {
                 void recapture()
               }}
-            />
-          ) : (
-            <div style={{ fontSize: T.type.sm, color: T.tertiary }}>No screen yet</div>
-          )}
-          <div
-            testId="desktop-refresh"
-            style={{
-              alignSelf: 'flex-start',
-              paddingLeft: T.space.sm,
-              paddingRight: T.space.sm,
-              paddingTop: T.space.xxs,
-              paddingBottom: T.space.xxs,
-              borderRadius: T.radius.sm,
-              backgroundColor: T.raised,
-              fontSize: T.type.xs,
-              color: T.text,
-              cursor: 'pointer',
-              pointerEvents: 'auto',
-              userSelect: 'none',
-            }}
-            onClick={() => {
-              void recapture()
-            }}
-          >
-            Refresh
+              onScroll={passWheel}
+            >
+              Refresh
+            </div>
           </div>
-          <div style={{ fontSize: T.type.xs, color: T.ghost }}>{preview.dir}</div>
         </div>
       </Section>
+      {profile?.homeRepo ? (
+        <Section title="Home">
+          <div testId="inspector-home" style={{ fontSize: T.type.sm, color: T.text }}>
+            {profile.homeRepo}
+          </div>
+        </Section>
+      ) : null}
       {profile ? (
         <Section title="Mark">
           <div testId="inspector-mark" style={{ fontSize: T.type.sm, color: T.text }}>
@@ -230,11 +385,10 @@ export function Inspector({
                     backgroundColor: selected ? T.inverse : T.raised,
                     color: selected ? T.onInverse : T.text,
                     fontSize: T.type.xs,
-                    cursor: 'pointer',
-                    pointerEvents: 'auto',
-                    userSelect: 'none',
+                    ...HIT,
                   }}
                   onClick={() => onPatch?.({ kit: item })}
+                  onScroll={passWheel}
                 >
                   {item}
                 </div>
@@ -248,7 +402,7 @@ export function Inspector({
           <textarea
             testId="inspector-rules"
             value={profile.rules}
-            placeholder="Standing instructions for this mouth"
+            placeholder="Standing instructions for this automaton"
             minRows={2}
             maxRows={6}
             theme={CHAT_THEME}
@@ -266,6 +420,7 @@ export function Inspector({
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
             }}
+            onScroll={passWheel}
             onChange={(event) => onPatch?.({ rules: event.value ?? '' })}
           />
         </Section>
@@ -295,6 +450,7 @@ export function Inspector({
                         : [...profile.skillIds, skill.id],
                     })
                   }
+                  onScroll={passWheel}
                 >
                   {pinned ? `${skill.name} (pinned)` : skill.name}
                 </div>
@@ -316,14 +472,6 @@ export function Inspector({
           )}
         </div>
       </Section>
-      <Section title="Last job">
-        <div testId="inspector-job" style={{ fontSize: T.type.sm, color: T.text }}>
-          {lastJob ? `${lastJob.kind} · ${lastJob.status}` : 'No job handle'}
-        </div>
-      </Section>
-      <Section title="Usage">
-        <LedgerList metrics={metrics} testId="inspector-ledger" />
-      </Section>
       {sandboxHint ? (
         <Section title="Sandbox">
           <div testId="inspector-sandbox" style={{ fontSize: T.type.sm, color: T.tertiary }}>
@@ -339,10 +487,12 @@ export function PaneHeader({
   title,
   onClose,
   closeId,
+  onScroll,
 }: {
   title: string
   onClose: () => void
   closeId: string
+  onScroll?: (event: { deltaX?: number; deltaY?: number }) => void
 }) {
   return (
     <div
@@ -371,6 +521,7 @@ export function PaneHeader({
           userSelect: 'none',
         }}
         onClick={onClose}
+        onScroll={onScroll}
       >
         X
       </div>

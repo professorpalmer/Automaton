@@ -11,6 +11,7 @@ describe('mouth desktop', () => {
     const dir = ensureDesktop('staff', home)
     expect(dir).toBe(desktopDir('staff', home))
     expect(existsSync(join(dir, 'browser'))).toBe(true)
+    expect(existsSync(join(dir, 'box-chrome'))).toBe(true)
     teardownDesktop('staff', home)
     expect(existsSync(dir)).toBe(false)
     rmSync(home, { recursive: true, force: true })

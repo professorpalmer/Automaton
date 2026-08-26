@@ -1,7 +1,8 @@
 import { existsSync, statSync } from 'node:fs'
 import { describe, expect, test } from 'bun:test'
-import { occupancyAt, SEED_BAKES, framePath, MARK_FRAMES } from '../scripts/bake-marks'
+import { occupancyAt, SEED_BAKES, framePath, MARK_FRAMES, bakeFrame, blackInkCentroid, BAKE_SIZE } from '../scripts/bake-marks'
 import { join } from 'node:path'
+import { T } from '../src/tokens'
 
 const marksRoot = join(import.meta.dir, '../src/marks')
 
@@ -19,6 +20,35 @@ describe('baked seed marks', () => {
     expect(occupancyAt('teardrop', 64, 40)).toBe(1)
     expect(occupancyAt('cloud', 64, 64)).toBe(1)
     expect(occupancyAt('pebble', 2, 2)).toBe(0)
+    expect(occupancyAt('bean', 64, 64)).toBe(1)
+    expect(occupancyAt('egg', 64, 64)).toBe(1)
+    expect(occupancyAt('capsule', 64, 64)).toBe(1)
+    expect(occupancyAt('cylinder', 64, 64)).toBe(1)
+    expect(occupancyAt('gem', 64, 64)).toBe(1)
+    expect(occupancyAt('crystal', 64, 64)).toBe(1)
+    expect(occupancyAt('shield', 64, 64)).toBe(1)
+    expect(occupancyAt('dome', 64, 40)).toBe(1)
+    expect(occupancyAt('arch', 64, 48)).toBe(1)
+    expect(occupancyAt('leaf', 64, 64)).toBe(1)
+  })
+
+  test('catalog fill stays neon and chew darts black eyes', () => {
+    const rest = bakeFrame('pebble', T.catalog.orange, 'rest')
+    const core = (64 * BAKE_SIZE + 64) * 4
+    expect(rest[core]).toBeGreaterThan(200)
+    expect(rest[core + 1]).toBeLessThan(150)
+    expect(rest[core + 2]).toBeLessThan(50)
+    const eyes = blackInkCentroid(rest, BAKE_SIZE)
+    expect(eyes.n).toBeGreaterThan(20)
+    const mid = (Math.round(eyes.y) * BAKE_SIZE + Math.round(eyes.x)) * 4
+    expect(rest[mid] + rest[mid + 1] + rest[mid + 2]).toBeGreaterThan(36)
+    const chewA = blackInkCentroid(bakeFrame('pebble', T.catalog.orange, 'chew-a'), BAKE_SIZE)
+    const chewB = blackInkCentroid(bakeFrame('pebble', T.catalog.orange, 'chew-b'), BAKE_SIZE)
+    expect(chewA.n).toBeGreaterThan(12)
+    expect(chewB.n).toBeGreaterThan(8)
+    expect(Math.abs(chewA.x - chewB.x) + Math.abs(chewA.y - chewB.y)).toBeGreaterThan(2)
+    const cloudEyes = blackInkCentroid(bakeFrame('cloud', T.catalog.cyan, 'rest'), BAKE_SIZE)
+    expect(cloudEyes.n).toBeGreaterThan(20)
   })
 
   test('seed trio writes the five still poses', () => {

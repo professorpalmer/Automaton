@@ -31,7 +31,7 @@ def test_seed_env_is_their_keys_only() -> None:
     assert rows[TENANT_KEY_ENV] == "sk-or-v1-client"
     assert HOST_KEY_ENV not in rows
     with pytest.raises(StampError):
-        seed_env(_spec(extras={HOST_KEY_ENV: "sk-or-v1-cary"}))
+        seed_env(_spec(extras={HOST_KEY_ENV: "sk-or-v1-host"}))
 
 
 def test_stamp_puts_the_box_on_their_render(tmp_path) -> None:

@@ -2,10 +2,19 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
-import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop } from './desktop'
+import { boxStatus, type BoxSeams } from './box'
+import { boxChromeAlive, boxChromeWindowReady, ensureScreen, fitBoxChrome, stopBoxChrome } from './screen'
+import {
+  BOX_CHROME,
+  BOX_NAME,
+  boxProfileDir,
+  mouthScreen,
+} from './computer'
+import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop, boxChromeHostDir } from './desktop'
+import { captureDesk } from './desk'
 import { automatonHome } from './keys'
 
-export type ChromeHandle = { pid: number; port: number }
+export type ChromeHandle = { pid: number; port: number; display?: number; via?: 'box' | 'host' }
 
 export type ChromeSeams = {
   binary?: string | null
@@ -16,6 +25,7 @@ export type ChromeSeams = {
   waitReady?: (port: number) => Promise<void>
   capturePng?: (port: number) => Promise<Uint8Array>
   navigate?: (port: number, url: string) => Promise<void>
+  box?: BoxSeams
 }
 
 const CANDIDATES = [
@@ -37,7 +47,71 @@ export function chromeBinary(seams?: ChromeSeams): string | null {
 }
 
 export function chromeAvailable(seams?: ChromeSeams): boolean {
-  return chromeBinary(seams) !== null
+  if (chromeBinary(seams) !== null) return true
+  if (seams && 'binary' in seams) return false
+  return boxStatus(automatonHome(), seams?.box).running
+}
+
+export function chromeMode(seams?: ChromeSeams, home = automatonHome()): 'box' | 'host' | 'none' {
+  if (seams && 'binary' in seams) return seams.binary ? 'host' : 'none'
+  if (boxStatus(home, seams?.box).running) return 'box'
+  return chromeBinary(seams) ? 'host' : 'none'
+}
+
+export function chromeLaunch(input: {
+  agentId: string
+  port: number
+  mode: 'box' | 'host'
+  home?: string
+  hostBin?: string
+  headed?: boolean
+}): { bin: string; argv: string[]; display: number } {
+  const home = input.home ?? automatonHome()
+  const screen = mouthScreen(input.agentId, home)
+  const headed =
+    input.mode === 'box' || input.headed === true || process.env.AUTOMATON_CHROME_HEADED === '1'
+  const flags = [
+    `--remote-debugging-port=${input.port}`,
+    '--remote-debugging-address=127.0.0.1',
+    '--no-first-run',
+    '--no-default-browser-check',
+    '--disable-sync',
+    ...(headed ? [] : ['--headless=new']),
+    ...(input.mode === 'box'
+      ? [
+          '--no-sandbox',
+          '--disable-dev-shm-usage',
+          '--disable-gpu',
+          '--disable-infobars',
+          '--test-type',
+          '--start-maximized',
+        ]
+      : []),
+    'about:blank',
+  ]
+  if (input.mode === 'box') {
+    const profile = boxProfileDir(input.agentId)
+    return {
+      bin: 'docker',
+      display: screen.display,
+      argv: [
+        'exec',
+        '-d',
+        '-e',
+        `DISPLAY=:${screen.display}`,
+        BOX_NAME,
+        BOX_CHROME,
+        `--user-data-dir=${profile}`,
+        ...flags,
+      ],
+    }
+  }
+  const bin = input.hostBin ?? chromeBinary() ?? 'chrome'
+  return {
+    bin,
+    display: screen.display,
+    argv: [`--user-data-dir=${browserDir(input.agentId, home)}`, ...flags],
+  }
 }
 
 export function devtoolsPath(agentId: string, home = automatonHome()): string {
@@ -48,18 +122,37 @@ export function readHandle(agentId: string, home = automatonHome()): ChromeHandl
   const path = devtoolsPath(agentId, home)
   if (!existsSync(path)) return null
   try {
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as { pid?: unknown; port?: unknown }
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+      pid?: unknown
+      port?: unknown
+      display?: unknown
+      via?: unknown
+    }
     const pid = typeof raw.pid === 'number' ? raw.pid : Number(raw.pid)
     const port = typeof raw.port === 'number' ? raw.port : Number(raw.port)
     if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port) || port <= 0) return null
-    return { pid, port }
+    const display = typeof raw.display === 'number' ? raw.display : undefined
+    const via = raw.via === 'box' || raw.via === 'host' ? raw.via : undefined
+    return { pid, port, display, via }
   } catch {
     return null
   }
 }
 
 function writeHandle(agentId: string, handle: ChromeHandle, home: string): void {
-  writeFileSync(devtoolsPath(agentId, home), `${JSON.stringify({ port: handle.port, pid: handle.pid })}\n`)
+  writeFileSync(devtoolsPath(agentId, home), `${JSON.stringify(handle)}\n`)
+}
+
+function clearBoxProfileLocks(agentId: string, home: string): void {
+  const dir = boxChromeHostDir(agentId, home)
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    const path = join(dir, name)
+    try {
+      if (existsSync(path)) unlinkSync(path)
+    } catch {
+      /* dangling symlink */
+    }
+  }
 }
 
 function defaultAlive(pid: number): boolean {
@@ -180,29 +273,43 @@ export async function ensureBrowser(
   home = automatonHome(),
   seams: ChromeSeams = {},
 ): Promise<ChromeHandle | null> {
-  const bin = chromeBinary(seams)
-  if (!bin) return null
+  const mode = chromeMode(seams, home)
+  if (mode === 'none') return null
   ensureDesktop(agentId, home)
+  if (mode === 'box') ensureScreen(agentId, home, seams.box)
   const alive = seams.alive ?? defaultAlive
   const existing = readHandle(agentId, home)
-  if (existing && alive(existing.pid)) return existing
+  if (mode === 'box' && boxChromeAlive(agentId, home, seams.box)) {
+    fitBoxChrome(agentId, home, seams.box)
+    return existing ?? { pid: 1, port: 1, display: mouthScreen(agentId, home).display, via: 'box' }
+  }
+  if (mode === 'box') clearBoxProfileLocks(agentId, home)
+  if (existing && alive(existing.pid) && existing.via !== 'box') return existing
   const pick = seams.pickPort ?? defaultPickPort
-  const port = await pick()
-  const headed = process.env.AUTOMATON_CHROME_HEADED === '1'
-  const argv = [
-    `--user-data-dir=${browserDir(agentId, home)}`,
-    `--remote-debugging-port=${port}`,
-    '--remote-debugging-address=127.0.0.1',
-    '--no-first-run',
-    '--no-default-browser-check',
-    '--disable-sync',
-    ...(headed ? [] : ['--headless=new']),
-    'about:blank',
-  ]
+  const port = mode === 'box' ? 1 : await pick()
+  const launch = chromeLaunch({
+    agentId,
+    port,
+    mode,
+    home,
+    hostBin: mode === 'host' ? chromeBinary(seams) ?? undefined : undefined,
+  })
   const spawnFn = seams.spawn ?? defaultSpawn
-  const child = spawnFn(bin, argv)
-  const handle = { pid: child.pid, port }
+  const child = spawnFn(launch.bin, launch.argv)
+  const handle: ChromeHandle = { pid: child.pid, port, display: launch.display, via: mode }
   writeHandle(agentId, handle, home)
+  if (mode === 'box') {
+    const deadline = Date.now() + 20_000
+    while (Date.now() < deadline) {
+      if (boxChromeAlive(agentId, home, seams.box)) {
+        if (boxChromeWindowReady(agentId, home, seams.box)) fitBoxChrome(agentId, home, seams.box)
+        return handle
+      }
+      await new Promise((resolve) => setTimeout(resolve, 150))
+    }
+    stopBrowser(agentId, home, seams)
+    return null
+  }
   const wait = seams.waitReady ?? defaultWaitReady
   try {
     await wait(port)
@@ -216,7 +323,9 @@ export async function ensureBrowser(
 export function stopBrowser(agentId: string, home = automatonHome(), seams: ChromeSeams = {}): void {
   const handle = readHandle(agentId, home)
   const path = devtoolsPath(agentId, home)
-  if (handle) {
+  if (handle?.via === 'box' || (!handle && chromeMode(seams, home) === 'box')) {
+    stopBoxChrome(agentId, home, seams.box)
+  } else if (handle) {
     const kill = seams.kill ?? defaultKill
     kill(handle.pid)
   }
@@ -228,6 +337,10 @@ export async function captureScreen(
   home = automatonHome(),
   seams: ChromeSeams = {},
 ): Promise<string | null> {
+  if (chromeMode(seams, home) === 'box') {
+    await ensureBrowser(agentId, home, seams)
+    return captureDesk(agentId, home, { box: seams.box })
+  }
   const handle = await ensureBrowser(agentId, home, seams)
   if (!handle) return null
   const capture = seams.capturePng ?? defaultCapturePng

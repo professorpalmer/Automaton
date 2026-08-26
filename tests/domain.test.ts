@@ -1,16 +1,31 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  bindHomes,
   composerEnterBusy,
+  createAgentNames,
   DEFAULT_AGENTS,
+  dispatchTargets,
   emptyThreads,
+  homeAck,
   isMouthBusy,
+  isPing,
   jobKindFor,
   jobKindForKit,
+  lastSpoken,
   looksLikeJob,
   mentionedAgentIds,
   needsFanoutConfirm,
+  parseGithubHomes,
+  renameAgents,
   resetIdsForTests,
+  assessAsk,
+  returnBeat,
+  staffWithSisters,
   visibleAgents,
+  feedClock,
+  shouldShowFeedClock,
+  sameFeedVoice,
+  type FeedItem,
 } from '../src/domain'
 
 describe('mouth vs job', () => {
@@ -22,7 +37,7 @@ describe('mouth vs job', () => {
   })
 
   test('hidden agents stay out of the rail', () => {
-    const agents = DEFAULT_AGENTS.map((agent) =>
+    const agents = staffWithSisters().map((agent) =>
       agent.id === 'research' ? { ...agent, hidden: true } : agent,
     )
     expect(visibleAgents(agents).map((a) => a.id)).toEqual(['staff', 'kernel'])
@@ -31,18 +46,22 @@ describe('mouth vs job', () => {
   test('fan-out confirm is 3+ mentions', () => {
     expect(needsFanoutConfirm(['staff'])).toBe(false)
     expect(needsFanoutConfirm(['staff', 'kernel', 'research'])).toBe(true)
-    expect(mentionedAgentIds('Kernel, the insert breaks undo.', DEFAULT_AGENTS)).toEqual([])
-    expect(mentionedAgentIds('@Kernel @Research @Staff look', DEFAULT_AGENTS)).toEqual([
+    expect(mentionedAgentIds('Kernel, the insert breaks undo.', staffWithSisters())).toEqual([])
+    expect(mentionedAgentIds('@Kernel @Research @Staff look', staffWithSisters())).toEqual([
       'kernel',
       'research',
       'staff',
     ])
+    expect(mentionedAgentIds('@Chief look', DEFAULT_AGENTS)).toEqual(['staff'])
   })
 
   test('job heuristic is not every short chat', () => {
     expect(looksLikeJob('hey')).toBe(false)
     expect(looksLikeJob('Kernel, the mention insert breaks undo on the composer.')).toBe(true)
-    expect(jobKindFor('staff', 'Kernel, the mention insert breaks undo on the composer.')).toBeNull()
+    expect(jobKindFor('staff', 'Hello, what is your name?')).toBeNull()
+    expect(jobKindFor('staff', 'Kernel, the mention insert breaks undo on the composer.')).toBe(
+      'implement',
+    )
     expect(jobKindFor('kernel', 'Kernel, the mention insert breaks undo on the composer.')).toBe(
       'implement',
     )
@@ -52,10 +71,12 @@ describe('mouth vs job', () => {
     expect(jobKindFor('kernel', 'Look up why Send stays Send in Automaton staff.')).toBe('analyze')
   })
 
-  test('kit policy: coordinator and blank never job; lookup never implements', () => {
+  test('kit policy: coordinator books like code; blank never jobs; lookup never implements', () => {
     const job = 'Kernel, the mention insert breaks undo on the composer.'
     const lookup = 'Look up why Send stays Send in Automaton staff.'
-    expect(jobKindForKit('coordinator', job)).toBeNull()
+    expect(jobKindForKit('coordinator', job)).toBe('implement')
+    expect(jobKindForKit('coordinator', 'Hello, what is your name on this seat?')).toBeNull()
+    expect(jobKindForKit('coordinator', lookup)).toBe('analyze')
     expect(jobKindForKit('blank', job)).toBeNull()
     expect(jobKindForKit('lookup', job)).toBe('analyze')
     expect(jobKindForKit('lookup', lookup)).toBe('analyze')
@@ -65,8 +86,155 @@ describe('mouth vs job', () => {
 
   test('threads are per agent', () => {
     resetIdsForTests()
+    expect(DEFAULT_AGENTS.map((agent) => agent.id)).toEqual(['staff'])
     const threads = emptyThreads(DEFAULT_AGENTS)
-    expect(Object.keys(threads).sort()).toEqual(['kernel', 'research', 'staff'])
+    expect(Object.keys(threads).sort()).toEqual(['staff'])
     expect(threads.staff.mouth).toBe('idle')
+    expect(Object.keys(emptyThreads(staffWithSisters())).sort()).toEqual(['kernel', 'research', 'staff'])
+  })
+
+  test('head-seat dispatch is ask/tell/have/ping/see-if or @mention, not a vocative name', () => {
+    const roster = staffWithSisters()
+    const puppetmaster = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const withPm = [...roster, puppetmaster]
+    expect(dispatchTargets('Can you ask research if he is online?', roster, 'staff')).toEqual([
+      'research',
+    ])
+    expect(isPing('Can you ask research if he is online?')).toBe(true)
+    expect(dispatchTargets('@Kernel @Research look this up', roster, 'staff')).toEqual([
+      'kernel',
+      'research',
+    ])
+    expect(isPing('@Kernel @Research look this up')).toBe(false)
+    expect(needsFanoutConfirm(['kernel', 'research'])).toBe(false)
+    expect(dispatchTargets('what is your name?', roster, 'staff')).toEqual([])
+    expect(dispatchTargets('Have Research look up why Send stays Send.', roster, 'staff')).toEqual(
+      ['research'],
+    )
+    expect(dispatchTargets('Kernel, the ledger replay breaks on the composer path.', roster, 'staff')).toEqual(
+      [],
+    )
+    expect(
+      dispatchTargets('Can you see if Puppetmaster has any open issues or PRs for us?', withPm, 'staff'),
+    ).toEqual(['agent_pm'])
+    expect(dispatchTargets('Can you ping pupetmaster?', withPm, 'staff')).toEqual(['agent_pm'])
+  })
+
+  test('create-automaton lines yield factory names', () => {
+    expect(
+      createAgentNames('Create an automaton for Marionette and one for Puppetmaster'),
+    ).toEqual(['Marionette', 'Puppetmaster'])
+    expect(createAgentNames('spin up a bot for Wiki')).toEqual(['Wiki'])
+    expect(createAgentNames('hello staff')).toEqual([])
+    expect(
+      createAgentNames('post the new bot at https://github.com/example/Puppetmaster'),
+    ).toEqual(['Puppetmaster'])
+    expect(createAgentNames('post the new bot at the Puppetmaster repo')).toEqual(['Puppetmaster'])
+  })
+
+  test('rename lines pair a roster mouth to a new name', () => {
+    const roster = [
+      ...DEFAULT_AGENTS,
+      { id: 'agent_9', name: 'New Bot', title: '', description: '', color: '#777777', hidden: false },
+    ]
+    expect(renameAgents('rename New Bot to Puppetmaster', roster)).toEqual([
+      { agentId: 'agent_9', name: 'Puppetmaster' },
+    ])
+    expect(renameAgents("Rename the 'New Bot' to Puppetmaster please.", roster)).toEqual([
+      { agentId: 'agent_9', name: 'Puppetmaster' },
+    ])
+    expect(renameAgents('hello staff', roster)).toEqual([])
+  })
+
+  test('return beat assesses and never copies the sister line', () => {
+    expect(returnBeat('Research', 'Yes, I am here.')).toBe('Research is on the rail.')
+    expect(returnBeat('Research', 'Send stays Send while a job flies.')).toBe('Research finished.')
+    expect(returnBeat('Research', 'Yes, I am here.')).not.toBe('Yes, I am here.')
+    const ask = assessAsk('Research', "I'm here to assist you. How can I help?")
+    expect(ask).toContain('Research answered:')
+    expect(ask).toContain("I'm here to assist you. How can I help?")
+    expect(ask).toContain('Do not repeat Research')
+  })
+
+  test('github homes pair to roster names by repo slug', () => {
+    const roster = [
+      ...DEFAULT_AGENTS,
+      {
+        id: 'agent_p',
+        name: 'Puppetmaster',
+        title: '',
+        description: '',
+        color: '#777777',
+        hidden: false,
+      },
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        color: '#777777',
+        hidden: false,
+      },
+    ]
+    const text =
+      'Associate Puppetmaster and Marionette with https://github.com/example/Puppetmaster and https://github.com/example/marionette/'
+    expect(parseGithubHomes(text).map((row) => row.slug)).toEqual([
+      'example/Puppetmaster',
+      'example/marionette',
+    ])
+    expect(bindHomes(text, roster)).toEqual([
+      {
+        agentId: 'agent_p',
+        slug: 'example/Puppetmaster',
+        url: 'https://github.com/example/Puppetmaster',
+      },
+      {
+        agentId: 'agent_m',
+        slug: 'example/marionette',
+        url: 'https://github.com/example/marionette',
+      },
+    ])
+    expect(homeAck(roster, bindHomes(text, roster))).toBe(
+      "Bound. Puppetmaster's home is example/Puppetmaster. Marionette's is example/marionette.",
+    )
+  })
+
+  test('rail preview is the last agent line', () => {
+    resetIdsForTests()
+    const thread = emptyThreads(DEFAULT_AGENTS).staff
+    thread.items = [
+      { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: 'hi' },
+      { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'Send me a task whenever you are ready.' },
+    ]
+    expect(lastSpoken(thread, 'Coordinator')).toBe('Send me a task whenever you are ready.')
+  })
+
+  test('feed clock marks a new day or a long gap, not every line', () => {
+    const now = Date.parse('2026-08-25T23:42:00')
+    expect(feedClock(now, now)).toBe('Today 11:42 PM')
+    const yesterday = Date.parse('2026-08-24T23:42:00')
+    expect(feedClock(yesterday, now)).toBe('Yesterday 11:42 PM')
+    const first: FeedItem = { kind: 'msg', id: 'a', from: 'user', agentId: 'staff', text: 'hi', at: now }
+    const soon: FeedItem = { kind: 'msg', id: 'b', from: 'agent', agentId: 'staff', text: 'ok', at: now + 60_000 }
+    const later: FeedItem = {
+      kind: 'msg',
+      id: 'c',
+      from: 'user',
+      agentId: 'staff',
+      text: 'more',
+      at: now + 16 * 60 * 1000,
+    }
+    expect(shouldShowFeedClock(null, first)).toBe(true)
+    expect(shouldShowFeedClock(first, soon)).toBe(false)
+    expect(shouldShowFeedClock(first, later)).toBe(true)
+    expect(sameFeedVoice(first, soon, false)).toBe(false)
+    expect(sameFeedVoice(first, { ...first, id: 'd', text: 'again' }, false)).toBe(true)
   })
 })

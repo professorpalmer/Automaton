@@ -1,45 +1,53 @@
 # Automaton
 
-Automaton contains a native durable staff surface and the existing Python
-org-box host. They share the product name but have separate runtimes and
-boundaries.
+Automaton is two products in one repository.
 
-## Native GPUIX staff
+**Native staff** is a GPUI window: automata speak, then dispatch.
+Puppetmaster runs jobs. Workers stay out of chat. One local Docker Linux is
+the shared computer; each automaton is a screen on that box, not a VM.
 
-The native face is React authored and
-[GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) rendered
-through [GPUIX](https://github.com/remorses/gpuix). There is no Electron or
-webview. Staff, Kernel, and Research speak through a bounded OpenRouter mouth;
-Puppetmaster runs jobs and workers stay out of chat.
+**Org-box host** is the Python stack under `face/`, `harness/`, and
+`provision/`. It stamps an isolated tenant box onto the tenant's Render
+account. Different runtime. Do not start one to run the other.
 
-### Run
+## Docs
 
-```
+- [Staff surface](docs/staff.md) — rail, composer, factory, inspector
+- [Computer](docs/computer.md) — Docker Linux box, screens, Take control
+- [Jobs](docs/jobs.md) — Puppetmaster analyze and implement
+- [Durable state](docs/durability.md) — store, claims, keys
+- [Org-box host](docs/org-box.md) — tenant boxes, vault, provision
+- [Contributor contract](AGENTS.md) — invariants for agents and humans
+
+## Native staff
+
+Needs [Bun](https://bun.sh), Docker, and a Puppetmaster CLI on `PATH`.
+OpenRouter is configured in Settings (or `~/.automaton/keys.json`).
+
+```sh
 bun install
 bun test
-bun --hot src/main.tsx
+bun src/main.tsx
 ```
 
-`bun run doctor` checks that Puppetmaster is available. The read-only
-`bun scripts/probe-kernel.ts` launches an analyze job. Never run an implement
-worker against this checkout; implement work uses a sandbox. The
-`bun scripts/probe-mouth.ts` probe demonstrates a zero-call stored-result hit
-before a live mouth inference.
+`--hot` remounts can leave a zombie window. If clicks miss, quit leftover
+Automaton windows and run `bun src/main.tsx`.
 
-The native stack is:
+`bun run doctor` checks Puppetmaster. `bun scripts/probe-kernel.ts` launches
+a read-only analyze job. Never run an implement worker against this
+checkout; implement work uses a sandbox.
 
-- `@gpuix/react` and `@gpuix/native` on Zed GPUI
-- Pure domain and session logic in `src/domain.ts` and `src/session.ts`
-- Durable SQLite state in `src/runtime/store.ts`
-- Bounded mouth logic in `src/runtime/mouth.ts`
-- Puppetmaster dispatch in `src/runtime/pm.ts` and `src/runtime/jobs.ts`
-- Shared visual tokens in `src/tokens.ts`
+Layout:
 
-## Python org-box host
+- `@gpuix/react` on Zed GPUI (`src/main.tsx`)
+- Domain and session: `src/domain.ts`, `src/session.ts`
+- Durable SQLite: `src/runtime/store.ts`
+- Mouth: `src/runtime/mouth.ts`
+- Jobs: `src/runtime/pm.ts`, `src/runtime/jobs.ts`
+- Tokens: `src/tokens.ts`
+- Box image: `box/Dockerfile`
 
-The Python host is under `face/`, `harness/`, and `provision/`. It stamps an
-isolated Automaton box onto a client's Render account. The first tenant is
-Soldiers' Angels. It is not a multi-tenant service.
+## Org-box host
 
 ```sh
 python3 -m venv .venv
@@ -48,13 +56,9 @@ python3 -m venv .venv
 .venv/bin/automaton
 ```
 
-Open http://127.0.0.1:8765. Host keys are tenant-scoped; the host does not use
-Cary's personal keys. Secrets stay in the tenant vault and never enter git or
-the wiki.
+Open http://127.0.0.1:8765. Host keys are tenant-scoped. Secrets stay in
+the tenant vault.
 
-## Durable-state direction
+## License
 
-Both surfaces treat durable state as the backend and model context as a
-bounded working set. Query stored claims and verified artifacts before paying
-for inference. Keep workers ephemeral, retain provenance, and measure avoided
-calls rather than treating unknown cost as zero.
+MIT. See [LICENSE](LICENSE).

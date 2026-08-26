@@ -7,7 +7,7 @@ from typing import Mapping
 from harness.gates import TENANT_DISPLAY, TENANT_SLUG
 
 DEFAULT_REPO = "https://github.com/professorpalmer/Automaton"
-DEFAULT_BRANCH = "dev"
+DEFAULT_BRANCH = "main"
 DEFAULT_PLAN = "starter"
 DEFAULT_REGION = "oregon"
 BOX_SERVICE_SUFFIX = "-automaton"

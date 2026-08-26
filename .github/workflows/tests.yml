@@ -14,3 +14,12 @@ jobs:
           python-version: "3.11"
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest tests -q
+  bun-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.4.0"
+      - run: bun install
+      - run: bun test

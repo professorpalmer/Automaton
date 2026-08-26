@@ -6,6 +6,7 @@ import {
   OPENROUTER_CHAT_PATH,
   OPENROUTER_MODELS_PATH,
   connectorFetch,
+  parseOpenRouterModels,
   probeConnector,
   readSseDataLine,
 } from '../src/runtime/connector-client'
@@ -75,6 +76,23 @@ describe('connectors', () => {
     expect(disk).not.toMatch(/sk-/)
     expect(JSON.parse(disk)[0].connected).toBe(true)
     rmSync(home, { recursive: true, force: true })
+  })
+
+  test('OpenRouter catalog parses ids and names', () => {
+    expect(
+      parseOpenRouterModels({
+        data: [
+          { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' },
+          { id: 'openai/gpt-4o-mini', name: 'dup' },
+          { id: '', name: 'skip' },
+          { id: 'anthropic/claude-sonnet-4' },
+        ],
+      }),
+    ).toEqual([
+      { id: 'anthropic/claude-sonnet-4', name: 'anthropic/claude-sonnet-4' },
+      { id: 'openai/gpt-4o-mini', name: 'GPT-4o mini' },
+    ])
+    expect(parseOpenRouterModels({})).toEqual([])
   })
 
   test('probe 401 is rejected and stays out of mouth copy', async () => {

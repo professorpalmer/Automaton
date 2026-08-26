@@ -1,13 +1,19 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
+import { spawnSync } from 'node:child_process'
+import { mkdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import type { JobHandle } from '../src/domain'
 import {
   WATCH_UNAVAILABLE_GRACE,
   ensureDispatched,
   findReusableAnalyze,
+  implementSeedRoot,
   isReusableAnalyzePrior,
   normalizeGoal,
   resetJobsForTests,
 } from '../src/runtime/jobs.ts'
+import { writeProfile } from '../src/runtime/profile'
 import type { StatusSnap } from '../src/runtime/pm.ts'
 
 const GOAL = 'Look up why Send stays Send in Automaton staff.'
@@ -376,5 +382,39 @@ describe('durable analyze dispatch', () => {
     })
     expect(recorded.complete).toEqual([])
     expect(recorded.fail).toEqual(["Didn't land."])
+  })
+})
+
+describe('bound product home', () => {
+  test('implementSeedRoot uses a bound git checkout, not the fallback', () => {
+    const fixture = join(tmpdir(), `automaton-seed-home-${Date.now()}`)
+    const agents = join(tmpdir(), `automaton-seed-agents-${Date.now()}`)
+    mkdirSync(fixture, { recursive: true })
+    const init = spawnSync('git', ['init'], { cwd: fixture, encoding: 'utf8' })
+    expect(init.status).toBe(0)
+    writeProfile(
+      {
+        id: 'agent_p',
+        name: 'Puppetmaster',
+        title: 'example/Puppetmaster',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'hex',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-25T00:00:00.000Z',
+        homeRepo: 'example/Puppetmaster',
+        homePath: fixture,
+      },
+      agents,
+    )
+    expect(implementSeedRoot('agent_p', '/fallback', agents)).toBe(fixture)
+    expect(implementSeedRoot('missing', '/fallback', agents)).toBe('/fallback')
+    rmSync(fixture, { recursive: true, force: true })
+    rmSync(agents, { recursive: true, force: true })
   })
 })

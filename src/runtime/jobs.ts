@@ -1,4 +1,8 @@
+import { existsSync } from 'node:fs'
+import { join } from 'node:path'
 import type { JobHandle } from '../domain'
+import { automatonHome, listOpenRouterKeys } from './keys'
+import { readProfile } from './profile'
 import {
   PRODUCT_ROOT,
   analysisInstruction,
@@ -150,6 +154,10 @@ export async function ensureDispatched(
       label: ownerLabel(job),
       launchKey: job.id,
     })
+    if (!seams.spawn && listOpenRouterKeys().length === 0) {
+      hooks.onFail('Need an OpenRouter key.')
+      return
+    }
     const spawned = seams.spawn ? await seams.spawn(argv) : await spawnFresh(argv, row)
     if (row.abandoned) {
       killProcessGroup(row.pid)
@@ -172,15 +180,25 @@ function writeAnalyzeLaunch(job: JobHandle): { configPath: string; goalPath: str
   return writeAnalyzeConfig({
     localId: job.id,
     instruction: analysisInstruction(analyzePrompt(job)),
-    workerCwd: analyzeCwd(PRODUCT_ROOT),
+    workerCwd: analyzeCwd(implementSeedRoot(job.ownerAgentId)),
   })
+}
+
+export function implementSeedRoot(
+  ownerAgentId: string,
+  fallback = PRODUCT_ROOT,
+  home = automatonHome(),
+): string {
+  const path = readProfile(ownerAgentId, home)?.homePath?.trim()
+  if (path && existsSync(join(path, '.git'))) return path
+  return fallback
 }
 
 function writeImplementLaunch(job: JobHandle): { configPath: string; goalPath: string } {
   return writeImplementConfig({
     localId: job.id,
     instruction: implementInstruction(job),
-    workerCwd: seedSandboxFromProduct(job.id),
+    workerCwd: seedSandboxFromProduct(job.id, implementSeedRoot(job.ownerAgentId)),
   })
 }
 

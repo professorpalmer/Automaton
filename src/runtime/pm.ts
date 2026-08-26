@@ -1,10 +1,58 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { join, resolve, sep } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { sanitizeSpeak, type JobHandle } from '../domain'
+import { automatonHome, listOpenRouterKeys } from './keys'
+import { DEFAULT_SEAT_MODEL, jobModel } from './plane'
 
 export const PRODUCT_ROOT = resolve(import.meta.dir, '../..')
+export const JOB_ADAPTER = 'agentic'
+export const JOB_PROVIDER = 'openrouter'
+export const DEFAULT_JOB_MODEL = DEFAULT_SEAT_MODEL
+export { jobModel }
+
+export function jobRegistryId(model = jobModel()): string {
+  return `${JOB_ADAPTER}/${model}`
+}
+
+export function jobRegistryPath(): string {
+  return process.env.AUTOMATON_PM_MODELS_PATH?.trim() || join(automatonHome(), 'models.json')
+}
+
+export function ensureJobRegistry(path = jobRegistryPath()): string {
+  mkdirSync(dirname(path), { recursive: true })
+  const model = jobModel()
+  const catalog = {
+    schema_version: 1,
+    models: [
+      {
+        id: jobRegistryId(model),
+        adapter: JOB_ADAPTER,
+        adapter_model_name: model,
+        capability_score: 50,
+        input_per_mtok_usd: 0.15,
+        output_per_mtok_usd: 0.6,
+        context_window: 128000,
+        tags: ['tools', 'agentic', 'openrouter'],
+        notes: '',
+        enabled: true,
+        disabled_reason: '',
+        disabled_authority: '',
+        retired: false,
+        retirement_reason: '',
+        retirement_authority: '',
+        payload_defaults: { provider: JOB_PROVIDER },
+        output_token_multiplier: 1.0,
+        billing: 'api',
+        role_scorecards: {},
+        score_provenance: {},
+      },
+    ],
+  }
+  writeFileSync(path, `${JSON.stringify(catalog, null, 2)}\n`)
+  return path
+}
 
 const JOB_ID_RE = /job_id:\s*(job_[A-Za-z0-9]+)/
 const BARE_JOB_RE = /\b(job_[A-Za-z0-9]{6,})\b/
@@ -76,7 +124,7 @@ export function assertSandboxCwd(workerCwd: string, productRoot = PRODUCT_ROOT):
   const worker = resolve(workerCwd)
   const product = resolve(productRoot)
   if (worker === product || worker.startsWith(product + sep)) {
-    throw new Error('refusing Cursor --cwd inside the Automaton checkout')
+    throw new Error('refusing worker cwd inside the Automaton checkout')
   }
   return worker
 }
@@ -156,24 +204,13 @@ export function writeAnalyzeConfig(input: {
       {
         role: 'analysis',
         instruction: input.instruction,
-        adapter: 'cursor',
-        payload: {
+        adapter: JOB_ADAPTER,
+        payload: agenticPayload({
           prompt: input.instruction,
           cwd,
-          timeout_seconds: timeout,
-          read_only: true,
-          sandbox: 'read-only',
-          dangerously_bypass_approvals_and_sandbox: false,
-          params: [
-            { id: 'effort', value: 'xhigh' },
-            { id: 'fast', value: true },
-          ],
-          model: 'grok-4.6',
-          router_model_id: 'cursor/grok-4-6',
-          pinned_model: 'cursor/grok-4-6',
-          pinned_adapter_model_name: 'grok-4.6',
-          disable_memory: true,
-        },
+          timeoutSeconds: timeout,
+          mode: 'analyze',
+        }),
       },
     ],
   }
@@ -218,27 +255,15 @@ export function writeImplementConfig(input: {
     lease_seconds: 10,
     workers: [
       {
-        role: 'cursor',
+        role: 'implement',
         instruction: input.instruction,
-        adapter: 'cursor',
-        payload: {
+        adapter: JOB_ADAPTER,
+        payload: agenticPayload({
           prompt: input.instruction,
           cwd: workerCwd,
-          timeout_seconds: timeout,
+          timeoutSeconds: timeout,
           mode: 'implement',
-          implement: true,
-          allow_dirty: true,
-          allow_non_worktree: false,
-          params: [
-            { id: 'effort', value: 'xhigh' },
-            { id: 'fast', value: true },
-          ],
-          model: 'grok-4.6',
-          router_model_id: 'cursor/grok-4-6',
-          pinned_model: 'cursor/grok-4-6',
-          pinned_adapter_model_name: 'grok-4.6',
-          disable_memory: true,
-        },
+        }),
       },
     ],
   }
@@ -283,13 +308,16 @@ export function buildImplementArgv(input: {
   const workerCwd = assertSandboxCwd(input.workerCwd)
   return [
     '--emit-job-id-early',
-    'cursor',
+    JOB_ADAPTER,
     input.prompt,
     '--cwd',
     workerCwd,
-    '--implement',
+    '--mode',
+    'implement',
+    '--provider',
+    JOB_PROVIDER,
     '--model',
-    input.model ?? 'grok-4.6',
+    input.model ?? jobModel(),
     '--label',
     input.label,
     '--timeout-seconds',
@@ -329,7 +357,7 @@ export function resolvePm(): PmBin {
 export function pmEnv(): NodeJS.ProcessEnv {
   const localBin = join(homedir(), '.local', 'bin')
   const path = process.env.PATH ?? ''
-  return {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     PATH: path.includes(localBin) ? path : `${localBin}:${path}`,
     GIT_PAGER: 'cat',
@@ -337,6 +365,58 @@ export function pmEnv(): NodeJS.ProcessEnv {
     GIT_TERMINAL_PROMPT: '0',
     PYTHONUTF8: '1',
   }
+  stampOpenRouterPool(env)
+  env.PUPPETMASTER_MODELS_PATH = ensureJobRegistry()
+  return env
+}
+
+function stampOpenRouterPool(env: NodeJS.ProcessEnv): void {
+  for (let i = 2; i <= 9; i++) delete env[`OPENROUTER_API_KEY_${i}`]
+  const keys = listOpenRouterKeys({ env: process.env })
+  if (!keys.length) {
+    delete env.OPENROUTER_API_KEY
+    return
+  }
+  const rank: Record<string, number> = { automaton: 0, marionette: 1, env: 2 }
+  const ordered = [...keys].sort((a, b) => (rank[a.source] ?? 9) - (rank[b.source] ?? 9))
+  env.OPENROUTER_API_KEY = ordered[0].key
+  for (let i = 1; i < ordered.length && i < 9; i++) {
+    env[`OPENROUTER_API_KEY_${i + 1}`] = ordered[i].key
+  }
+}
+
+function agenticPayload(input: {
+  prompt: string
+  cwd: string
+  timeoutSeconds: number
+  mode: 'analyze' | 'implement'
+}): Record<string, unknown> {
+  const model = jobModel()
+  const pinned = jobRegistryId(model)
+  ensureJobRegistry()
+  const payload: Record<string, unknown> = {
+    prompt: input.prompt,
+    cwd: input.cwd,
+    timeout_seconds: input.timeoutSeconds,
+    mode: input.mode,
+    provider: JOB_PROVIDER,
+    model,
+    allowed_adapters: [JOB_ADAPTER],
+    auto_route: false,
+    pinned_model: pinned,
+    router_model_id: pinned,
+    pinned_adapter_model_name: model,
+    disable_memory: true,
+  }
+  if (input.mode === 'analyze') {
+    payload.read_only = true
+    payload.sandbox = 'read-only'
+    return payload
+  }
+  payload.implement = true
+  payload.allow_dirty = true
+  payload.allow_non_worktree = false
+  return payload
 }
 
 export function spawnPm(argv: string[], productRoot = PRODUCT_ROOT) {

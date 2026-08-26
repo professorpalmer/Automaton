@@ -3,8 +3,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import { allFrameNames } from '../scripts/bake-marks'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests } from '../src/domain'
-import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, resolveFramePath } from '../src/runtime/factory'
+import { DEFAULT_AGENTS, bindHomes, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { applyHomeBinds, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, resolveFramePath } from '../src/runtime/factory'
 import { readProfile } from '../src/runtime/profile'
 import type { Session } from '../src/session'
 
@@ -29,8 +29,8 @@ describe('agent factory', () => {
     resetIdsForTests()
     const home = tmpHome()
     const created = createAgent({ home })
-    expect(created.agent.name).toBe('New Bot')
-    expect(created.profile.kit).toBe('blank')
+    expect(created.agent.name).toBe('New automaton')
+    expect(created.profile.kit).toBe('code')
     expect(created.profile.namedBy).toBe('app')
     expect(['staff', 'kernel', 'research']).not.toContain(created.profile.avatarColor)
     for (const frame of allFrameNames()) {
@@ -49,19 +49,65 @@ describe('agent factory', () => {
     const created = createAgent({ home, name: 'Scout' })
     const next = hydrateSession(seedSession(), home)
     expect(next.activeAgentId).toBe('staff')
+    expect(next.agents.map((agent) => agent.id).sort()).toEqual(['agent_1', 'staff'].sort())
+    expect(next.agents.some((agent) => agent.id === 'kernel')).toBe(false)
     expect(next.agents.some((agent) => agent.id === created.agent.id)).toBe(true)
     expect(next.threads[created.agent.id]).toBeTruthy()
     expect(next.agents.find((agent) => agent.id === created.agent.id)?.name).toBe('Scout')
     rmSync(home, { recursive: true, force: true })
   })
 
-  test('cache hit skips a second bake', () => {
+  test('named create can take a code kit without stealing hydrate focus', () => {
+    resetIdsForTests()
     const home = tmpHome()
-    ensureMarkFrames('pebble', 'cyan', home)
-    const first = resolveFramePath('pebble', 'cyan', 'rest', home)
-    expect(existsSync(first)).toBe(true)
-    ensureMarkFrames('pebble', 'cyan', home)
-    expect(existsSync(first)).toBe(true)
+    const created = createAgent({ home, name: 'Marionette', kit: 'code' })
+    expect(created.agent.name).toBe('Marionette')
+    expect(created.profile.kit).toBe('code')
+    expect(created.profile.namedBy).toBe('user')
+    const next = hydrateSession(seedSession(), home)
+    expect(next.activeAgentId).toBe('staff')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('hydrate drops app-named Kernel and Research from a saved roster', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const next = hydrateSession(
+      {
+        agents: staffWithSisters(),
+        activeAgentId: 'kernel',
+        threads: emptyThreads(staffWithSisters()),
+        jobs: [
+          {
+            id: 'job_orphan',
+            ownerAgentId: 'kernel',
+            goal: 'stale seed job',
+            status: 'running',
+            kind: 'implement',
+          },
+        ],
+        pendingFanout: null,
+      },
+      home,
+    )
+    expect(next.agents.map((agent) => agent.id)).toEqual(['staff'])
+    expect(next.activeAgentId).toBe('staff')
+    expect(next.threads.kernel).toBeUndefined()
+    expect(next.threads.staff).toBeTruthy()
+    expect(next.jobs).toEqual([])
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('applyHomeBinds writes the github slug onto the profile', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const created = createAgent({ home, name: 'Puppetmaster', kit: 'code' })
+    const binds = bindHomes(
+      'Point Puppetmaster at https://github.com/example/Puppetmaster',
+      [created.agent],
+    )
+    applyHomeBinds(binds, home)
+    expect(readProfile(created.agent.id, home)?.homeRepo).toBe('example/Puppetmaster')
     rmSync(home, { recursive: true, force: true })
   })
 })

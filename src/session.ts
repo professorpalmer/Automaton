@@ -5,12 +5,24 @@ import {
   type JobHandle,
   type MouthState,
   type Thread,
+  assessAsk,
+  bindHomes,
   composerEnterBusy,
+  createAgentNames,
+  dispatchAck,
+  dispatchTargets,
   emptyThreads,
+  homeAck,
+  homeNote,
+  isPing,
   jobKindForKit,
+  joinAnd,
   mentionedAgentIds,
   needsFanoutConfirm,
   nextId,
+  renameAck,
+  renameAgents,
+  returnBeat,
   sanitizeSpeak,
   visibleAgents,
 } from './domain'
@@ -22,7 +34,6 @@ export type Session = {
   threads: Record<AgentId, Thread>
   jobs: JobHandle[]
   pendingFanout: { text: string; targets: AgentId[] } | null
-  pendingDelete?: AgentId | null
 }
 
 function thread(session: Session, id: AgentId): Thread {
@@ -42,8 +53,15 @@ function setThread(session: Session, id: AgentId, patch: Partial<Thread>): Sessi
 export function idleOrphanMouths(session: Session): Session {
   let next = session
   for (const id of Object.keys(session.threads)) {
-    const mouth = session.threads[id]?.mouth
-    if (!mouth || mouth === 'idle' || mouth === 'working') continue
+    const row = next.threads[id]
+    if (!row || row.mouth === 'idle' || row.mouth === 'working') continue
+    const last = row.items.at(-1)
+    if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
+      const name = next.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
+      next = wakeMouth(next, id, 'idle')
+      next = speak(next, id, returnBeat(name, last.text), next.activeAgentId)
+      continue
+    }
     next = setThread(next, id, { mouth: 'idle' })
   }
   return next
@@ -93,15 +111,6 @@ export function dismissFanout(session: Session): Session {
   return { ...session, pendingFanout: null }
 }
 
-export function askDelete(session: Session, agentId: AgentId): Session {
-  if (!session.threads[agentId]) return session
-  return { ...session, pendingDelete: agentId }
-}
-
-export function dismissDelete(session: Session): Session {
-  return { ...session, pendingDelete: null }
-}
-
 export function addLiveAgent(session: Session, agent: Agent, focus = true): Session {
   const agents = session.agents.some((row) => row.id === agent.id)
     ? session.agents.map((row) => (row.id === agent.id ? agent : row))
@@ -120,7 +129,7 @@ export function dropLiveAgent(session: Session, agentId: AgentId): Session {
   const jobs = session.jobs.filter((job) => job.ownerAgentId !== agentId)
   const activeAgentId =
     session.activeAgentId === agentId ? (agents[0]?.id ?? '') : session.activeAgentId
-  return { ...session, agents, threads, jobs, activeAgentId, pendingDelete: null }
+  return { ...session, agents, threads, jobs, activeAgentId }
 }
 
 export function patchLiveAgent(session: Session, agent: Agent): Session {
@@ -140,13 +149,25 @@ function staffParaphrase(text: string): string {
   return trimmed.length > 180 ? `${trimmed.slice(0, 177)}...` : trimmed
 }
 
-function speak(session: Session, agentId: AgentId, text: string, focused: AgentId): Session {
-  return append(
-    session,
+function stamped(
+  from: 'user' | 'agent',
+  agentId: AgentId,
+  text: string,
+  attachmentIds?: string[],
+): FeedItem {
+  return {
+    kind: 'msg',
+    id: nextId('item'),
+    from,
     agentId,
-    { kind: 'msg', id: nextId('item'), from: 'agent', agentId, text },
-    focused,
-  )
+    text,
+    attachmentIds: attachmentIds && attachmentIds.length > 0 ? attachmentIds : undefined,
+    at: Date.now(),
+  }
+}
+
+function speak(session: Session, agentId: AgentId, text: string, focused: AgentId): Session {
+  return append(session, agentId, stamped('agent', agentId, text), focused)
 }
 
 function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Session {
@@ -161,20 +182,113 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   if (!text && attachmentIds.length === 0) return session
   if (composerEnterBusy(thread(session, active).mouth)) return session
 
-  const mentioned = mentionedAgentIds(text, visibleAgents(session.agents))
-  if (needsFanoutConfirm(mentioned) && session.pendingFanout == null) {
-    return { ...session, pendingFanout: { text, targets: mentioned } }
+  const roster = visibleAgents(session.agents)
+  const kit = kitForAgent(active)
+  if (kit === 'coordinator' && session.pendingFanout == null) {
+    const created = createAgentNames(text)
+    const renamed = renameAgents(text, roster)
+    const agents = session.agents.map((agent) => {
+      const row = renamed.find((item) => item.agentId === agent.id)
+      return row ? { ...agent, name: row.name } : agent
+    })
+    const homes = bindHomes(text, visibleAgents(agents))
+    if (created.length > 0 || homes.length > 0 || renamed.length > 0) {
+      return coordinatorSetup({ ...session, agents }, text, created, homes, renamed, roster, attachmentIds)
+    }
   }
-  const confirmedFanout = session.pendingFanout
+  const named =
+    session.pendingFanout?.targets ??
+    (kit === 'coordinator' ? dispatchTargets(text, roster, active) : mentionedAgentIds(text, roster))
+  const body = session.pendingFanout?.text ?? text
+  if (needsFanoutConfirm(named) && session.pendingFanout == null) {
+    return { ...session, pendingFanout: { text, targets: named } }
+  }
   const next: Session = { ...session, pendingFanout: null }
-  const body = confirmedFanout?.text ?? text
-  const targets =
-    confirmedFanout?.targets ?? (mentioned.length > 0 ? mentioned : [active])
-
-  if (targets.length > 1) {
-    return fanout(next, body, targets)
+  if (kit === 'coordinator' && named.length > 0) {
+    return coordinatorDispatch(next, body, named, isPing(body), attachmentIds)
   }
-  return deliverTo(next, targets[0], body, active, attachmentIds)
+  if (named.length > 1) {
+    return fanout(next, body, named)
+  }
+  return deliverTo(next, named[0] ?? active, body, active, attachmentIds)
+}
+
+function coordinatorSetup(
+  session: Session,
+  text: string,
+  names: string[],
+  homes: ReturnType<typeof bindHomes>,
+  renamed: ReturnType<typeof renameAgents>,
+  before: Agent[],
+  attachmentIds: string[] = [],
+): Session {
+  const focused = session.activeAgentId
+  const binds = homes.filter((row) => row.agentId !== focused)
+  let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
+  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
+  const spoken = [
+    names.length > 0 ? `Created ${joinAnd(names)}.` : '',
+    renameAck(before, renamed),
+    homeAck(next.agents, binds),
+  ]
+    .filter(Boolean)
+    .join(' ')
+  next = speak(next, focused, spoken || 'Done.', focused)
+  for (const bind of binds) {
+    const note = homeNote(bind.slug)
+    next = appendRelay(next, focused, 'sent', bind.agentId, note, focused)
+    next = append(
+      next,
+      bind.agentId,
+      { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: bind.agentId, text: note },
+      focused,
+    )
+    next = deliverTo(next, bind.agentId, note, focused, [], true)
+  }
+  return wakeMouth(next, focused, 'idle')
+}
+
+function appendRelay(
+  session: Session,
+  threadId: AgentId,
+  lane: 'sent' | 'from',
+  peerId: AgentId,
+  text: string,
+  focused: AgentId,
+): Session {
+  return append(
+    session,
+    threadId,
+    { kind: 'relay', id: nextId('item'), lane, peerId, text },
+    focused,
+  )
+}
+
+function coordinatorDispatch(
+  session: Session,
+  text: string,
+  targets: AgentId[],
+  ping: boolean,
+  attachmentIds: string[],
+): Session {
+  const focused = session.activeAgentId
+  const item = stamped('user', focused, text, attachmentIds)
+  let next = append(session, focused, item, focused)
+  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
+  next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
+  const note = ping ? 'The operator asked if you are around.' : staffParaphrase(text)
+  for (const target of targets) {
+    if (target === focused) continue
+    next = appendRelay(next, focused, 'sent', target, note, focused)
+    next = append(
+      next,
+      target,
+      { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
+      focused,
+    )
+    next = deliverTo(next, target, note, focused, [], ping)
+  }
+  return wakeMouth(next, focused, 'idle')
 }
 
 function fanout(session: Session, text: string, targets: AgentId[]): Session {
@@ -182,7 +296,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
   let next = append(
     session,
     focused,
-    { kind: 'msg', id: nextId('item'), from: 'user', agentId: focused, text },
+    stamped('user', focused, text),
     focused,
   )
   next = setThread(next, focused, { draft: '', mouth: 'ack' })
@@ -190,6 +304,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
   const note = staffParaphrase(text)
   for (const target of targets) {
     if (target === focused) continue
+    next = appendRelay(next, focused, 'sent', target, note, focused)
     next = append(
       next,
       target,
@@ -207,15 +322,9 @@ function deliverTo(
   text: string,
   focused: AgentId,
   attachmentIds: string[] = [],
+  ping = false,
 ): Session {
-  const item: FeedItem = {
-    kind: 'msg',
-    id: nextId('item'),
-    from: 'user',
-    agentId,
-    text,
-    attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
-  }
+  const item = stamped('user', agentId, text, attachmentIds)
   let next = append(session, agentId, item, focused)
   next = setThread(next, agentId, {
     draft: agentId === focused ? '' : thread(next, agentId).draft,
@@ -223,7 +332,7 @@ function deliverTo(
     mouth: 'must_first',
   })
   const agent = next.agents.find((item) => item.id === agentId)
-  const kind = jobKindForKit(kitForAgent(agentId), text)
+  const kind = ping ? null : jobKindForKit(kitForAgent(agentId), text)
   if (kind) {
     next = speak(next, agentId, ackLine(agent?.name ?? 'Agent'), focused)
     next = wakeMouth(next, agentId, 'ack')
@@ -248,13 +357,23 @@ function ackLine(name: string): string {
 
 export function pendingMouthTurns(
   session: Session,
-): { agentId: AgentId; userText: string; itemId: string }[] {
-  const pending: { agentId: AgentId; userText: string; itemId: string }[] = []
+): { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] {
+  const pending: { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] = []
   for (const row of Object.values(session.threads)) {
     if (row.mouth !== 'answer') continue
     const last = row.items.at(-1)
     if (last?.kind === 'msg' && last.from === 'user') {
-      pending.push({ agentId: row.agentId, userText: last.text, itemId: last.id })
+      pending.push({ agentId: row.agentId, userText: last.text, itemId: last.id, mode: 'chat' })
+      continue
+    }
+    if (last?.kind === 'relay' && last.lane === 'from') {
+      const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
+      pending.push({
+        agentId: row.agentId,
+        userText: assessAsk(name, last.text),
+        itemId: last.id,
+        mode: 'assess',
+      })
     }
   }
   return pending
@@ -263,11 +382,56 @@ export function pendingMouthTurns(
 export function completeMouth(session: Session, agentId: AgentId, spoken: string): Session {
   if (thread(session, agentId).mouth !== 'answer') return session
   const focused = session.activeAgentId
-  const next = speak(session, agentId, sanitizeSpeak(spoken), focused)
-  return wakeMouth(next, agentId, 'idle')
+  const from = inboundCoordinatorId(session, agentId)
+  let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
+  next = wakeMouth(next, agentId, 'idle')
+  return coordinatorReturn(next, from, agentId, spoken, focused)
+}
+
+function inboundCoordinatorId(session: Session, agentId: AgentId): AgentId | null {
+  const row = session.threads[agentId]
+  if (!row) return null
+  const items = row.items
+  let lastUser = -1
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i]?.kind === 'msg' && items[i].from === 'user') {
+      lastUser = i
+      break
+    }
+  }
+  if (lastUser < 1) return null
+  const prior = items[lastUser - 1]
+  if (prior?.kind === 'agent_note' && kitForAgent(prior.fromId) === 'coordinator') {
+    return prior.fromId
+  }
+  return null
+}
+
+function coordinatorReturn(
+  session: Session,
+  from: AgentId | null,
+  ownerId: AgentId,
+  spoken: string,
+  focused: AgentId,
+): Session {
+  if (!from || from === ownerId || !session.threads[from]) return session
+  const name = session.agents.find((agent) => agent.id === ownerId)?.name ?? 'They'
+  const cleaned = sanitizeSpeak(spoken)
+  let next = appendRelay(session, from, 'from', ownerId, cleaned, focused)
+  if (thread(next, from).mouth !== 'idle') {
+    return speak(next, from, returnBeat(name, cleaned), focused)
+  }
+  return wakeMouth(next, from, 'answer')
 }
 
 export function failMouth(session: Session, agentId: AgentId, spoken: string): Session {
+  const row = thread(session, agentId)
+  const last = row.items.at(-1)
+  if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
+    const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
+    let next = wakeMouth(session, agentId, 'idle')
+    return speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
+  }
   return completeMouth(session, agentId, spoken)
 }
 
@@ -284,6 +448,7 @@ export function completeJob(session: Session, jobId: string, spoken = 'Done.'): 
   const job = session.jobs.find((item) => item.id === jobId)
   if (!job || job.status !== 'running') return session
   const focused = session.activeAgentId
+  const from = inboundCoordinatorId(session, job.ownerAgentId)
   let next: Session = {
     ...session,
     jobs: session.jobs.map((item) =>
@@ -292,13 +457,15 @@ export function completeJob(session: Session, jobId: string, spoken = 'Done.'): 
   }
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
-  return wakeMouth(next, job.ownerAgentId, 'idle')
+  next = wakeMouth(next, job.ownerAgentId, 'idle')
+  return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
 }
 
 export function failJob(session: Session, jobId: string, spoken = "Didn't land."): Session {
   const job = session.jobs.find((item) => item.id === jobId)
   if (!job || job.status !== 'running') return session
   const focused = session.activeAgentId
+  const from = inboundCoordinatorId(session, job.ownerAgentId)
   let next: Session = {
     ...session,
     jobs: session.jobs.map((item) =>
@@ -307,7 +474,8 @@ export function failJob(session: Session, jobId: string, spoken = "Didn't land."
   }
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
-  return wakeMouth(next, job.ownerAgentId, 'idle')
+  next = wakeMouth(next, job.ownerAgentId, 'idle')
+  return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
 }
 
 export function stopJob(session: Session, jobId: string): Session {

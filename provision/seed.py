@@ -21,7 +21,7 @@ DISK_SIZE_GB = 10
 
 
 def seed_env(spec: BoxSpec) -> list[dict[str, str]]:
-    """Env the Automaton box receives. Client keys only. Never Cary's host key."""
+    """Env the Automaton box receives. Client keys only. Never the host operator key."""
     if may_sell_inference() or may_bundle_host_keys():
         raise StampError("host gates forbid selling inference or bundling our keys")
     rows: list[dict[str, str]] = [

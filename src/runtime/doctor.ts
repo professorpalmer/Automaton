@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process'
+import { boxStatus, computerLabel } from './box'
 import { chromeBinary } from './chrome'
 
 export type DoctorReport = {
@@ -7,6 +8,7 @@ export type DoctorReport = {
   puppetmaster: string
   chrome: 'found' | 'missing'
   chromePath?: string
+  computer: string
   error?: string
 }
 
@@ -34,22 +36,26 @@ export function doctorPuppetmaster(): DoctorReport {
     last = text
     if (status === 0 && /ok\s+python/.test(text)) {
       const bin = chromeBinary()
+      const computer = boxStatus()
       return {
         ok: true,
         python: [command, ...args].join(' '),
         puppetmaster: 'reachable',
-        chrome: bin ? 'found' : 'missing',
+        chrome: bin || computer.running ? 'found' : 'missing',
         chromePath: bin ?? undefined,
+        computer: computerLabel(computer),
       }
     }
   }
   const bin = chromeBinary()
+  const computer = boxStatus()
   return {
     ok: false,
     python: 'puppetmaster | python -m puppetmaster',
     puppetmaster: 'failed',
-    chrome: bin ? 'found' : 'missing',
+    chrome: bin || computer.running ? 'found' : 'missing',
     chromePath: bin ?? undefined,
+    computer: computerLabel(computer),
     error: last.slice(0, 800),
   }
 }

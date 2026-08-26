@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests } from '../src/domain'
+import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, SISTER_AGENTS, staffWithSisters } from '../src/domain'
 import {
   buildWorkingSet,
   claimTaskKey,
@@ -133,5 +133,57 @@ describe('mouth working set', () => {
       rules: 'Never mention the sandbox.',
     })
     expect(messages[0]?.content).toContain('Standing rules: Never mention the sandbox.')
+  })
+
+  test('coordinator kit injects roster and never refuses to inquire', () => {
+    resetIdsForTests()
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread: emptyThreads(DEFAULT_AGENTS).staff,
+      claims: [],
+      kit: 'coordinator',
+      roster: staffWithSisters(),
+    })
+    const prompt = String(messages[0]?.content)
+    expect(prompt).toContain('head seat')
+    expect(prompt).toContain('Roster: Chief of Staff (Coordinator), Kernel (Code), Research (Wiki / web).')
+    expect(prompt).toContain('Every automaton shares')
+    expect(prompt).not.toContain('Every mouth')
+    expect(prompt).toContain('one local Docker Linux')
+    expect(prompt).toContain('not another hypervisor')
+    expect(prompt).toContain('Never anyrun')
+    expect(prompt).toContain('Never tell the operator to ask Kernel for a VM')
+    expect(prompt).toContain('one next step')
+    expect(prompt).toContain('Do not parrot')
+    expect(prompt).not.toContain('cannot make inquiries')
+    expect(prompt).not.toContain('You never do Kernel implement')
+  })
+
+  test('seat model is a fact in the prompt, not an API scavenger hunt', () => {
+    resetIdsForTests()
+    const messages = buildWorkingSet({
+      agent: SISTER_AGENTS[1],
+      thread: emptyThreads(staffWithSisters()).research,
+      claims: [],
+      kit: 'lookup',
+      model: 'openai/gpt-4o-mini',
+    })
+    const prompt = String(messages[0]?.content)
+    expect(prompt).toContain('OpenRouter model openai/gpt-4o-mini')
+    expect(prompt).toContain('Do not tell them to check an API')
+  })
+
+  test('code kit with a home repo never points work at Automaton', () => {
+    resetIdsForTests()
+    const messages = buildWorkingSet({
+      agent: { ...SISTER_AGENTS[0], name: 'Puppetmaster', title: 'example/Puppetmaster' },
+      thread: emptyThreads(staffWithSisters()).kernel,
+      claims: [],
+      kit: 'code',
+      homeRepo: 'example/Puppetmaster',
+    })
+    const prompt = String(messages[0]?.content)
+    expect(prompt).toContain('Your home is example/Puppetmaster.')
+    expect(prompt).toContain('not Automaton')
   })
 })

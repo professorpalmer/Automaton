@@ -15,9 +15,14 @@ export function browserDir(agentId: string, home = automatonHome()): string {
   return join(desktopDir(agentId, home), 'browser')
 }
 
+export function boxChromeHostDir(agentId: string, home = automatonHome()): string {
+  return join(desktopDir(agentId, home), 'box-chrome')
+}
+
 export function ensureDesktop(agentId: string, home = automatonHome()): string {
   const dir = desktopDir(agentId, home)
   mkdirSync(browserDir(agentId, home), { recursive: true })
+  mkdirSync(boxChromeHostDir(agentId, home), { recursive: true })
   return dir
 }
 

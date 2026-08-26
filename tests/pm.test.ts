@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { homedir } from 'node:os'
+import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { sanitizeSpeak } from '../src/domain'
 import {
@@ -14,6 +14,7 @@ import {
   ownerLabel,
   parseJobId,
   parseLauncherPid,
+  pmEnv,
   seedSandboxFromProduct,
   spokenFromArtifactRefs,
   substantiveSpokenFromRefs,
@@ -32,6 +33,9 @@ describe('puppetmaster spawn contract', () => {
   test('spoken lines never keep job ids', () => {
     expect(sanitizeSpeak('Done. job_ab12cd34 finished')).toBe('Done. finished')
     expect(sanitizeSpeak('job_id: job_ab12cd34')).toBe('Done.')
+    const long = `The Linux box is up. ${'x'.repeat(400)}`
+    expect(sanitizeSpeak(long).length).toBeGreaterThan(280)
+    expect(sanitizeSpeak(long)).toContain('The Linux box is up.')
   })
 
   test('analyze argv is run --config matching the MCP twin', () => {
@@ -43,10 +47,14 @@ describe('puppetmaster spawn contract', () => {
       timeoutSeconds: 180,
     })
     const cfg = JSON.parse(readFileSync(files.configPath, 'utf8'))
-    expect(cfg.workers[0].adapter).toBe('cursor')
-    expect(cfg.workers[0].payload.model).toBe('grok-4.6')
+    expect(cfg.workers[0].adapter).toBe('agentic')
+    expect(cfg.workers[0].payload.provider).toBe('openrouter')
+    expect(cfg.workers[0].payload.model).toBe('openai/gpt-4o-mini')
+    expect(cfg.workers[0].payload.pinned_model).toBe('agentic/openai/gpt-4o-mini')
+    expect(cfg.workers[0].payload.allowed_adapters).toEqual(['agentic'])
     expect(cfg.workers[0].payload.read_only).toBe(true)
     expect(cfg.workers[0].payload.cwd).toBe(PRODUCT_ROOT)
+    expect(JSON.stringify(cfg)).not.toMatch(/cursor/)
     const argv = buildAnalyzeArgv({
       ...files,
       label: 'kernel analyze request',
@@ -78,7 +86,12 @@ describe('puppetmaster spawn contract', () => {
       workerCwd: join('/tmp', 'automaton-sandbox-probe'),
       label: 'kernel implement request',
     })
-    expect(argv).toContain('--implement')
+    expect(argv).toContain('agentic')
+    expect(argv).toContain('--mode')
+    expect(argv[argv.indexOf('--mode') + 1]).toBe('implement')
+    expect(argv).toContain('--provider')
+    expect(argv[argv.indexOf('--provider') + 1]).toBe('openrouter')
+    expect(argv).not.toContain('cursor')
     expect(argv).not.toContain('--no-edit')
   })
 
@@ -96,6 +109,8 @@ describe('puppetmaster spawn contract', () => {
       workerCwd: join('/tmp', 'automaton-sandbox-probe'),
     })
     const cfg = JSON.parse(readFileSync(files.configPath, 'utf8'))
+    expect(cfg.workers[0].adapter).toBe('agentic')
+    expect(cfg.workers[0].payload.provider).toBe('openrouter')
     expect(cfg.workers[0].payload.mode).toBe('implement')
     expect(cfg.workers[0].payload.implement).toBe(true)
     expect(cfg.workers[0].payload.allow_dirty).toBe(true)
@@ -118,6 +133,65 @@ describe('puppetmaster spawn contract', () => {
     expect(ownerLabel({ id: 'j', ownerAgentId: 'research', goal: 'g', status: 'running', kind: 'analyze' })).toBe(
       'research look up',
     )
+  })
+
+  test('pmEnv copies the Automaton OpenRouter key when env is empty', () => {
+    const home = join(tmpdir(), `automaton-pm-env-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'keys.json'), `${JSON.stringify({ openrouter: 'sk-or-test-key' })}\n`)
+    const prevHome = process.env.AUTOMATON_HOME
+    const prevKey = process.env.OPENROUTER_API_KEY
+    const prevKey2 = process.env.OPENROUTER_API_KEY_2
+    const prevModels = process.env.PUPPETMASTER_MODELS_PATH
+    delete process.env.OPENROUTER_API_KEY
+    delete process.env.OPENROUTER_API_KEY_2
+    process.env.AUTOMATON_HOME = home
+    try {
+      const env = pmEnv()
+      expect(env.OPENROUTER_API_KEY).toBe('sk-or-test-key')
+      expect(env.OPENROUTER_API_KEY_2).toBeUndefined()
+      expect(env.PUPPETMASTER_MODELS_PATH).toBe(join(home, 'models.json'))
+      const catalog = JSON.parse(readFileSync(join(home, 'models.json'), 'utf8'))
+      expect(catalog.models[0].id).toBe('agentic/openai/gpt-4o-mini')
+      expect(catalog.models[0].adapter).toBe('agentic')
+      expect(catalog.models[0].payload_defaults.provider).toBe('openrouter')
+    } finally {
+      if (prevHome === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prevHome
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY
+      else process.env.OPENROUTER_API_KEY = prevKey
+      if (prevKey2 === undefined) delete process.env.OPENROUTER_API_KEY_2
+      else process.env.OPENROUTER_API_KEY_2 = prevKey2
+      if (prevModels === undefined) delete process.env.PUPPETMASTER_MODELS_PATH
+      else process.env.PUPPETMASTER_MODELS_PATH = prevModels
+    }
+  })
+
+  test('pmEnv prefers the Automaton OpenRouter key over a stale env key', () => {
+    const home = join(tmpdir(), `automaton-pm-stale-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'keys.json'), `${JSON.stringify({ openrouter: 'sk-or-file-key' })}\n`)
+    const prevHome = process.env.AUTOMATON_HOME
+    const prevKey = process.env.OPENROUTER_API_KEY
+    const prevKey2 = process.env.OPENROUTER_API_KEY_2
+    const prevModels = process.env.PUPPETMASTER_MODELS_PATH
+    process.env.AUTOMATON_HOME = home
+    process.env.OPENROUTER_API_KEY = 'sk-or-stale-env'
+    delete process.env.OPENROUTER_API_KEY_2
+    try {
+      const env = pmEnv()
+      expect(env.OPENROUTER_API_KEY).toBe('sk-or-file-key')
+      expect(env.OPENROUTER_API_KEY_2).toBe('sk-or-stale-env')
+    } finally {
+      if (prevHome === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prevHome
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY
+      else process.env.OPENROUTER_API_KEY = prevKey
+      if (prevKey2 === undefined) delete process.env.OPENROUTER_API_KEY_2
+      else process.env.OPENROUTER_API_KEY_2 = prevKey2
+      if (prevModels === undefined) delete process.env.PUPPETMASTER_MODELS_PATH
+      else process.env.PUPPETMASTER_MODELS_PATH = prevModels
+    }
   })
 
   test('sandbox seed is a git worktree outside the checkout', () => {

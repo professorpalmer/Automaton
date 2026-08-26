@@ -47,8 +47,11 @@ export type KeyLookup = {
 export function listOpenRouterKeys(input?: KeyLookup): ResolvedKey[] {
   const env = input?.env ?? process.env
   const automatonPath = input?.automatonPath ?? automatonKeysPath()
-  const statePath = input?.marionetteStatePath ?? marionetteStateKeysPath()
-  const legacyPath = input?.marionettePath ?? marionetteLegacyKeysPath()
+  const isolatedHome = Boolean((env.AUTOMATON_HOME ?? process.env.AUTOMATON_HOME)?.trim())
+  const skipMarionette =
+    isolatedHome && input?.marionetteStatePath === undefined && input?.marionettePath === undefined
+  const statePath = skipMarionette ? '' : (input?.marionetteStatePath ?? marionetteStateKeysPath())
+  const legacyPath = skipMarionette ? '' : (input?.marionettePath ?? marionetteLegacyKeysPath())
   const rows: { key: string; source: Exclude<KeySource, 'missing'> }[] = [
     { key: (env.OPENROUTER_API_KEY ?? '').trim(), source: 'env' },
     { key: readJsonKey(automatonPath, 'openrouter'), source: 'automaton' },

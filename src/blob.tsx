@@ -91,7 +91,7 @@ function hold(weight: keyof BlobWeights): BlobWeights {
   return { ...ZERO, [weight]: 1 }
 }
 
-/** Five still poses. Jobs are not an input — only mouthBusy chews. */
+/** Five still poses. Jobs are not an input — only mouthBusy chews, and chew darts the eyes. */
 export function presentBlob(view: BlobView): BlobMotion {
   const delay = view.entered ? 0 : view.index * T.blob.stagger
   if (!view.entered) {

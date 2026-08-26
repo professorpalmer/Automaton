@@ -48,15 +48,41 @@ export async function connectorFetch(
   if (row.needsAuth && !bearer) throw new Error('openrouter missing key')
   const headers = new Headers(init?.headers)
   if (bearer) headers.set('Authorization', `Bearer ${bearer}`)
-  if (!headers.has('HTTP-Referer')) {
-    headers.set('HTTP-Referer', 'https://github.com/professorpalmer')
-  }
   if (!headers.has('X-Title')) headers.set('X-Title', 'Automaton')
   if (init?.body && !headers.has('Content-Type')) {
     headers.set('Content-Type', 'application/json')
   }
   const fn = seams?.fetch ?? fetch
   return fn(joinUrl(row.baseUrl, path), { ...init, headers })
+}
+
+export type CatalogModel = { id: string; name: string }
+
+export function parseOpenRouterModels(body: unknown): CatalogModel[] {
+  const data =
+    body && typeof body === 'object' && 'data' in body ? (body as { data: unknown }).data : null
+  if (!Array.isArray(data)) return []
+  const out: CatalogModel[] = []
+  for (const row of data) {
+    if (!row || typeof row !== 'object') continue
+    const rec = row as Record<string, unknown>
+    const id = typeof rec.id === 'string' ? rec.id.trim() : ''
+    if (!id || out.some((item) => item.id === id)) continue
+    const name = typeof rec.name === 'string' && rec.name.trim() ? rec.name.trim() : id
+    out.push({ id, name })
+  }
+  out.sort((a, b) => a.id.localeCompare(b.id))
+  return out
+}
+
+export async function listOpenRouterModels(seams?: ConnectorFetchSeams): Promise<CatalogModel[]> {
+  const response = await connectorFetch(OPENROUTER_ID, OPENROUTER_MODELS_PATH, { method: 'GET' }, seams)
+  if (!response.ok) return []
+  try {
+    return parseOpenRouterModels(await response.json())
+  } catch {
+    return []
+  }
 }
 
 export async function readSseDataLine(response: Response): Promise<string | null> {

@@ -1,4 +1,4 @@
-import type { Agent, Thread } from '../domain'
+import type { Agent, AgentKit, Thread } from '../domain'
 import { imageDataUrl } from './attachments'
 
 export const TAIL = 8
@@ -148,14 +148,42 @@ function uniqueSpeakable(claims: ClaimRef[], content: string[]): string | null {
   return identified.length === 1 ? identified[0].text : null
 }
 
-export function systemPrompt(agent: Agent, rules = ''): string {
+function seatFact(model?: string): string {
+  if (!model) return ''
+  return `This seat runs OpenRouter model ${model}. Answer from that when asked which model we run. Do not tell them to check an API.`
+}
+
+export function systemPrompt(
+  agent: Agent,
+  rules = '',
+  input?: { kit?: AgentKit; roster?: Agent[]; homeRepo?: string; model?: string },
+): string {
+  if (input?.kit === 'coordinator') {
+    const roster = (input.roster ?? [])
+      .filter((row) => !row.hidden)
+      .map((row) => `${row.name} (${row.title || row.id})`)
+      .join(', ')
+    const parts = [
+      'You are the head seat. You own this Automaton computer: one local Docker Linux on this Mac. Every automaton shares that machine. An automaton is a cheap screen (X display plus Chrome profile), not another hypervisor. Chrome is lazy and RPC. Disk stays when idle. Never anyrun. You dispatch to roster automata and you may book analyze or implement yourself. Never say you are only a chat seat or that you have no machine. Never tell the operator to ask Kernel for a VM. If they named a sister, the runtime already dispatched; just confirm. When a sister answers, tell the operator what it means and one next step they can ask that automaton to run. Do not parrot their words.',
+      roster ? `Roster: ${roster}.` : '',
+      seatFact(input.model),
+      'Speak briefly. Do not print job ids. Do not ask how you can assist.',
+    ].filter(Boolean)
+    const standing = rules.trim()
+    if (standing) parts.push(`Standing rules: ${standing}`)
+    return parts.join(' ')
+  }
   const parts = [
     `You are ${agent.name}, ${agent.title} in Automaton staff.`,
     agent.description,
-    'Speak briefly. Do not print job ids. Workers stay mute; you are the mouth.',
+    'Speak briefly. Do not print job ids. Workers stay mute; you are the automaton.',
     'If recalled claims answer the user, use them. Do not re-derive a stored finding.',
     'Do not ask how you can assist.',
-  ]
+    seatFact(input?.model),
+  ].filter(Boolean)
+  if (input?.homeRepo) {
+    parts.push(`Your home is ${input.homeRepo}. Product work goes there, not Automaton.`)
+  }
   const standing = rules.trim()
   if (standing) parts.push(`Standing rules: ${standing}`)
   return parts.join(' ')
@@ -197,9 +225,23 @@ export function buildWorkingSet(input: {
   thread: Thread
   claims: ClaimRef[]
   rules?: string
+  kit?: AgentKit
+  roster?: Agent[]
+  homeRepo?: string
+  model?: string
   attachments?: { id: string; path: string; mime: string; kind: 'image' | 'file' }[]
 }): ChatTurn[] {
-  const messages: ChatTurn[] = [{ role: 'system', content: systemPrompt(input.agent, input.rules) }]
+  const messages: ChatTurn[] = [
+    {
+      role: 'system',
+      content: systemPrompt(input.agent, input.rules, {
+        kit: input.kit,
+        roster: input.roster,
+        homeRepo: input.homeRepo,
+        model: input.model,
+      }),
+    },
+  ]
   if (input.claims.length > 0) {
     messages.push({
       role: 'system',

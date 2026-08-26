@@ -22,7 +22,10 @@ describe('agent profiles', () => {
     ensureSeedProfiles(home)
     const staff = readProfile('staff', home)
     expect(staff?.kit).toBe('coordinator')
+    expect(staff?.name).toBe('Chief of Staff')
     expect(staff?.avatarShape).toBe('blob')
+    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('research', home)).toBeNull()
     expect(kitForAgent('kernel', home)).toBe('code')
     expect(kitForAgent('research', home)).toBe('lookup')
     rmSync(home, { recursive: true, force: true })
@@ -34,6 +37,8 @@ describe('agent profiles', () => {
     expect(parsed.name).toBe('Scout')
     expect(parsed.kit).toBe('blank')
     expect(parsed.namedBy).toBe('app')
+    expect(parsed.homeRepo).toBe('')
+    expect(parsed.homePath).toBe('')
   })
 
   test('write then read round-trips rules', () => {
@@ -53,10 +58,66 @@ describe('agent profiles', () => {
         notifyOnUpdates: true,
         hiddenFromRail: false,
         createdAt: '2026-08-25T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
       },
       home,
     )
     expect(readProfile('agent_9', home)?.rules).toBe('Never mention the sandbox.')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('ensureSeedProfiles upgrades an app-named Staff mouth', () => {
+    const home = tmpHome()
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Staff', kit: 'coordinator', namedBy: 'app' }, 'staff'),
+        avatarShape: 'blob',
+        avatarColor: 'staff',
+      },
+      home,
+    )
+    ensureSeedProfiles(home)
+    expect(readProfile('staff', home)?.name).toBe('Chief of Staff')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('ensureSeedProfiles leaves a user-named Staff mouth alone', () => {
+    const home = tmpHome()
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Staff', kit: 'coordinator', namedBy: 'user' }, 'staff'),
+        avatarShape: 'blob',
+        avatarColor: 'staff',
+      },
+      home,
+    )
+    ensureSeedProfiles(home)
+    expect(readProfile('staff', home)?.name).toBe('Staff')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('ensureSeedProfiles drops app-named Kernel and Research', () => {
+    const home = tmpHome()
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Kernel', kit: 'code', namedBy: 'app' }, 'kernel'),
+        avatarShape: 'hex',
+        avatarColor: 'kernel',
+      },
+      home,
+    )
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Research', kit: 'lookup', namedBy: 'user' }, 'research'),
+        avatarShape: 'tablet',
+        avatarColor: 'research',
+      },
+      home,
+    )
+    ensureSeedProfiles(home)
+    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('research', home)?.name).toBe('Research')
     rmSync(home, { recursive: true, force: true })
   })
 })

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-"""Put a box project on the tenant's Render. Never Cary's account."""
+"""Put a box project on the tenant's Render. Never the host operator account."""
 
 import json
 import os

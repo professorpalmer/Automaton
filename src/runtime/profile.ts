@@ -18,6 +18,8 @@ export type AgentProfile = {
   notifyOnUpdates: boolean
   hiddenFromRail: boolean
   createdAt: string
+  homeRepo: string
+  homePath: string
 }
 
 const KITS: AgentKit[] = ['coordinator', 'code', 'lookup', 'blank']
@@ -52,7 +54,7 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
     : []
   return {
     id: typeof row.id === 'string' && row.id ? row.id : fallbackId,
-    name: typeof row.name === 'string' ? row.name : 'New Bot',
+    name: typeof row.name === 'string' ? row.name : 'New automaton',
     title: typeof row.title === 'string' ? row.title : '',
     description: typeof row.description === 'string' ? row.description : '',
     rules: typeof row.rules === 'string' ? row.rules : '',
@@ -64,6 +66,8 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
     notifyOnUpdates: row.notifyOnUpdates !== false,
     hiddenFromRail: row.hiddenFromRail === true,
     createdAt: typeof row.createdAt === 'string' ? row.createdAt : new Date().toISOString(),
+    homeRepo: typeof row.homeRepo === 'string' ? row.homeRepo.trim() : '',
+    homePath: typeof row.homePath === 'string' ? row.homePath.trim() : '',
   }
 }
 
@@ -101,10 +105,12 @@ export function listProfileIds(home = automatonHome()): string[] {
   return readdirSync(root).filter((id) => existsSync(profilePath(id, home)))
 }
 
+const SEED_SISTER_IDS = ['kernel', 'research'] as const
+
 export function seedProfile(id: 'staff' | 'kernel' | 'research'): AgentProfile {
   const meta =
     id === 'staff'
-      ? { name: 'Staff', title: 'Coordinator', description: 'Replies, books work, dispatches. Does not do multi-file jobs.' }
+      ? { name: 'Chief of Staff', title: 'Coordinator', description: 'Owns the computer. Speaks, dispatches, and books jobs. Does not pixel-click.' }
       : id === 'kernel'
         ? { name: 'Kernel', title: 'Code', description: 'Puppetmaster / code. Speaks, then dispatches implement.' }
         : { name: 'Research', title: 'Wiki / web', description: 'Looks things up. Speaks, then dispatches analysis.' }
@@ -120,12 +126,38 @@ export function seedProfile(id: 'staff' | 'kernel' | 'research'): AgentProfile {
     notifyOnUpdates: true,
     hiddenFromRail: false,
     createdAt: '1970-01-01T00:00:00.000Z',
+    homeRepo: '',
+    homePath: '',
+  }
+}
+
+export function dropUnclaimedSeedSisters(home = automatonHome()): void {
+  for (const id of SEED_SISTER_IDS) {
+    const existing = readProfile(id, home)
+    if (!existing || existing.namedBy === 'user') continue
+    deleteProfile(id, home)
   }
 }
 
 export function ensureSeedProfiles(home = automatonHome()): void {
-  for (const id of ['staff', 'kernel', 'research'] as const) {
-    if (readProfile(id, home)) continue
-    writeProfile(seedProfile(id), home)
+  dropUnclaimedSeedSisters(home)
+  const seed = seedProfile('staff')
+  const existing = readProfile('staff', home)
+  if (!existing) {
+    writeProfile(seed, home)
+    return
   }
+  if (existing.namedBy !== 'app') return
+  if (existing.name === seed.name && existing.title === seed.title && existing.description === seed.description) {
+    return
+  }
+  writeProfile(
+    {
+      ...existing,
+      name: seed.name,
+      title: seed.title,
+      description: seed.description,
+    },
+    home,
+  )
 }

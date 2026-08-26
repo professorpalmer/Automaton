@@ -4,11 +4,13 @@ import { pendingMouthTurns } from '../session'
 import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from './connector-client'
 import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
-import { readProfile } from './profile'
+import { kitForAgent, readProfile } from './profile'
+import { DEFAULT_SEAT_MODEL, mouthModel } from './plane'
 import type { StaffStore, TurnReceipt } from './store'
 import { buildWorkingSet, queryFirst, type ChatTurn } from './working-set'
 
-export const DEFAULT_MOUTH_MODEL = 'openai/gpt-4o-mini'
+export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
+export const MOUTH_MAX_TOKENS = 2048
 
 export type MouthHooks = {
   onComplete: (agentId: AgentId, spoken: string) => void
@@ -38,8 +40,31 @@ export function resetMouthForTests(): void {
   started.clear()
 }
 
+function openRouterStatus(error: unknown): number | null {
+  const match = error instanceof Error ? error.message.match(/openrouter (\d{3})\b/) : null
+  return match ? Number(match[1]) : null
+}
+
 function isAuthFailure(error: unknown): boolean {
-  return error instanceof Error && /openrouter (401|403)\b/.test(error.message)
+  const status = openRouterStatus(error)
+  return status === 401 || status === 403
+}
+
+function isRateLimited(error: unknown): boolean {
+  return openRouterStatus(error) === 429
+}
+
+export function mouthFailSpeak(error: unknown, authRejected = false): string {
+  if (isRateLimited(error)) return 'OpenRouter rate limited. Try again.'
+  if (error instanceof Error && error.message === 'empty mouth') return 'The model returned no text.'
+  const status = openRouterStatus(error)
+  if (status === 400 || status === 404) return 'OpenRouter rejected this model.'
+  if (authRejected) return 'OpenRouter key was rejected.'
+  return "Couldn't reach OpenRouter."
+}
+
+function retryWaitMs(): number {
+  return process.env.NODE_ENV === 'test' ? 0 : 400
 }
 
 function unknownUsage(): MouthUsage {
@@ -141,10 +166,10 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, "Couldn't speak.")
         continue
       }
-      const claims = store.recall(turn.userText)
+      const claims = turn.mode === 'assess' ? [] : store.recall(turn.userText)
       const attached = store.attachmentsForItem(turn.itemId)
       const hasVision = attached.some((row) => row.kind === 'image')
-      const recalled = hasVision ? null : queryFirst(turn.userText, claims)
+      const recalled = turn.mode === 'assess' || hasVision ? null : queryFirst(turn.userText, claims)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
         hooks.onComplete(turn.agentId, recalled)
@@ -156,46 +181,60 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, 'Need an OpenRouter key.')
         continue
       }
-      model = process.env.AUTOMATON_MOUTH_MODEL?.trim() || DEFAULT_MOUTH_MODEL
+      model = mouthModel()
       const messages = buildWorkingSet({
         agent,
         thread: session.threads[turn.agentId],
         claims,
         rules: readProfile(turn.agentId)?.rules,
+        kit: kitForAgent(turn.agentId),
+        roster: session.agents,
+        homeRepo: readProfile(turn.agentId)?.homeRepo,
+        model,
         attachments: attached,
       })
+      if (turn.mode === 'assess') {
+        messages.push({ role: 'user', content: turn.userText })
+      }
       let spoken = ''
       let usage = unknownUsage()
       let authRejected = false
+      let lastError: unknown
       for (const candidate of candidates) {
-        try {
-          inferenceAttempted = true
-          const result = asChatResult(await chat(messages, candidate.key, model))
-          spoken = result.text
-          usage = result.usage
-          authRejected = false
-          break
-        } catch (error) {
-          if (isAuthFailure(error)) {
-            authRejected = true
-            continue
+        for (let attempt = 0; attempt < 2 && !spoken; attempt += 1) {
+          try {
+            inferenceAttempted = true
+            const result = asChatResult(await chat(messages, candidate.key, model))
+            spoken = result.text
+            usage = result.usage
+            authRejected = false
+            lastError = undefined
+          } catch (error) {
+            lastError = error
+            if (isAuthFailure(error)) {
+              authRejected = true
+              break
+            }
+            if (isRateLimited(error) && attempt === 0) {
+              await new Promise((resolve) => setTimeout(resolve, retryWaitMs()))
+              continue
+            }
+            if (isRateLimited(error)) break
+            throw error
           }
-          throw error
         }
+        if (spoken) break
       }
       if (!spoken) {
         store.recordReceipt(missReceipt(turn.itemId, model, unknownUsage(), 'failed', inferenceAttempted))
-        hooks.onFail(
-          turn.agentId,
-          authRejected ? 'OpenRouter key was rejected.' : "Couldn't reach OpenRouter.",
-        )
+        hooks.onFail(turn.agentId, mouthFailSpeak(lastError, authRejected))
         continue
       }
       store.recordReceipt(missReceipt(turn.itemId, model, usage, 'complete', true))
       hooks.onComplete(turn.agentId, spoken)
-    } catch {
+    } catch (error) {
       store.recordReceipt(missReceipt(turn.itemId, model, unknownUsage(), 'failed', inferenceAttempted))
-      hooks.onFail(turn.agentId, "Couldn't reach OpenRouter.")
+      hooks.onFail(turn.agentId, mouthFailSpeak(error))
     }
   }
 }
@@ -214,7 +253,7 @@ export async function chatOpenRouter(
       body: JSON.stringify({
         model,
         messages,
-        max_tokens: 280,
+        max_tokens: MOUTH_MAX_TOKENS,
       }),
     },
     { fetch: seams?.fetch, home: seams?.home, bearer: key },

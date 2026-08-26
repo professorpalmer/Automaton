@@ -6,9 +6,23 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Feed, JobStrip } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, presentBlob, SisterBlob } from '../src/blob'
-import { DEFAULT_AGENTS, type FeedItem, type JobHandle } from '../src/domain'
+import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
+import { Inspector, inspectorChord, pasteChord, quitChord } from '../src/inspector'
+import { createAgent } from '../src/runtime/factory'
+import { readSkin, writeSkin } from '../src/runtime/skin'
 import { openStaffStore } from '../src/runtime/store'
 import { T } from '../src/tokens'
+
+describe('app chords', () => {
+  test('cmd+q and cmd+w quit; inspector stays cmd+shift+i', () => {
+    expect(quitChord({ key: 'q', modifiers: { cmd: true } })).toBe(true)
+    expect(quitChord({ key: 'w', modifiers: { cmd: true } })).toBe(true)
+    expect(quitChord({ key: 'q', modifiers: { cmd: true, shift: true } })).toBe(false)
+    expect(pasteChord({ key: 'v', modifiers: { cmd: true } })).toBe(true)
+    expect(pasteChord({ key: 'v', modifiers: { cmd: true, shift: true } })).toBe(false)
+    expect(inspectorChord({ key: 'i', modifiers: { cmd: true, shift: true } })).toBe(true)
+  })
+})
 
 const native = hasNativeTestRenderer ? describe : describe.skip
 
@@ -49,7 +63,14 @@ function findTestId(node: TreeNode | null, testId: string): TreeNode | null {
   return null
 }
 
-function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+function containsTestId(node: TreeNode | null, testId: string): boolean {
+  return Boolean(findTestId(node, testId))
+}
+
+function boundsFor(
+  renderer: ReturnType<typeof createTestRoot>['renderer'],
+  testId: string,
+): { x: number; y: number; width: number; height: number } {
   renderer.flush()
   const tree = asTree(JSON.parse(renderer.getAutomationTree()))
   const node = findTestId(tree, testId)
@@ -64,9 +85,23 @@ function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], te
   if (!bounds || bounds.width <= 0 || bounds.height <= 0) {
     throw new Error(`no painted bounds for ${testId}`)
   }
+  return bounds
+}
+
+function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+  const bounds = boundsFor(renderer, testId)
   renderer.nativeSimulateClick(
     Math.floor(bounds.x + Math.min(40, bounds.width / 2)),
     Math.floor(bounds.y + bounds.height / 2),
+  )
+}
+
+function rightClickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+  const bounds = boundsFor(renderer, testId)
+  renderer.nativeSimulateMouseDown(
+    Math.floor(bounds.x + Math.min(40, bounds.width / 2)),
+    Math.floor(bounds.y + bounds.height / 2),
+    2,
   )
 }
 
@@ -85,6 +120,26 @@ function testStore() {
   process.env.AUTOMATON_HOME = home
   process.env.AUTOMATON_SILENT_PICK = '1'
   return openStaffStore(join(home, 'staff.sqlite'))
+}
+
+function longFeed(agentId: string, count: number, prefix = 'line'): FeedItem[] {
+  const items: FeedItem[] = []
+  for (let i = 0; i < count; i += 1) {
+    items.push({
+      kind: 'msg',
+      id: `${agentId}_${i}`,
+      from: i % 2 === 0 ? 'user' : 'agent',
+      agentId,
+      text: `${prefix} line ${i} of a long thread that should pin the tail`,
+    })
+  }
+  return items
+}
+
+function feedOffset(renderer: ReturnType<typeof createTestRoot>['renderer']) {
+  const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+  const feed = findTestId(tree, 'feed')
+  return typeof feed?.id === 'number' ? renderer.getScrollOffset(feed.id) : null
 }
 
 describe('sister blob presentation', () => {
@@ -201,36 +256,159 @@ native('staff shell (GPUI native)', () => {
     const shot = 'artifacts/shots/shell-idle.png'
     renderer.captureScreenshot(shot)
     const painted = renderer.getPaintedText().join(' ')
-    expect(painted).toContain('Staff')
-    expect(painted).toContain('Kernel')
-    expect(painted).toContain('Research')
+    expect(painted).toContain('Chief of Staff')
+    expect(painted).not.toContain('Kernel')
+    expect(painted).not.toContain('Research')
+    expect(painted).toContain('Start shipping. No strings attached.')
     expect(painted).toContain('Send')
-    expect(painted).toContain('Message this agent')
+    expect(painted).toContain('Message this automaton')
     expect(painted).toContain('Settings')
     expect(statSync(shot).size).toBeGreaterThan(1000)
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(tree, 'blob-staff')).toBeTruthy()
-    expect(findTestId(tree, 'blob-kernel')).toBeTruthy()
-    expect(findTestId(tree, 'blob-research')).toBeTruthy()
+    expect(findTestId(tree, 'blob-kernel')).toBeFalsy()
+    expect(findTestId(tree, 'blob-research')).toBeFalsy()
     expect(findTestId(tree, 'new-agent')).toBeTruthy()
+    expect(findTestId(tree, 'feed-empty')).toBeTruthy()
     expect(findTestId(tree, 'attach')).toBeTruthy()
-    expect(painted).toContain('New agent')
+    expect(painted).toContain('New automaton')
     const blob = findTestId(tree, 'blob-staff')
     expect(blob?.bounds?.width ?? 0).toBeLessThanOrEqual(T.blob.slot + 4)
     expect(blob?.bounds?.height ?? 0).toBeLessThanOrEqual(T.blob.slot + 4)
     expect(collectOversized(blob, T.blob.slot + 4)).toEqual([])
-    clickTestId(renderer, 'agent-kernel')
+    clickTestId(renderer, 'new-agent')
     renderer.flush()
     const after = asTree(JSON.parse(renderer.getAutomationTree()))
     const title = findTestId(after, 'titlebar-name')
-    expect(title?.text ?? title?.children?.[0]?.text).toBe('Kernel')
+    expect(title?.text ?? title?.children?.[0]?.text).toBe('New automaton')
+    expect(findTestId(after, 'inspector')).toBeTruthy()
+    const rail = findTestId(tree, 'rail')
+    expect(rail?.bounds?.width ?? 0).toBe(T.layout.sidebarWidth)
+    expect(findTestId(tree, 'rail-resize')).toBeTruthy()
+  })
+
+  test('compact rail hides names and keeps blobs', () => {
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarMin })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const rail = findTestId(tree, 'rail')
+    expect(rail?.bounds?.width ?? 0).toBe(T.layout.sidebarMin)
+    expect(findTestId(tree, 'blob-staff')).toBeTruthy()
+    expect(findTestId(tree, 'blob-kernel')).toBeFalsy()
+    expect(findTestId(tree, 'blob-research')).toBeFalsy()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).not.toContain('Kernel')
+    expect(painted).not.toContain('Research')
+    expect(painted).not.toContain('New automaton')
+    expect(painted).not.toContain('Settings')
+    expect(findTestId(tree, 'new-agent')).toBeTruthy()
+    expect(findTestId(tree, 'settings-open')).toBeTruthy()
+    expect(findTestId(tree, 'new-agent-icon')).toBeTruthy()
+    expect(findTestId(tree, 'settings-icon')).toBeTruthy()
+  })
+
+  test('dragging the rail handle writes a wider skin', () => {
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarWidth })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const before = asTree(JSON.parse(renderer.getAutomationTree()))
+    const handle = findTestId(before, 'rail-resize')
+    const box =
+      handle?.bounds ??
+      (typeof handle?.id === 'number'
+        ? (() => {
+            const raw = renderer.getElementBounds(handle.id)
+            return raw ? { x: raw[0], y: raw[1], width: raw[2], height: raw[3] } : null
+          })()
+        : null)
+    if (!box || box.width <= 0) throw new Error('no painted bounds for rail-resize')
+    const x = Math.floor(box.x + box.width / 2)
+    const y = Math.floor(box.y + box.height / 2)
+    renderer.nativeSimulateMouseDown(x, y)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail-drag')).toBeTruthy()
+    expect(renderer.getPaintedText().join(' ')).toContain('Send')
+    renderer.nativeSimulateMouseMove(x + 80, y, 0)
+    renderer.flush()
+    renderer.nativeSimulateMouseUp(x + 80, y)
+    renderer.flush()
+    const after = asTree(JSON.parse(renderer.getAutomationTree()))
+    const rail = findTestId(after, 'rail')
+    expect(rail?.bounds?.width ?? 0).toBe(T.layout.sidebarWidth + 80)
+    expect(readSkin().railWidth).toBe(T.layout.sidebarWidth + 80)
+    renderer.nativeSimulateMouseMove(x + 160, y, 0)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail')?.bounds?.width ?? 0).toBe(
+      T.layout.sidebarWidth + 80,
+    )
+  })
+
+  test('dragging the rail handle left narrows the rail', () => {
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarWidth })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const before = asTree(JSON.parse(renderer.getAutomationTree()))
+    const handle = findTestId(before, 'rail-resize')
+    const box =
+      handle?.bounds ??
+      (typeof handle?.id === 'number'
+        ? (() => {
+            const raw = renderer.getElementBounds(handle.id)
+            return raw ? { x: raw[0], y: raw[1], width: raw[2], height: raw[3] } : null
+          })()
+        : null)
+    if (!box || box.width <= 0) throw new Error('no painted bounds for rail-resize')
+    const x = Math.floor(box.x + box.width / 2)
+    const y = Math.floor(box.y + box.height / 2)
+    renderer.nativeSimulateMouseDown(x, y)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail-drag')).toBeTruthy()
+    renderer.nativeSimulateMouseMove(40, y, 0)
+    renderer.flush()
+    renderer.nativeSimulateMouseUp(40, y)
+    renderer.flush()
+    const rail = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail')
+    expect(rail?.bounds?.width ?? 0).toBe(T.layout.sidebarMin)
+    expect(readSkin().railWidth).toBe(T.layout.sidebarMin)
+    renderer.nativeSimulateMouseMove(x + 80, y, 0)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail')?.bounds?.width ?? 0).toBe(
+      T.layout.sidebarMin,
+    )
+  })
+
+  test('rail resize gutter sits beside the rail, not inside it', () => {
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarWidth })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const rail = findTestId(tree, 'rail')
+    const handle = findTestId(tree, 'rail-resize')
+    expect(handle?.bounds?.width ?? 0).toBeGreaterThanOrEqual(T.layout.railHandle)
+    expect(handle?.bounds?.x ?? 0).toBeGreaterThanOrEqual(
+      (rail?.bounds?.x ?? 0) + (rail?.bounds?.width ?? 0) - 2,
+    )
+    expect(handle?.bounds?.width ?? 0).toBe(T.layout.railHandle)
+    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    const drag = src.match(/testId="rail-drag"[\s\S]*?onMouseMove=\{moveRail\}/)?.[0]
+    expect(drag).toBeTruthy()
+    expect(drag).not.toContain('backgroundColor')
   })
 
   test('only the mouth-busy sister pulses; a job handle is not mouth busy', () => {
     const { render, renderer } = createTestRoot()
     render(
       <div>
-        {DEFAULT_AGENTS.map((agent, index) => (
+        {staffWithSisters().map((agent, index) => (
           <SisterBlob
             key={agent.id}
             agent={agent}
@@ -267,7 +445,7 @@ native('staff shell (GPUI native)', () => {
       kind: 'analyze',
     }
     const { render, renderer } = createTestRoot()
-    render(<JobStrip jobs={[job]} agents={DEFAULT_AGENTS} onStop={() => {}} />)
+    render(<JobStrip jobs={[job]} agents={staffWithSisters()} onStop={() => {}} />)
     renderer.flush()
 
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
@@ -276,6 +454,174 @@ native('staff shell (GPUI native)', () => {
     const label = row?.children?.[0]
     expect(label?.children).toHaveLength(1)
     expect(label?.children?.[0]?.text).toBe('Kernel · analyze · read-only UI verification')
+  })
+
+  test('Staff feed keeps Sent to and hides the sister line', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: '1', from: 'user', agentId: 'staff', text: 'Can you ping research?' },
+      { kind: 'msg', id: '2', from: 'agent', agentId: 'staff', text: 'Asking Research.' },
+      { kind: 'relay', id: '3', lane: 'sent', peerId: 'research', text: 'The operator asked if you are around.' },
+      {
+        kind: 'relay',
+        id: '4',
+        lane: 'from',
+        peerId: 'research',
+        text: "I'm here to assist you. How can I help?",
+      },
+      {
+        kind: 'msg',
+        id: '5',
+        from: 'agent',
+        agentId: 'staff',
+        text: 'Research is online. What would you like the research automaton to run?',
+      },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={staffWithSisters()} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'relay-sent-research')).toBeTruthy()
+    expect(findTestId(tree, 'relay-from-research')).toBeNull()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('Sent to Research')
+    expect(painted).toContain('Research is online')
+    expect(painted).not.toContain("I'm here to assist you")
+    expect(painted).not.toContain('Message from Research')
+  })
+
+  test('feed sticks to the latest line', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={longFeed('staff', 24)} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    const offset = feedOffset(renderer)
+    expect(offset).not.toBeNull()
+    expect(offset?.[1] ?? 0).toBeLessThan(0)
+  })
+
+  test('new lines keep the feed on the tail', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={longFeed('staff', 8)} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    render(
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={longFeed('staff', 24)} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    renderer.flush()
+    const offset = feedOffset(renderer)
+    expect(offset?.[1] ?? 0).toBeLessThan(0)
+    expect(renderer.getPaintedText().join(' ')).toContain('line 23')
+  })
+
+  test('switching mouths pins the feed to that thread tail', () => {
+    resetIdsForTests()
+    const store = testStore()
+    const sister = createAgent({ name: 'Kernel' })
+    const agents = [...DEFAULT_AGENTS, sister.agent]
+    const threads = emptyThreads(agents)
+    threads.staff = { ...threads.staff, items: longFeed('staff', 24, 'Staff') }
+    threads[sister.agent.id] = { ...threads[sister.agent.id], items: longFeed(sister.agent.id, 24, 'Kernel') }
+    store.save({
+      agents,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    clickTestId(renderer, `agent-${sister.agent.id}`)
+    renderer.flush()
+    renderer.flush()
+    const offset = feedOffset(renderer)
+    expect(offset?.[1] ?? 0).toBeLessThan(0)
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('Kernel line 23')
+    const title = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'titlebar-name')
+    expect(title?.text ?? title?.children?.[0]?.text).toBe('Kernel')
+  })
+
+  test('running job strip sits below the feed tail, not on it', () => {
+    mkdirSync('artifacts/shots', { recursive: true })
+    const store = testStore()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = { ...threads.staff, items: longFeed('staff', 24, 'Staff') }
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [
+        {
+          id: 'job_strip_overlap',
+          ownerAgentId: 'staff',
+          goal: 'Ask research, what model and provider are we using right now?',
+          status: 'running',
+          kind: 'analyze',
+        },
+      ],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    renderer.flush()
+    const shot = 'artifacts/shots/shell-job-dock.png'
+    renderer.captureScreenshot(shot)
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const feed = findTestId(tree, 'feed')
+    const strip = findTestId(tree, 'job-strip')
+    const dock = findTestId(tree, 'dock')
+    expect(strip).toBeTruthy()
+    expect(dock).toBeTruthy()
+    expect(strip?.bounds?.y ?? 0).toBeGreaterThanOrEqual(
+      (feed?.bounds?.y ?? 0) + (feed?.bounds?.height ?? 0) - 2,
+    )
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('Staff line 23')
+    expect(painted).toContain('Stop')
+    expect(statSync(shot).size).toBeGreaterThan(1000)
+  })
+
+  test('a growing last line stays on the tail', () => {
+    const first = longFeed('staff', 8)
+    const grown = first.map((item, index) =>
+      index === first.length - 1 && item.kind === 'msg'
+        ? {
+            ...item,
+            text: `${item.text} and then the mouth keeps speaking so the tail has to move`,
+          }
+        : item,
+    )
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={first} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    render(
+      <div style={{ height: 240, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={grown} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    renderer.flush()
+    expect(feedOffset(renderer)?.[1] ?? 0).toBeLessThan(0)
+    expect(renderer.getPaintedText().join(' ')).toContain('the tail has to move')
   })
 
   test('titlebar opens inspector and rail Settings paints usage chrome', () => {
@@ -289,21 +635,38 @@ native('staff shell (GPUI native)', () => {
     const inspector = renderer.getPaintedText().join(' ')
     expect(inspector).toContain('Inspector')
     expect(inspector).toContain('Coordinator')
+    expect(inspector).toContain('Computer')
+    expect(inspector).toContain('One local Docker')
     expect(inspector).toContain('Desktop')
     expect(inspector).toContain('No screen yet')
     expect(inspector).toContain('Refresh')
-    expect(inspector).toContain('Last job')
+    expect(inspector).toContain("Chief of Staff's screen")
+    expect(inspector).toContain('Take control')
+    expect(inspector).not.toContain('Last job')
     expect(inspector).toContain('Mark')
     expect(inspector).toContain('Kit')
     expect(inspector).toContain('Rules')
     expect(inspector).toContain('Skills')
-    expect(inspector).toContain('Hits')
-    expect(inspector).toContain('Misses')
-    expect(inspector).toContain('Avoided')
-    expect(inspector).toContain('Calls')
+    expect(inspector).not.toContain('Hits')
     expect(inspector).toContain('Send')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-computer')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-desktop')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desktop-refresh')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-view')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-control')).toBeTruthy()
+    clickTestId(renderer, 'desk-control')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-release')).toBeTruthy()
+    expect(renderer.getPaintedText().join(' ')).toContain('Release')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-name')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-job')).toBeFalsy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-ledger')).toBeFalsy()
+    const inspectorBox = boundsFor(renderer, 'inspector')
+    const dock = boundsFor(renderer, 'dock')
+    const send = boundsFor(renderer, 'send')
+    expect(inspectorBox.x).toBeGreaterThanOrEqual(dock.x + dock.width - 1)
+    expect(send.x + send.width).toBeLessThanOrEqual(inspectorBox.x + 1)
     expect(statSync(inspectorShot).size).toBeGreaterThan(1000)
 
     clickTestId(renderer, 'inspector-close')
@@ -315,15 +678,193 @@ native('staff shell (GPUI native)', () => {
     const settings = renderer.getPaintedText().join(' ')
     expect(settings).toContain('Usage')
     expect(settings).toContain('Keys')
-    expect(settings).toContain('Theme')
+    expect(settings).toContain('Model')
+    expect(settings).toContain('Computer')
+    expect(settings).toContain('One local Docker')
+    expect(settings).not.toContain('Theme')
     expect(settings).toContain('Connectors')
     expect(settings).toContain('Stays out of the chat')
     expect(settings).toMatch(/\b(present|missing)\b/)
-    expect(settings).toContain('Graphite')
     expect(settings).toMatch(/Needs key|Connected|Rejected|Unreachable/)
     expect(settings).not.toMatch(/sk-[a-zA-Z0-9_-]{8,}/)
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'connector-openrouter')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-model-input')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-computer')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-accent')).toBeFalsy()
     expect(statSync(settingsShot).size).toBeGreaterThan(1000)
+  })
+
+  test('inspector wheel over a kit pill still scrolls the pane', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 160, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        <Inspector
+          agent={DEFAULT_AGENTS[0]}
+          profile={{
+            id: 'staff',
+            name: 'Chief of Staff',
+            title: 'Coordinator',
+            description: '',
+            rules: 'Keep the thread moving.\n'.repeat(16),
+            kit: 'coordinator',
+            avatarShape: 'blob',
+            avatarColor: 'staff',
+            namedBy: 'app',
+            skillIds: [],
+            notifyOnUpdates: false,
+            hiddenFromRail: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            homeRepo: '',
+            homePath: '',
+          }}
+          claims={[]}
+          sandboxHint={null}
+          onClose={() => {}}
+          onPatch={() => {}}
+        />
+      </div>,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const pane = findTestId(tree, 'inspector')
+    if (typeof pane?.id !== 'number') throw new Error('no inspector id')
+    const box = boundsFor(renderer, 'inspector')
+    let kit = boundsFor(renderer, 'kit-code')
+    if (kit.y < box.y || kit.y + kit.height > box.y + box.height) {
+      const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
+      renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - kit.y))
+      renderer.flush()
+      kit = boundsFor(renderer, 'kit-code')
+    }
+    const before = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    renderer.nativeSimulateScrollWheel(
+      Math.floor(kit.x + kit.width / 2),
+      Math.floor(kit.y + kit.height / 2),
+      80,
+      80,
+    )
+    renderer.flush()
+    const after = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    expect(after[1]).not.toBe(before[1])
+    expect(after[0]).toBe(0)
+  })
+
+  test('rail right-click opens delete without stealing the focused mouth', () => {
+    resetIdsForTests()
+    const store = testStore()
+    const sister = createAgent({ name: 'Kernel' })
+    const agents = [...DEFAULT_AGENTS, sister.agent]
+    store.save({
+      agents,
+      activeAgentId: 'staff',
+      threads: emptyThreads(agents),
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const title = (tree: TreeNode | null) => {
+      const node = findTestId(tree, 'titlebar-name')
+      return node?.text ?? node?.children?.[0]?.text
+    }
+    expect(title(asTree(JSON.parse(renderer.getAutomationTree())))).toBe('Chief of Staff')
+    rightClickTestId(renderer, `agent-${sister.agent.id}`)
+    renderer.flush()
+    const opened = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(title(opened)).toBe('Chief of Staff')
+    expect(findTestId(opened, 'rail-menu')).toBeTruthy()
+    expect(findTestId(opened, 'rail-menu-delete')).toBeTruthy()
+    expect(containsTestId(findTestId(opened, 'rail'), 'rail-menu')).toBe(false)
+    expect(findTestId(opened, 'delete-confirm')).toBeFalsy()
+    const menuPaint = renderer.getPaintedText().join(' ')
+    expect(menuPaint).toContain('Delete')
+    expect(menuPaint).not.toContain('Del ete')
+    expect(menuPaint).not.toContain('Delete Kernel?')
+    clickTestId(renderer, 'rail-menu-delete')
+    renderer.flush()
+    const gone = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(gone, `agent-${sister.agent.id}`)).toBeFalsy()
+    expect(findTestId(gone, 'rail-menu')).toBeFalsy()
+    expect(title(gone)).toBe('Chief of Staff')
+    expect(renderer.getPaintedText().join(' ')).not.toContain('Kernel')
+  })
+
+  test('compact rail delete menu stays a floating overlay', () => {
+    resetIdsForTests()
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarMin })
+    const sister = createAgent({ name: 'Kernel' })
+    const agents = [...DEFAULT_AGENTS, sister.agent]
+    store.save({
+      agents,
+      activeAgentId: 'staff',
+      threads: emptyThreads(agents),
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    rightClickTestId(renderer, `agent-${sister.agent.id}`)
+    renderer.flush()
+    const opened = asTree(JSON.parse(renderer.getAutomationTree()))
+    const rail = findTestId(opened, 'rail')
+    const menu = findTestId(opened, 'rail-menu')
+    expect(containsTestId(rail, 'rail-menu')).toBe(false)
+    expect(menu?.bounds?.width ?? 0).toBeGreaterThan(rail?.bounds?.width ?? 0)
+    expect(renderer.getPaintedText().join(' ')).toContain('Delete')
+    expect(renderer.getPaintedText().join(' ')).not.toContain('Del ete')
+  })
+
+  test('settings star center opens settings', () => {
+    const store = testStore()
+    writeSkin({ railWidth: T.layout.sidebarMin })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const icon = boundsFor(renderer, 'settings-icon')
+    renderer.nativeSimulateClick(
+      Math.floor(icon.x + icon.width / 2),
+      Math.floor(icon.y + icon.height / 2),
+    )
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings')).toBeTruthy()
+  })
+
+  test('feed paints both bubbles and a clock on the first stamped line', () => {
+    const at = Date.parse('2026-08-25T23:42:00')
+    const store = testStore()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = {
+      ...threads.staff,
+      items: [
+        { kind: 'msg', id: 'u1', from: 'user', agentId: 'staff', text: 'hello from the right', at },
+        { kind: 'msg', id: 'a1', from: 'agent', agentId: 'staff', text: 'hello from the left', at: at + 30_000 },
+      ],
+    }
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'feed-clock')).toBeTruthy()
+    expect(findTestId(tree, 'bubble-mine')).toBeTruthy()
+    expect(findTestId(tree, 'bubble-theirs')).toBeTruthy()
+    expect(renderer.getPaintedText().join(' ')).toContain('11:42 PM')
+    const stage = boundsFor(renderer, 'stage')
+    const mine = boundsFor(renderer, 'bubble-mine')
+    const theirs = boundsFor(renderer, 'bubble-theirs')
+    expect(mine.x).toBeGreaterThan(theirs.x)
+    expect(mine.x + mine.width).toBeLessThanOrEqual(stage.x + stage.width - T.feed.gutter)
+    expect(theirs.x).toBeGreaterThanOrEqual(T.layout.sidebarMin)
+    expect(theirs.y).toBeGreaterThanOrEqual(mine.y + mine.height + T.feed.turn)
   })
 
   test('agent transcript uses native markdown and fenced code paint', () => {
@@ -338,14 +879,18 @@ native('staff shell (GPUI native)', () => {
       },
     ]
     const { render, renderer } = createTestRoot()
-    render(<Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} />)
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
     renderer.flush()
     const painted = renderer.getPaintedText().join(' ')
     expect(painted).toContain('Finding')
     expect(painted).toContain('const answer = 42')
   })
 
-  test('New agent deals a mark, paints the row, and opens inspector', () => {
+  test('New automaton deals a mark, paints the row, and opens inspector', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const { render, renderer } = createTestRoot()
     render(<App store={testStore()} />)
@@ -355,9 +900,9 @@ native('staff shell (GPUI native)', () => {
     const shot = 'artifacts/shots/shell-new-agent.png'
     renderer.captureScreenshot(shot)
     const painted = renderer.getPaintedText().join(' ')
-    expect(painted).toContain('New Bot')
+    expect(painted).toContain('New automaton')
     expect(painted).toContain('Inspector')
-    expect(painted).toContain('blank')
+    expect(painted).toContain('code')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark')).toBeTruthy()
     expect(statSync(shot).size).toBeGreaterThan(1000)
   })
@@ -397,5 +942,81 @@ native('staff shell (GPUI native)', () => {
     expect(renderer.getPaintedText().join(' ')).not.toContain('rest.png')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'pending-files')).toBeNull()
     delete process.env.AUTOMATON_PICK_FILES
+  })
+
+  test('composer plus opens the picker and ignores the clipboard', () => {
+    const pick = join(import.meta.dir, '../src/marks/blob/staff/rest.png')
+    const clip = join(import.meta.dir, '../src/marks/hex/kernel/rest.png')
+    process.env.AUTOMATON_PICK_FILES = pick
+    process.env.AUTOMATON_CLIP_FILES = clip
+    const { render, renderer } = createTestRoot()
+    render(<App store={testStore()} />)
+    renderer.flush()
+    clickTestId(renderer, 'attach')
+    renderer.flush()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('rest.png')
+    expect(painted).not.toContain('kernel')
+    delete process.env.AUTOMATON_PICK_FILES
+    delete process.env.AUTOMATON_CLIP_FILES
+  })
+
+  test('composer cmd-v queues a clipboard image', () => {
+    const png = join(import.meta.dir, '../src/marks/blob/staff/rest.png')
+    process.env.AUTOMATON_CLIP_FILES = png
+    const { render, renderer } = createTestRoot()
+    render(<App store={testStore()} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const app = findTestId(tree, 'app')
+    if (typeof app?.id !== 'number') throw new Error('no app id')
+    renderer.nativeSimulateKeyDown(app.id, 'cmd-v')
+    renderer.flush()
+    expect(renderer.getPaintedText().join(' ')).toContain('rest.png')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'pending-files')).toBeTruthy()
+    delete process.env.AUTOMATON_CLIP_FILES
+  })
+
+  test('composer cmd-v inserts clipboard text', () => {
+    process.env.AUTOMATON_CLIP_TEXT = 'hello from paste'
+    const { render, renderer } = createTestRoot()
+    render(<App store={testStore()} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const app = findTestId(tree, 'app')
+    if (typeof app?.id !== 'number') throw new Error('no app id')
+    renderer.nativeSimulateKeyDown(app.id, 'cmd-v')
+    renderer.flush()
+    expect(renderer.getPaintedText().join(' ')).toContain('hello from paste')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'pending-files')).toBeNull()
+    delete process.env.AUTOMATON_CLIP_TEXT
+  })
+
+  test('composer right-click plus queues the clipboard', () => {
+    const png = join(import.meta.dir, '../src/marks/blob/staff/rest.png')
+    process.env.AUTOMATON_CLIP_FILES = png
+    const { render, renderer } = createTestRoot()
+    render(<App store={testStore()} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const attach = findTestId(tree, 'attach')
+    const box =
+      attach?.bounds ??
+      (typeof attach?.id === 'number'
+        ? (() => {
+            const raw = renderer.getElementBounds(attach.id)
+            return raw ? { x: raw[0], y: raw[1], width: raw[2], height: raw[3] } : null
+          })()
+        : null)
+    if (!box || box.width <= 0) throw new Error('no painted bounds for attach')
+    renderer.nativeSimulateMouseDown(
+      Math.floor(box.x + box.width / 2),
+      Math.floor(box.y + box.height / 2),
+      2,
+    )
+    renderer.flush()
+    expect(renderer.getPaintedText().join(' ')).toContain('rest.png')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'pending-files')).toBeTruthy()
+    delete process.env.AUTOMATON_CLIP_FILES
   })
 })

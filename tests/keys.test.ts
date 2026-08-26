@@ -73,4 +73,23 @@ describe('openrouter key resolve', () => {
     expect(adopted.copied).toBe(true)
     expect(JSON.parse(readFileSync(automatonPath, 'utf8')).openrouter).toBe('sk-or-state')
   })
+
+  test('AUTOMATON_HOME does not pick up default marionette files', () => {
+    const home = join(tmpdir(), `automaton-keys-home-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'keys.json'), `${JSON.stringify({ openrouter: 'sk-or-home-only' })}\n`)
+    const prevHome = process.env.AUTOMATON_HOME
+    const prevKey = process.env.OPENROUTER_API_KEY
+    process.env.AUTOMATON_HOME = home
+    delete process.env.OPENROUTER_API_KEY
+    try {
+      expect(listOpenRouterKeys().map((row) => row.source)).toEqual(['automaton'])
+      expect(resolveOpenRouterKey().key).toBe('sk-or-home-only')
+    } finally {
+      if (prevHome === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prevHome
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY
+      else process.env.OPENROUTER_API_KEY = prevKey
+    }
+  })
 })

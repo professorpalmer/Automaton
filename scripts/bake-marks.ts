@@ -17,17 +17,21 @@ export type MarkPose = { squashY: number; spec: number; shine: number; key: Pt; 
 const HEAD =
   'M228.541 114.228C228.541 130.133 225.184 145.994 218.738 160.534C212.674 174.217 203.904 186.669 193.065 196.988C155.933 232.34 99.497 238.596 55.5255 212.24C45.097 205.99 35.6851 198.072 27.7451 188.866C19.1926 178.953 12.3686 167.569 7.65781 155.351C2.60712 142.264 0 128.257 0 114.228C0 98.3219 3.35751 82.4611 9.80315 67.9215C15.8672 54.2382 24.6377 41.7862 35.4767 31.4668C72.6081 -3.88483 129.044 -10.1413 173.016 16.2153C183.444 22.4653 192.856 30.3829 200.796 39.5896C209.349 49.5018 216.173 60.8859 220.883 73.1037C225.934 86.1906 228.541 100.198 228.541 114.228Z'
 
+export const MARK_BAKE_REV = 5
+
 export const SEED_BAKES: { shape: MarkShape; tint: string; hex: string }[] = [
   { shape: 'blob', tint: 'staff', hex: T.staff.face },
   { shape: 'hex', tint: 'kernel', hex: T.kernel.face },
   { shape: 'tablet', tint: 'research', hex: T.research.face },
 ]
 
-const REST_POSE: MarkPose = { squashY: 1, spec: 0.34, shine: 48, key: [-0.45, -0.65], keyZ: 0.6 }
-const BREATHE_PEAK: MarkPose = { squashY: 1.04, spec: 0.42, shine: 46, key: [-0.45, -0.66], keyZ: 0.62 }
-const SELECTED_POSE: MarkPose = { squashY: 1, spec: 0.68, shine: 40, key: [-0.38, -0.72], keyZ: 0.62 }
-const CHEW_OPEN: MarkPose = { squashY: 0.92, spec: 0.4, shine: 48, key: [-0.45, -0.62], keyZ: 0.58 }
-const CHEW_SHUT: MarkPose = { squashY: 0.78, spec: 0.28, shine: 36, key: [-0.48, -0.58], keyZ: 0.55 }
+export type EyeLook = { dx: number; dy: number; open: number }
+
+const REST_POSE: MarkPose = { squashY: 1, spec: 0.12, shine: 48, key: [-0.45, -0.65], keyZ: 0.6 }
+const BREATHE_PEAK: MarkPose = { squashY: 1.02, spec: 0.14, shine: 46, key: [-0.45, -0.66], keyZ: 0.62 }
+const SELECTED_POSE: MarkPose = { squashY: 1, spec: 0.18, shine: 40, key: [-0.38, -0.72], keyZ: 0.62 }
+const CHEW_OPEN: MarkPose = { squashY: 1, spec: 0.14, shine: 48, key: [-0.45, -0.62], keyZ: 0.58 }
+const CHEW_SHUT: MarkPose = { squashY: 1, spec: 0.12, shine: 36, key: [-0.48, -0.58], keyZ: 0.55 }
 
 export function poseForName(frame: MarkFrame): MarkPose {
   if (frame === 'rest') return REST_POSE
@@ -35,6 +39,16 @@ export function poseForName(frame: MarkFrame): MarkPose {
   if (frame === 'selected') return SELECTED_POSE
   if (frame === 'chew-a') return CHEW_OPEN
   if (frame === 'chew-b') return CHEW_SHUT
+  throw new Error(`unknown mark frame ${frame}`)
+}
+
+/** Busy chew darts the pair; the body stays unsquashed. Eyes are round dots. */
+export function eyeLookForName(frame: MarkFrame): EyeLook {
+  if (frame === 'rest') return { dx: 0, dy: 0, open: 1 }
+  if (frame === 'breathe') return { dx: 0.01, dy: -0.015, open: 1 }
+  if (frame === 'selected') return { dx: -0.03, dy: 0.01, open: 1 }
+  if (frame === 'chew-a') return { dx: 0.16, dy: -0.1, open: 1 }
+  if (frame === 'chew-b') return { dx: -0.16, dy: 0.12, open: 1 }
   throw new Error(`unknown mark frame ${frame}`)
 }
 
@@ -255,6 +269,101 @@ function cloudBalls(): Ball[] {
   ]
 }
 
+function ellipsePoly(rx: number, ry: number, steps = 48): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  const pts: Pt[] = []
+  for (let i = 0; i < steps; i++) {
+    const a = (i / steps) * Math.PI * 2
+    pts.push([cx + rx * Math.cos(a), cy + ry * Math.sin(a)])
+  }
+  return pts
+}
+
+function roundRectPoly(halfW: number, halfH: number, radius: number): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  return filletPoly(
+    [
+      [cx - halfW, cy - halfH],
+      [cx + halfW, cy - halfH],
+      [cx + halfW, cy + halfH],
+      [cx - halfW, cy + halfH],
+    ],
+    radius,
+  )
+}
+
+function beanPoly(): { poly: Pt[]; balls: Ball[]; union: boolean } {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  const balls: Ball[] = [
+    { x: cx - 28, y: cy, r: 78 },
+    { x: cx + 42, y: cy + 8, r: 64 },
+  ]
+  return { poly: hullFromBalls(balls), balls, union: true }
+}
+
+function leafPoly(): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  const pts: Pt[] = []
+  for (let i = 0; i < 64; i++) {
+    const a = (i / 64) * Math.PI * 2
+    const rr = 108 * (0.55 + 0.45 * Math.abs(Math.cos(a)))
+    pts.push([cx + rr * Math.cos(a) * 0.72, cy + rr * Math.sin(a)])
+  }
+  return pts
+}
+
+function shieldPoly(): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  return filletPoly(
+    [
+      [cx - 92, cy - 98],
+      [cx + 92, cy - 98],
+      [cx + 92, cy + 18],
+      [cx, cy + 118],
+      [cx - 92, cy + 18],
+    ],
+    16,
+  )
+}
+
+function domePoly(): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2 + 18
+  const r = 110
+  const pts: Pt[] = []
+  for (let i = 0; i <= 36; i++) {
+    const a = Math.PI + (i / 36) * Math.PI
+    pts.push([cx + r * Math.cos(a), cy + r * Math.sin(a)])
+  }
+  pts.push([cx + r, cy + 8], [cx - r, cy + 8])
+  return pts
+}
+
+function archPoly(): { poly: Pt[]; balls: Ball[]; union: boolean } {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  const balls: Ball[] = [
+    { x: cx - 52, y: cy + 28, r: 42 },
+    { x: cx + 52, y: cy + 28, r: 42 },
+    { x: cx, y: cy - 36, r: 62 },
+  ]
+  return { poly: hullFromBalls(balls), balls, union: true }
+}
+
+function crystalPoly(): Pt[] {
+  const cx = BOX / 2
+  const cy = BOX / 2
+  return filletPoly(
+    regularPoly(114, 6, Math.PI / 6).map(([x, y]) => [cx + (x - cx) * 0.72, cy + (y - cy) * 1.12]),
+    14,
+  )
+}
+
 function hullFromBalls(balls: Ball[]): Pt[] {
   const samples: Pt[] = []
   for (const ball of balls) {
@@ -293,6 +402,16 @@ export function shapePoly(shape: MarkShape): { poly: Pt[]; balls: Ball[]; union?
     const balls = cloudBalls()
     return { poly: hullFromBalls(balls), balls, union: true }
   }
+  if (shape === 'bean') return beanPoly()
+  if (shape === 'egg') return { poly: ellipsePoly(86, 114), balls: [] }
+  if (shape === 'capsule') return { poly: tabletPoly(68, 114), balls: tabletBalls(68, 114) }
+  if (shape === 'cylinder') return { poly: roundRectPoly(78, 108, 22), balls: [] }
+  if (shape === 'gem') return { poly: filletPoly(regularPoly(114, 8, Math.PI / 8), 12), balls: [] }
+  if (shape === 'crystal') return { poly: crystalPoly(), balls: [] }
+  if (shape === 'shield') return { poly: shieldPoly(), balls: [] }
+  if (shape === 'dome') return { poly: domePoly(), balls: [] }
+  if (shape === 'arch') return archPoly()
+  if (shape === 'leaf') return { poly: leafPoly(), balls: [] }
   return { poly: parseHead(), balls: [] }
 }
 
@@ -414,6 +533,99 @@ function mapPoly(poly: Pt[], squashY: number, size: number) {
   return { pts, s, ox, oy, cy, squashY }
 }
 
+function polyBounds(pts: Pt[]): { minX: number; minY: number; maxX: number; maxY: number } {
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  for (const [x, y] of pts) {
+    if (x < minX) minX = x
+    if (y < minY) minY = y
+    if (x > maxX) maxX = x
+    if (y > maxY) maxY = y
+  }
+  return { minX, minY, maxX, maxY }
+}
+
+function snapInside(occ: Float32Array, size: number, x: number, y: number): Pt {
+  const ix = clamp(Math.round(x), 0, size - 1)
+  const iy = clamp(Math.round(y), 0, size - 1)
+  if (occ[iy * size + ix] >= 0.6) return [x, y]
+  let bestX = ix
+  let bestY = iy
+  let best = Infinity
+  for (let yy = 0; yy < size; yy++) {
+    for (let xx = 0; xx < size; xx++) {
+      if (occ[yy * size + xx] < 0.6) continue
+      const dx = xx - x
+      const dy = yy - y
+      const d = dx * dx + dy * dy
+      if (d < best) {
+        best = d
+        bestX = xx
+        bestY = yy
+      }
+    }
+  }
+  return [bestX, bestY]
+}
+
+function stampEyes(
+  rgba: Uint8Array,
+  occ: Float32Array,
+  pts: Pt[],
+  size: number,
+  frame: MarkFrame,
+): void {
+  const look = eyeLookForName(frame)
+  const box = polyBounds(pts)
+  const w = Math.max(box.maxX - box.minX, 1)
+  const h = Math.max(box.maxY - box.minY, 1)
+  const [cx, cy] = snapInside(occ, size, box.minX + w * (0.58 + look.dx), box.minY + h * (0.36 + look.dy))
+  const gap = w * 0.22
+  const rad = Math.max(2.8, h * 0.072) * look.open
+  const pair: Pt[] = [
+    snapInside(occ, size, cx - gap / 2, cy),
+    snapInside(occ, size, cx + gap / 2, cy),
+  ]
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const i = y * size + x
+      if (occ[i] < 0.45) continue
+      let hit = false
+      for (const [ex, ey] of pair) {
+        if (Math.hypot(x + 0.5 - ex, y + 0.5 - ey) <= rad) {
+          hit = true
+          break
+        }
+      }
+      if (!hit) continue
+      const o = y * size * 4 + x * 4
+      rgba[o] = 0
+      rgba[o + 1] = 0
+      rgba[o + 2] = 0
+      rgba[o + 3] = Math.round(occ[i] * 255)
+    }
+  }
+}
+
+export function blackInkCentroid(rgba: Uint8Array, size: number): { x: number; y: number; n: number } {
+  let sx = 0
+  let sy = 0
+  let n = 0
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const o = (y * size + x) * 4
+      if (rgba[o + 3] < 200) continue
+      if (rgba[o] + rgba[o + 1] + rgba[o + 2] > 36) continue
+      sx += x
+      sy += y
+      n += 1
+    }
+  }
+  return { x: n ? sx / n : 0, y: n ? sy / n : 0, n }
+}
+
 export function bakeFrame(shape: MarkShape, tintHex: string, frame: MarkFrame, size = BAKE_SIZE): Uint8Array {
   const pose = poseForName(frame)
   const { poly, balls, union } = shapePoly(shape)
@@ -497,12 +709,12 @@ export function bakeFrame(shape: MarkShape, tintHex: string, frame: MarkFrame, s
       nz /= nlen
       const ndl = Math.max(0, nx * Lx + ny * Ly + nz * Lz)
       const ndh = Math.max(0, nx * (Hx / hlen) + ny * (Hy / hlen) + nz * (Hz / hlen))
-      const spec = pose.spec * ndh ** pose.shine
-      const rim = Math.max(0, -(nx * Lx + ny * Ly + nz * Lz)) * 0.18
+      const spec = pose.spec * 0.18 * ndh ** pose.shine
+      const rim = Math.max(0, -(nx * Lx + ny * Ly + nz * Lz)) * 0.05
       const foot = (y / (size - 1)) ** 1.6
       const tilt = clamp(1 - 1.9 * (0.22 * foot - 0.08), 0.15, 1)
-      const contact = 0.62 + 0.38 * tilt * (0.35 + 0.65 * h)
-      const lambert = 0.16 + 0.84 * ndl
+      const contact = 0.97 + 0.03 * tilt * (0.5 + 0.5 * h)
+      const lambert = 0.94 + 0.06 * ndl
       let r = tr * lambert * contact + spec + rim * 0.45
       let g = tg * lambert * contact + spec + rim * 0.55
       let b = tb * lambert * contact + spec + rim * 0.7
@@ -510,12 +722,13 @@ export function bakeFrame(shape: MarkShape, tintHex: string, frame: MarkFrame, s
       g = clamp(g, 0, 1)
       b = clamp(b, 0, 1)
       const o = y * size * 4 + x * 4
-      rgba[o] = Math.round(r * a * 255)
-      rgba[o + 1] = Math.round(g * a * 255)
-      rgba[o + 2] = Math.round(b * a * 255)
+      rgba[o] = Math.round(r * 255)
+      rgba[o + 1] = Math.round(g * 255)
+      rgba[o + 2] = Math.round(b * 255)
       rgba[o + 3] = Math.round(a * 255)
     }
   }
+  stampEyes(rgba, occ, mapped.pts, size, frame)
   return rgba
 }
 

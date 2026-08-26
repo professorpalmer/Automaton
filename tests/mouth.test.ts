@@ -1,15 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests } from '../src/domain'
+import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import {
   DEFAULT_MOUTH_MODEL,
   ensureMouth,
+  mouthFailSpeak,
   parseOpenRouterUsage,
   resetMouthForTests,
 } from '../src/runtime/mouth.ts'
 import { openStaffStore } from '../src/runtime/store.ts'
-import { pendingMouthTurns, send } from '../src/session'
+import { completeMouth, pendingMouthTurns, send } from '../src/session'
 
 describe('mouth sidecar', () => {
   test('stored finding answers without calling OpenRouter', async () => {
@@ -24,9 +25,9 @@ describe('mouth sidecar', () => {
     })
     const before = store.listClaims().length
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -78,9 +79,9 @@ describe('mouth sidecar', () => {
       jobId: 'job_1',
     })
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -128,9 +129,9 @@ describe('mouth sidecar', () => {
     resetMouthForTests()
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-usage-${Date.now()}.sqlite`))
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -163,9 +164,9 @@ describe('mouth sidecar', () => {
     resetMouthForTests()
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-auth-${Date.now()}.sqlite`))
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -199,14 +200,55 @@ describe('mouth sidecar', () => {
     expect(store.receipt(turn.itemId)?.inferenceAttempted).toBe(true)
   })
 
+  test('429 retries then speaks; exhausted 429 is not a reach failure', async () => {
+    expect(mouthFailSpeak(new Error('openrouter 429'))).toBe('OpenRouter rate limited. Try again.')
+    expect(mouthFailSpeak(new Error('empty mouth'))).toBe('The model returned no text.')
+    expect(mouthFailSpeak(new Error('openrouter 404'))).toBe('OpenRouter rejected this model.')
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-429-${Date.now()}.sqlite`))
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'research' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'Are you around?')
+    const turn = pendingMouthTurns(session)[0]
+    let hits = 0
+    let spoken = ''
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        hits += 1
+        if (hits === 1) throw new Error('openrouter 429')
+        return 'Research here.'
+      },
+      [{ key: 'sk-or-live', source: 'automaton' }],
+    )
+    expect(hits).toBe(2)
+    expect(spoken).toBe('Research here.')
+    expect(store.receipt(turn.itemId)?.status).toBe('complete')
+  })
+
   test('missing key does not mark inference attempted', async () => {
     resetIdsForTests()
     resetMouthForTests()
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-nokey-${Date.now()}.sqlite`))
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -246,9 +288,9 @@ describe('mouth sidecar', () => {
     resetMouthForTests()
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-fail-${Date.now()}.sqlite`))
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -281,9 +323,9 @@ describe('mouth sidecar', () => {
     resetMouthForTests()
     const store = openStaffStore(join(tmpdir(), `automaton-mouth-authfail-${Date.now()}.sqlite`))
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -322,9 +364,9 @@ describe('mouth sidecar', () => {
       jobId: 'job_1',
     })
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -371,9 +413,9 @@ describe('mouth sidecar', () => {
       freshness: 'stale',
     })
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -415,9 +457,9 @@ describe('mouth sidecar', () => {
       freshness: 'fresh',
     })
     let session = {
-      agents: DEFAULT_AGENTS,
+      agents: staffWithSisters(),
       activeAgentId: 'staff' as const,
-      threads: emptyThreads(DEFAULT_AGENTS),
+      threads: emptyThreads(staffWithSisters()),
       jobs: [],
       pendingFanout: null,
     }
@@ -443,6 +485,57 @@ describe('mouth sidecar', () => {
     )
     expect(calls).toBe(1)
     expect(spoken).toBe('should infer')
+  })
+
+  test('coordinator assess sees the sister line and skips query-first', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-assess-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      source: 'job',
+      jobId: 'job_assess',
+    })
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'Can you ping research?')
+    session = completeMouth(session, 'research', "I'm here to assist you. How can I help?")
+    const turn = pendingMouthTurns(session)[0]
+    expect(turn?.agentId).toBe('staff')
+    expect(turn?.mode).toBe('assess')
+    let spoken = ''
+    let calls = 0
+    let lastUser = ''
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async (messages) => {
+        calls += 1
+        const last = messages.at(-1)
+        lastUser = typeof last?.content === 'string' ? last.content : ''
+        return 'Research is online. What would you like the research automaton to run?'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(lastUser).toContain('Research answered:')
+    expect(lastUser).toContain("I'm here to assist you. How can I help?")
+    expect(spoken).toBe('Research is online. What would you like the research automaton to run?')
+    expect(spoken).not.toBe('The ledger replay is deterministic.')
   })
 
   test('OpenRouter usage stays unknown when the provider omits it', () => {

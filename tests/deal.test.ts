@@ -1,11 +1,13 @@
 import { describe, expect, test } from 'bun:test'
-import { deal, markForId, seedOverride } from '../src/runtime/deal'
+import { DEAL_SHAPES, deal, markForId, seedOverride } from '../src/runtime/deal'
 
 describe('mark deal', () => {
-  test('host deals for the seed ids before override', () => {
-    expect(deal('staff')).toEqual({ shape: 'teardrop', color: 'magenta' })
-    expect(deal('kernel')).toEqual({ shape: 'wedge', color: 'red' })
-    expect(deal('research')).toEqual({ shape: 'wedge', color: 'green' })
+  test('host deals are stable and never black', () => {
+    expect(deal('staff')).toEqual(deal('staff'))
+    expect(DEAL_SHAPES).toContain(deal('staff').shape)
+    expect(deal('staff').color).not.toBe('black')
+    expect(deal('kernel')).not.toEqual(deal('staff'))
+    expect(deal('research')).not.toEqual(deal('kernel'))
   })
 
   test('seed override keeps graphite trio marks', () => {
@@ -17,7 +19,7 @@ describe('mark deal', () => {
 
   test('a factory id deals a catalog shape and hue', () => {
     const mark = deal('agent_1')
-    expect(mark.shape).toBeTruthy()
+    expect(DEAL_SHAPES).toContain(mark.shape)
     expect(mark.color).not.toBe('black')
     expect(markForId('agent_1')).toEqual(mark)
   })

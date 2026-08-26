@@ -68,7 +68,7 @@ def load_tenant_openrouter_key(
 ) -> Optional[str]:
     """Return the tenant OpenRouter key, or None.
 
-    Host ``OPENROUTER_API_KEY`` is Cary's key. We never fall back to it.
+    Host ``OPENROUTER_API_KEY`` is the operator key. We never fall back to it.
     """
     env = environ if environ is not None else os.environ
     if not may_bundle_host_keys() and env.get(HOST_KEY_ENV) and not env_get(
