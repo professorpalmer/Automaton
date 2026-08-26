@@ -102,22 +102,59 @@ export function imageDataUrl(path: string, mime: string): string {
   return `data:${mime};base64,${bytes.toString('base64')}`
 }
 
+/**
+ * Hosted NSOpenPanel. Bare `choose file` from osascript paints inactive chrome
+ * until the user clicks the panel.
+ */
+export const CHOOSE_FILE_SCRIPT = `ObjC.import('AppKit')
+function run() {
+  const app = $.NSApplication.sharedApplication
+  app.setActivationPolicy($.NSApplicationActivationPolicyAccessory)
+  app.activateIgnoringOtherApps(true)
+  const panel = $.NSOpenPanel.openPanel
+  panel.setCanChooseFiles(true)
+  panel.setCanChooseDirectories(false)
+  panel.setAllowsMultipleSelection(false)
+  panel.setFloatingPanel(true)
+  const result = panel.runModal
+  if (Number(result) !== Number($.NSModalResponseOK)) return ''
+  const urls = panel.URLs
+  if (Number(urls.count) < 1) return ''
+  return ObjC.unwrap(urls.objectAtIndex(0).path)
+}
+`
+
+export type PickSeams = {
+  env?: NodeJS.Dict<string>
+  bunTest?: boolean
+  platform?: string
+  run?: (script: string) => { ok: boolean; stdout: string }
+}
+
+function runChooseFile(script: string): { ok: boolean; stdout: string } {
+  const result = Bun.spawnSync(['osascript', '-l', 'JavaScript', '-e', script], {
+    stdout: 'pipe',
+    stderr: 'pipe',
+  })
+  return { ok: result.exitCode === 0, stdout: result.stdout.toString().trim() }
+}
+
 /** Test seam first. Live Mac may open a native choose-file dialog. */
-export function pickLocalFiles(): string[] {
-  const fromEnv = (process.env.AUTOMATON_PICK_FILES ?? '')
+export function pickLocalFiles(seams?: PickSeams): string[] {
+  const env = seams?.env ?? process.env
+  const fromEnv = (env.AUTOMATON_PICK_FILES ?? '')
     .split('\n')
     .map((row) => row.trim())
     .filter(Boolean)
   if (fromEnv.length > 0) return fromEnv
-  if (process.env.AUTOMATON_SILENT_PICK === '1') return []
-  if (runningTests()) return []
-  if (process.platform !== 'darwin') return []
-  const result = Bun.spawnSync(['osascript', '-e', 'POSIX path of (choose file)'], {
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  if (result.exitCode !== 0) return []
-  const path = result.stdout.toString().trim()
+  if (env.AUTOMATON_SILENT_PICK === '1') return []
+  const bunTest = seams?.bunTest ?? runningTests()
+  if (bunTest) return []
+  const platform = seams?.platform ?? process.platform
+  if (platform !== 'darwin') return []
+  const result = (seams?.run ?? runChooseFile)(CHOOSE_FILE_SCRIPT)
+  if (!result.ok) return []
+  const path = result.stdout.trim()
   return path ? [path] : []
 }
 

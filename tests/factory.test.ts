@@ -4,8 +4,8 @@ import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import { allFrameNames } from '../scripts/bake-marks'
 import { DEFAULT_AGENTS, bindHomes, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
-import { applyHomeBinds, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, resolveFramePath } from '../src/runtime/factory'
-import { readProfile } from '../src/runtime/profile'
+import { applyHomeBinds, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, markForAgent, resolveFramePath } from '../src/runtime/factory'
+import { readProfile, writeProfile } from '../src/runtime/profile'
 import type { Session } from '../src/session'
 
 function tmpHome(): string {
@@ -108,6 +108,18 @@ describe('agent factory', () => {
     )
     applyHomeBinds(binds, home)
     expect(readProfile(created.agent.id, home)?.homeRepo).toBe('example/Puppetmaster')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('changing shape and color bakes that mark and the rail reads it', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const created = createAgent({ home, name: 'Marionette' })
+    const next = { ...created.profile, avatarShape: 'hex', avatarColor: 'blue' }
+    writeProfile(next, home)
+    ensureMarkFrames(next.avatarShape, next.avatarColor, home)
+    expect(markForAgent(created.agent.id, home)).toEqual({ shape: 'hex', color: 'blue' })
+    expect(existsSync(resolveFramePath('hex', 'blue', 'rest', home))).toBe(true)
     rmSync(home, { recursive: true, force: true })
   })
 })

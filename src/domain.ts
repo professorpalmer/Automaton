@@ -109,6 +109,15 @@ export function composerEnterBusy(mouth: MouthState): boolean {
   return mouth === 'must_first' || mouth === 'answer'
 }
 
+/** Ephemeral feed wait. Not a persisted item. Jobs use the strip, not this. */
+export function feedThinking(mouth: MouthState, items: FeedItem[]): boolean {
+  return composerEnterBusy(mouth) && items.length > 0
+}
+
+export function thinkingDots(step: number): string {
+  return '.'.repeat((Math.abs(Math.trunc(step)) % 4) + 1)
+}
+
 export function looksLikeJob(text: string): boolean {
   const lower = text.toLowerCase()
   return (
@@ -125,6 +134,22 @@ export function looksLikeLookup(text: string): boolean {
   )
 }
 
+/** GitHub hygiene asks. Not a presence ping, and not implement. */
+export function looksLikeRepoAsk(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    /\b(prs?|pull[- ]requests?)\b/.test(lower) ||
+    /\b(open|any|github)\s+issues?\b/.test(lower) ||
+    /\bissues?\s+(or|and)\s+(prs?|pull)\b/.test(lower)
+  )
+}
+
+/** check/list/inspect leftover after addressing is stripped. `check if` is ping, not work. */
+export function looksLikeInspect(text: string): boolean {
+  const lower = text.toLowerCase().replace(/\bcheck\s+if\b/g, ' ')
+  return lower.length > 16 && /\b(check|list|inspect)\b/.test(lower)
+}
+
 export function looksLikeExplicitLookup(text: string): boolean {
   const lower = text.toLowerCase()
   return /\b(look up|lookup|research|wiki|search)\b/.test(lower) && lower.length > 16
@@ -134,13 +159,15 @@ export function looksLikeExplicitLookup(text: string): boolean {
 export function jobKindForKit(kit: AgentKit, text: string): JobKind | null {
   if (kit === 'blank') return null
   if (kit === 'lookup') {
-    return looksLikeJob(text) || looksLikeLookup(text) ? 'analyze' : null
+    return looksLikeJob(text) || looksLikeLookup(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)
+      ? 'analyze'
+      : null
   }
   if (looksLikeJob(text)) return 'implement'
   if (kit === 'coordinator') {
     return looksLikeExplicitLookup(text) ? 'analyze' : null
   }
-  if (looksLikeLookup(text)) return 'analyze'
+  if (looksLikeLookup(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) return 'analyze'
   return null
 }
 
@@ -183,11 +210,104 @@ function nameAliases(agent: Agent): string[] {
   return aliases.filter((row) => row.trim().length > 0)
 }
 
-export function isPing(text: string): boolean {
-  const lower = text.toLowerCase()
-  if (looksLikeJob(lower)) return false
-  if (/\b(look up|lookup|wiki|what is|who is|why did|search)\b/.test(lower)) return false
-  return /\b(online|around|there|status|hello|ping)\b/.test(lower)
+const AROUND_NOTE = 'The operator asked if you are around.'
+
+const FILLER = new Set([
+  'a',
+  'also',
+  'and',
+  'are',
+  'can',
+  'could',
+  'do',
+  'does',
+  'for',
+  'he',
+  'here',
+  'hey',
+  'hi',
+  'if',
+  'is',
+  'it',
+  'just',
+  'me',
+  'now',
+  'ok',
+  'okay',
+  'please',
+  'she',
+  'still',
+  'thanks',
+  'the',
+  'then',
+  'there',
+  'they',
+  'to',
+  'us',
+  'we',
+  'you',
+  'your',
+])
+
+const LIVENESS = new Set(['around', 'hello', 'here', 'hi', 'hey', 'online', 'there'])
+
+function stripAddressing(text: string, agents: Agent[]): string {
+  let next = ` ${text} `
+  next = next.replace(/@\S+/g, ' ')
+  const names = agents
+    .flatMap((agent) => nameAliases(agent))
+    .sort((a, b) => b.length - a.length)
+  for (const name of names) {
+    next = next.replace(new RegExp(`\\b${escapeRe(name)}\\b`, 'gi'), ' ')
+  }
+  next = next.replace(/\b(can you|could you|would you|will you)\b/gi, ' ')
+  next = next.replace(/\b(ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check\s+if)\b/gi, ' ')
+  next = next.replace(/\b(hey|hi|please|just|also|then|and)\b/gi, ' ')
+  return next.replace(/[,:]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s.?!]+|[\s.?!]+$/g, '').trim()
+}
+
+function remainderIsWork(text: string): boolean {
+  if (looksLikeJob(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) return true
+  if (looksLikeLookup(text) && !/\b(online|around|there)\b/i.test(text)) return true
+  return false
+}
+
+function remainderIsLiveness(text: string): boolean {
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+  if (tokens.length === 0) return true
+  return tokens.every((token) => FILLER.has(token) || LIVENESS.has(token))
+}
+
+function tidyRemainder(text: string): string {
+  const trimmed = text.replace(/\s+/g, ' ').trim()
+  if (!trimmed) return ''
+  const capped = trimmed.length > 180 ? `${trimmed.slice(0, 177)}...` : trimmed
+  return capped.charAt(0).toUpperCase() + capped.slice(1)
+}
+
+export type DispatchWork = { ping: boolean; note: string }
+
+/** Ping is leftover liveness after names and ask/ping/tell/have are stripped. */
+export function dispatchWork(text: string, agents: Agent[] = []): DispatchWork {
+  const remainder = stripAddressing(text, agents)
+  if (remainderIsWork(remainder)) {
+    return { ping: false, note: tidyRemainder(remainder) }
+  }
+  if (remainderIsLiveness(remainder)) {
+    return { ping: true, note: AROUND_NOTE }
+  }
+  if (/\b(online|around|hello|ping)\b/i.test(text) && !remainderIsWork(text)) {
+    return { ping: true, note: AROUND_NOTE }
+  }
+  return { ping: false, note: tidyRemainder(remainder) || text.trim() }
+}
+
+export function isPing(text: string, agents: Agent[] = []): boolean {
+  return dispatchWork(text, agents).ping
 }
 
 const DIRECT_ASK = String.raw`ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check\s+if`
@@ -349,6 +469,62 @@ export function parseGithubHomes(text: string): RepoHome[] {
   return found
 }
 
+const DESK_URL_SAFE = /^https?:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=%-]+$/
+const DESK_OPEN_VERB = /\b(navigate|browse|visit|go to|pull up|open|pc|computer|chrome|browser|screen|display)\b/i
+const DESK_HOST = /(?<!@)\b((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(\/[^\s<>"'`]*)?/i
+const NAMED_DESK: Record<string, string> = {
+  google: 'www.google.com',
+}
+
+export function sanitizeDeskUrl(raw: string): string | null {
+  const trimmed = raw.trim().replace(/[.,);]+$/g, '')
+  if (!trimmed) return null
+  try {
+    const url = new URL(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`)
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return null
+    if (url.username || url.password) return null
+    const href = url.toString()
+    if (href.length > 2000 || !DESK_URL_SAFE.test(href)) return null
+    return href
+  } catch {
+    return null
+  }
+}
+
+export function parseDeskUrl(text: string): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const explicit = /https?:\/\/[^\s<>"'`]+/i.exec(trimmed)
+  if (explicit) {
+    const url = sanitizeDeskUrl(explicit[0])
+    if (!url) return null
+    if (parseGithubHomes(trimmed).length > 0 && !/\b(navigate|browse|visit|go to|pull up|open)\b/i.test(trimmed)) {
+      return null
+    }
+    return url
+  }
+  const githubLogin =
+    /\bgithub\.com\/login\b/i.test(trimmed) || (/\bgithub\b/i.test(trimmed) && /\blogin\b/i.test(trimmed))
+  if (githubLogin && DESK_OPEN_VERB.test(trimmed)) return 'https://github.com/login'
+  if (!DESK_OPEN_VERB.test(trimmed)) return null
+  const dotted = DESK_HOST.exec(trimmed)
+  if (dotted) return sanitizeDeskUrl(`${dotted[1]}${dotted[2] ?? ''}`)
+  for (const [name, host] of Object.entries(NAMED_DESK)) {
+    if (new RegExp(`\\b${name}\\b`, 'i').test(trimmed)) return sanitizeDeskUrl(host)
+  }
+  return null
+}
+
+export function deskOpenAck(url: string): string {
+  let host = url
+  try {
+    host = new URL(url).host || url
+  } catch {
+    host = url
+  }
+  return `Opening ${host} on this screen. Take control to sign in.`
+}
+
 function namedInOrder(text: string, agents: Agent[]): Agent[] {
   const hits: { index: number; agent: Agent }[] = []
   for (const agent of agents) {
@@ -436,7 +612,7 @@ export function dispatchAck(
     .filter((id) => id !== focused)
     .map((id) => agents.find((agent) => agent.id === id)?.name ?? id)
   if (names.length >= 2) return `Telling ${joinAnd(names)}.`
-  const verb = isPing(text) || /\bask\b/i.test(text) ? 'Asking' : 'Telling'
+  const verb = isPing(text) || /\b(ask|ping)\b/i.test(text) ? 'Asking' : 'Telling'
   return `${verb} ${names[0] ?? 'them'}.`
 }
 
@@ -447,7 +623,7 @@ export function returnBeat(name: string, spoken: string): string {
 }
 
 export function assessAsk(name: string, spoken: string): string {
-  return `${name} answered: ${spoken}\nAssess that for the operator in your own words, then offer one next step they can ask this automaton to run. Do not repeat ${name}'s sentences.`
+  return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences.`
 }
 
 export function needsFanoutConfirm(mentioned: AgentId[]): boolean {

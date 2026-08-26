@@ -11,7 +11,7 @@ import {
   mouthScreen,
 } from './computer'
 import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop, boxChromeHostDir } from './desktop'
-import { captureDesk } from './desk'
+import { captureDesk, openDeskUrl } from './desk'
 import { automatonHome } from './keys'
 
 export type ChromeHandle = { pid: number; port: number; display?: number; via?: 'box' | 'host' }
@@ -360,8 +360,21 @@ export async function browse(
   home = automatonHome(),
   seams: ChromeSeams = {},
 ): Promise<string | null> {
+  const mode = chromeMode(seams, home)
   const handle = await ensureBrowser(agentId, home, seams)
   if (!handle) return null
+  if (mode === 'box') {
+    if (seams.navigate) {
+      try {
+        await seams.navigate(handle.port, url)
+      } catch {
+        return null
+      }
+    } else if (!openDeskUrl(agentId, url, home, { box: seams.box })) {
+      return null
+    }
+    return captureScreen(agentId, home, seams)
+  }
   const go = seams.navigate ?? defaultNavigate
   try {
     await go(handle.port, url)

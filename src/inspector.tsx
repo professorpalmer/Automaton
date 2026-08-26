@@ -1,19 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { useGpuix } from '@gpuix/react'
+import { useGpuix, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList } from '@gpuix/react'
 import type { Agent, AgentKit } from './domain'
 import type { LedgerMetrics, StaffStore } from './runtime/store'
 import type { AgentProfile } from './runtime/profile'
 import { boxStatus, computerLabel } from './runtime/box'
 import { captureScreen } from './runtime/chrome'
 import { mouthScreen } from './runtime/computer'
-import {
-  captureDesk,
-} from './runtime/desk'
+import { captureDesk } from './runtime/desk'
 import { desktopPreview } from './runtime/desktop'
+import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
-import { runningTests } from './runtime/test-env'
 import { listSkills } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
 import { CHAT_THEME, T } from './tokens'
@@ -35,39 +33,30 @@ export function computerLine(agentId: string): string {
   return `${computerLabel(boxStatus())} · display :${screen.display}`
 }
 
-export function formatKnown(
-  total: number | null,
-  known: number,
-  unknown: number,
-): string {
-  if (total == null) {
-    if (unknown > 0 && known > 0) return `unknown (${known} known)`
-    return 'unknown'
-  }
-  return String(total)
+function formatUsd(n: number): string {
+  if (n === 0) return '$0'
+  if (Math.abs(n) >= 0.01) return `$${n.toFixed(2)}`
+  return `$${n.toFixed(4)}`
 }
 
 export function ledgerRows(metrics: LedgerMetrics): { label: string; value: string }[] {
-  return [
+  const rows: { label: string; value: string }[] = [
     { label: 'Turns', value: String(metrics.turns) },
     { label: 'Hits', value: String(metrics.hits) },
     { label: 'Misses', value: String(metrics.misses) },
     { label: 'Avoided', value: String(metrics.inferenceAvoided) },
     { label: 'Calls', value: String(metrics.inferenceCalls) },
-    {
-      label: 'Prompt tokens',
-      value: formatKnown(metrics.promptTokens, metrics.promptTokensKnown, metrics.promptTokensUnknown),
-    },
-    {
-      label: 'Completion tokens',
-      value: formatKnown(
-        metrics.completionTokens,
-        metrics.completionTokensKnown,
-        metrics.completionTokensUnknown,
-      ),
-    },
-    { label: 'Cost', value: formatKnown(metrics.costUsd, metrics.costKnown, metrics.costUnknown) },
   ]
+  if (metrics.inferenceCalls > 0 && metrics.promptTokens != null) {
+    rows.push({ label: 'Prompt tokens', value: String(metrics.promptTokens) })
+  }
+  if (metrics.inferenceCalls > 0 && metrics.completionTokens != null) {
+    rows.push({ label: 'Completion tokens', value: String(metrics.completionTokens) })
+  }
+  if (metrics.inferenceCalls > 0 && metrics.costUsd != null) {
+    rows.push({ label: 'Cost', value: formatUsd(metrics.costUsd) })
+  }
+  return rows
 }
 
 export function kernelSandboxHint(agentId: string, kit?: string): string | null {
@@ -135,6 +124,47 @@ export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId
   )
 }
 
+const MARK_FIELD = {
+  width: '100%' as const,
+  fontSize: T.type.sm,
+  color: T.text,
+  backgroundColor: T.composer,
+  borderWidth: T.stroke.hairline,
+  borderColor: T.border,
+  borderRadius: T.radius.sm,
+  paddingLeft: T.space.sm,
+  paddingRight: T.space.sm,
+  paddingTop: T.space.xs,
+  paddingBottom: T.space.xs,
+}
+
+const MARK_ITEM = {
+  paddingLeft: T.space.sm,
+  paddingRight: T.space.sm,
+  paddingTop: T.space.xs,
+  paddingBottom: T.space.xs,
+  fontSize: T.type.sm,
+}
+
+const MARK_MENU = {
+  maxHeight: T.layout.menuMax,
+  overflowY: 'scroll' as const,
+  backgroundColor: T.raised,
+  borderWidth: T.stroke.hairline,
+  borderColor: T.border,
+  borderRadius: T.radius.sm,
+  paddingTop: T.space.xs,
+  paddingBottom: T.space.xs,
+}
+
+function uniqueChoices(current: string, catalog: readonly string[]): string[] {
+  const out: string[] = []
+  for (const name of [current, ...catalog]) {
+    if (name && !out.includes(name)) out.push(name)
+  }
+  return out
+}
+
 const HIT = {
   cursor: 'pointer' as const,
   pointerEvents: 'auto' as const,
@@ -177,7 +207,6 @@ export function Inspector({
   const passWheel = (event: { deltaX?: number; deltaY?: number }) => passScrollTo(renderer, ref.current, event)
   const recent = lastMouthClaims(claims, agent.id)
   const kit = profile?.kit ?? 'blank'
-  const markLabel = profile ? `${profile.avatarShape} · ${profile.avatarColor}` : ''
   const preview = desktopPreview(agent.id)
   const [screen, setScreen] = useState<string | null>(preview.screen)
   const [frame, setFrame] = useState(0)
@@ -188,16 +217,13 @@ export function Inspector({
     if (path) setFrame((n) => n + 1)
   }
   useEffect(() => {
-    void recapture()
-  }, [agent.id])
-  useEffect(() => {
-    if (runningTests()) return
-    const tick = setInterval(() => {
-      void recapture()
-    }, T.desk.pollMs)
-    return () => clearInterval(tick)
+    const still = desktopPreview(agent.id)
+    setScreen(still.screen)
+    setFrame((n) => n + 1)
   }, [agent.id])
   const library = listSkills()
+  const markShapes = uniqueChoices(profile?.avatarShape ?? '', DEAL_SHAPES)
+  const markHues = uniqueChoices(profile?.avatarColor ?? '', DEAL_HUES)
   return (
     <div
       ref={ref}
@@ -289,7 +315,10 @@ export function Inspector({
                 src={screen}
                 objectFit="contain"
                 alt=""
-                style={{ width: '100%', height: T.desk.viewH, pointerEvents: 'none' }}
+                style={{ width: '100%', height: T.desk.viewH, pointerEvents: 'auto' }}
+                onClick={() => {
+                  void recapture()
+                }}
               />
             ) : (
               <div
@@ -362,8 +391,77 @@ export function Inspector({
       ) : null}
       {profile ? (
         <Section title="Mark">
-          <div testId="inspector-mark" style={{ fontSize: T.type.sm, color: T.text }}>
-            {markLabel}
+          <div testId="inspector-mark" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
+            <Combobox
+              items={markShapes}
+              value={profile.avatarShape}
+              onValueChange={(value) => {
+                if (typeof value === 'string' && markShapes.includes(value) && value !== profile.avatarShape) {
+                  onPatch?.({ avatarShape: value })
+                }
+              }}
+            >
+              <ComboboxInput
+                testId="inspector-mark-shape"
+                placeholder="Shape"
+                theme={CHAT_THEME}
+                style={MARK_FIELD}
+                onScroll={passWheel}
+              />
+              <ComboboxContent testId="inspector-mark-shape-menu" style={MARK_MENU} onScroll={passWheel}>
+                <ComboboxList>
+                  {(item) => (
+                    <ComboboxItem
+                      key={item}
+                      value={item}
+                      testId={`inspector-mark-shape-${item}`}
+                      style={(state) => ({
+                        ...MARK_ITEM,
+                        backgroundColor: state.highlighted || state.selected ? T.inverse : T.clear,
+                        color: state.highlighted || state.selected ? T.onInverse : T.text,
+                      })}
+                    >
+                      {item}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
+            <Combobox
+              items={markHues}
+              value={profile.avatarColor}
+              onValueChange={(value) => {
+                if (typeof value === 'string' && markHues.includes(value) && value !== profile.avatarColor) {
+                  onPatch?.({ avatarColor: value })
+                }
+              }}
+            >
+              <ComboboxInput
+                testId="inspector-mark-color"
+                placeholder="Color"
+                theme={CHAT_THEME}
+                style={MARK_FIELD}
+                onScroll={passWheel}
+              />
+              <ComboboxContent testId="inspector-mark-color-menu" style={MARK_MENU} onScroll={passWheel}>
+                <ComboboxList>
+                  {(item) => (
+                    <ComboboxItem
+                      key={item}
+                      value={item}
+                      testId={`inspector-mark-color-${item}`}
+                      style={(state) => ({
+                        ...MARK_ITEM,
+                        backgroundColor: state.highlighted || state.selected ? T.inverse : T.clear,
+                        color: state.highlighted || state.selected ? T.onInverse : T.text,
+                      })}
+                    >
+                      {item}
+                    </ComboboxItem>
+                  )}
+                </ComboboxList>
+              </ComboboxContent>
+            </Combobox>
           </div>
         </Section>
       ) : null}

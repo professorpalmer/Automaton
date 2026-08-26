@@ -43,6 +43,10 @@ export const T = {
   research: {
     face: '#1084FE',
   },
+  brand: {
+    yellow: '#F0C000',
+    ink: '#111111',
+  },
   catalog: {
     black: '#000000',
     brown: '#936439',
@@ -74,7 +78,7 @@ export const T = {
   desk: {
     viewH: 158,
     stageMinH: 420,
-    pollMs: 250,
+    pollMs: 750,
   },
   inspector: {
     width: 280,
@@ -137,6 +141,7 @@ export const T = {
     padY: 12,
     max: 640,
     clockGapMs: 15 * 60 * 1000,
+    thinkMs: 400,
   },
   stroke: {
     none: 0,

@@ -9,8 +9,10 @@ import {
   deskCaptureArgv,
   deskClickArgv,
   deskKeyArgv,
+  deskOpenUrlArgv,
   keyDesk,
   mapViewToDisplay,
+  openDeskUrl,
   xdoButton,
   xdoKey,
 } from '../src/runtime/desk'
@@ -54,6 +56,13 @@ describe('mouth desk', () => {
     expect(click).toContain('click')
     expect(click).toContain('1')
     expect(deskKeyArgv('staff', 'Return', home).join(' ')).toContain('xdotool')
+    const open = deskOpenUrlArgv('staff', home).join(' ')
+    expect(open).toContain('xdotool')
+    expect(open).toContain('ctrl+l')
+    expect(open).toContain('open-url.txt')
+    expect(open).toContain('--file')
+    expect(open).not.toContain('json/list')
+    expect(open).not.toContain('novnc')
     expect(xdoButton(0)).toBe(1)
     expect(xdoButton(2)).toBe(3)
     expect(xdoKey({ key: 'enter' })).toBe('Return')
@@ -69,6 +78,7 @@ describe('mouth desk', () => {
     expect(captureDesk('staff', home, { box: { docker } })).toBeNull()
     expect(clickDesk('staff', { x: 1, y: 1 }, 0, home, { box: { docker } })).toBe(false)
     expect(keyDesk('staff', 'a', home, { box: { docker } })).toBe(false)
+    expect(openDeskUrl('staff', 'https://github.com/login', home, { box: { docker } })).toBe(false)
     rmSync(home, { recursive: true, force: true })
   })
 })

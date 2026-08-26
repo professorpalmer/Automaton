@@ -13,16 +13,19 @@ import {
   sameFeedVoice,
   shouldShowFeedClock,
   feedClock,
+  feedThinking,
+  thinkingDots,
   type Agent,
   type FeedItem,
   type JobHandle,
+  type MouthState,
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
 import { watchPasteHotkey } from './runtime/paste-hotkey'
 import { runningTests } from './runtime/test-env'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
-import { createAgent, destroyAgent, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
+import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey } from './runtime/keys'
 import { ensureMouth } from './runtime/mouth'
 import { kitForAgent, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
@@ -39,6 +42,7 @@ import {
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
 import { ensureBrowser } from './runtime/chrome'
+import { captureDesk, openDeskUrl } from './runtime/desk'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
@@ -64,6 +68,7 @@ import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { Settings } from './settings'
 import { CHAT_THEME, T } from './tokens'
+import { MARK_PATH, PRODUCT } from './brand'
 
 type Pane = 'none' | 'inspector' | 'settings'
 type RailMenuAt = { id: string; x: number; y: number }
@@ -156,6 +161,24 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     ensureBox()
     ensureScreen(session.activeAgentId)
   }, [])
+
+  useEffect(() => {
+    const req = session.deskOpen
+    if (!req || runningTests()) return
+    const { agentId, url } = req
+    void (async () => {
+      await ensureBrowser(agentId)
+      openDeskUrl(agentId, url)
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+      captureDesk(agentId)
+      setSession((current) => {
+        if (!current.deskOpen || current.deskOpen.agentId !== agentId || current.deskOpen.url !== url) {
+          return current
+        }
+        return { ...current, deskOpen: null }
+      })
+    })()
+  }, [session.deskOpen?.agentId, session.deskOpen?.url])
 
   useEffect(() => {
     void ensureMouth(session, store, {
@@ -302,6 +325,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       namedBy: patch.name && patch.name !== current.name ? ('user' as const) : current.namedBy,
     }
     writeProfile(next)
+    if (patch.avatarShape || patch.avatarColor) {
+      ensureMarkFrames(next.avatarShape, next.avatarColor)
+    }
     setSession((row) => patchLiveAgent(row, liveAgentFromProfile(next)))
   }
 
@@ -370,7 +396,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           backgroundColor: T.canvas,
         }}
       >
-        <Titlebar name={active?.name ?? 'Automaton'} onInspect={toggleInspector} />
+        <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
         {pane === 'settings' ? (
           <Settings metrics={metrics} onClose={() => setPane('none')} />
         ) : (
@@ -395,6 +421,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               <Feed
                 key={session.activeAgentId}
                 items={thread?.items ?? []}
+                mouth={thread?.mouth ?? 'idle'}
                 agents={session.agents}
                 dockPad={jobs.length > 0 ? T.jobStrip.height : 0}
                 storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
@@ -880,8 +907,9 @@ function Titlebar({
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        paddingLeft: T.space.lg,
+        paddingLeft: TRAFFIC,
         paddingRight: T.space.lg,
+        gap: T.space.sm,
         borderBottomWidth: T.stroke.hairline,
         borderBottomColor: T.border,
         backgroundColor: T.canvas,
@@ -890,6 +918,15 @@ function Titlebar({
       }}
       onClick={onInspect}
     >
+      <img
+        src={MARK_PATH}
+        alt=""
+        objectFit="contain"
+        style={{ width: 18, height: 18, pointerEvents: 'none' }}
+      />
+      <div testId="titlebar-brand" style={{ fontSize: T.type.md, color: T.secondary }}>
+        {PRODUCT}
+      </div>
       <div testId="titlebar-name" style={{ fontSize: T.type.md, color: T.text }}>
         {name}
       </div>
@@ -919,11 +956,11 @@ const feedLane = {
   paddingRight: T.feed.gutter,
 }
 
-function feedTailKey(items: FeedItem[], dockPad: number): string {
+function feedTailKey(items: FeedItem[], dockPad: number, thinking: boolean): string {
   const last = items.at(-1)
-  if (!last) return `empty:${dockPad}`
+  if (!last) return `empty:${dockPad}:${thinking ? 't' : 'f'}`
   const grown = last.kind === 'msg' ? last.text.length : 0
-  return `${items.length}:${last.id}:${grown}:${dockPad}`
+  return `${items.length}:${last.id}:${grown}:${dockPad}:${thinking ? 't' : 'f'}`
 }
 
 const FEED_TAIL = -1_000_000
@@ -935,9 +972,10 @@ function pinFeedTail(
   } | null,
   node: { id: number } | null,
   items: FeedItem[],
+  thinking: boolean,
 ) {
   if (!renderer || !node) return
-  const count = paintedFeedCount(items)
+  const count = paintedFeedCount(items, thinking)
   if (count > 0) renderer.scrollToItem?.(node.id, count - 1)
   renderer.scrollTo?.(node.id, 0, FEED_TAIL)
 }
@@ -1014,7 +1052,21 @@ function TimeMark({ at }: { at: number }) {
   )
 }
 
-function paintedFeedCount(items: FeedItem[]): number {
+function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
+  return (
+    <div
+      testId="feed-gutter-end"
+      style={{
+        width: T.feed.gutter + pad,
+        flexShrink: 0,
+        minHeight: T.stroke.hairline,
+        backgroundColor: T.canvas,
+      }}
+    />
+  )
+}
+
+function paintedFeedCount(items: FeedItem[], thinking = false): number {
   if (items.length === 0) return 1
   let count = 0
   for (const item of items) {
@@ -1022,7 +1074,35 @@ function paintedFeedCount(items: FeedItem[]): number {
     if (item.kind === 'agent_note') continue
     if (item.kind === 'relay' || item.kind === 'msg') count += 1
   }
-  return count
+  return thinking ? count + 1 : count
+}
+
+function ThinkingRow() {
+  const [step, setStep] = useState(0)
+  useEffect(() => {
+    if (runningTests()) return
+    const timer = setInterval(() => setStep((n) => n + 1), T.feed.thinkMs)
+    return () => clearInterval(timer)
+  }, [])
+  return (
+    <div
+      testId="thinking"
+      style={{
+        display: 'flex',
+        flexDirection: 'row',
+        justifyContent: 'flex-start',
+        width: '100%',
+        paddingTop: T.feed.turn,
+        paddingLeft: T.feed.gutter,
+        paddingRight: T.feed.gutter,
+        fontSize: T.type.md,
+        lineHeight: T.line.md,
+        color: T.tertiary,
+      }}
+    >
+      {thinkingDots(step)}
+    </div>
+  )
 }
 
 export function Feed({
@@ -1031,22 +1111,25 @@ export function Feed({
   storeAnswer,
   attachmentsFor,
   dockPad = 0,
+  mouth = 'idle',
 }: {
   items: FeedItem[]
   agents: Agent[]
   storeAnswer: (userItemId: string) => boolean
   attachmentsFor?: (ids: string[]) => { id: string; path: string; kind: 'image' | 'file' }[]
   dockPad?: number
+  mouth?: MouthState
 }) {
   const ref = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
-  const pin = feedTailKey(items, dockPad)
+  const thinking = feedThinking(mouth, items)
+  const pin = feedTailKey(items, dockPad, thinking)
   useLayoutEffect(() => {
-    pinFeedTail(renderer, ref.current, items)
-  }, [pin, items, renderer])
+    pinFeedTail(renderer, ref.current, items, thinking)
+  }, [pin, items, renderer, thinking])
   useEffect(() => {
-    pinFeedTail(renderer, ref.current, items)
-  }, [pin, items, renderer])
+    pinFeedTail(renderer, ref.current, items, thinking)
+  }, [pin, items, renderer, thinking])
   return (
     <virtual-list
       ref={ref}
@@ -1103,12 +1186,17 @@ export function Feed({
                 paddingLeft: mine ? 0 : T.feed.gutter,
               }}
             >
-            {files.map((file) =>
-              file.kind === 'image' ? (
-                <div
-                  key={file.id}
-                  testId={`thumb-${file.id}`}
-                >
+            {files.map((file) => (
+            <div
+              key={file.id}
+              style={{
+                display: 'flex',
+                flexDirection: 'row',
+                alignItems: 'flex-start',
+              }}
+            >
+              {file.kind === 'image' ? (
+                <div testId={`thumb-${file.id}`}>
                   <img
                     src={file.path}
                     objectFit="contain"
@@ -1120,11 +1208,13 @@ export function Feed({
                   />
                 </div>
               ) : (
-                <div key={file.id} testId={`file-${file.id}`}>
+                <div testId={`file-${file.id}`}>
                   <code code={file.path} language="text" theme={CHAT_THEME} />
                 </div>
-              ),
-            )}
+              )}
+              {mine ? <FeedGutterEnd /> : null}
+            </div>
+            ))}
             {item.text ? (
             <div
               style={{
@@ -1151,17 +1241,7 @@ export function Feed({
             >
               {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
-            {mine ? (
-              <div
-                testId="feed-gutter-end"
-                style={{
-                  width: T.feed.gutter + T.feed.padX,
-                  flexShrink: 0,
-                  minHeight: T.stroke.hairline,
-                  backgroundColor: T.canvas,
-                }}
-              />
-            ) : null}
+            {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
             </div>
             ) : null}
             {fromStore ? (
@@ -1184,6 +1264,7 @@ export function Feed({
           </div>
         )
       })}
+      {thinking ? <ThinkingRow /> : null}
     </virtual-list>
   )
 }

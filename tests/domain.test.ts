@@ -9,13 +9,16 @@ import {
   homeAck,
   isMouthBusy,
   isPing,
+  dispatchWork,
   jobKindFor,
   jobKindForKit,
   lastSpoken,
   looksLikeJob,
   mentionedAgentIds,
   needsFanoutConfirm,
+  parseDeskUrl,
   parseGithubHomes,
+  sanitizeDeskUrl,
   renameAgents,
   resetIdsForTests,
   assessAsk,
@@ -25,6 +28,8 @@ import {
   feedClock,
   shouldShowFeedClock,
   sameFeedVoice,
+  feedThinking,
+  thinkingDots,
   type FeedItem,
 } from '../src/domain'
 
@@ -34,6 +39,18 @@ describe('mouth vs job', () => {
     expect(composerEnterBusy('working')).toBe(false)
     expect(composerEnterBusy('idle')).toBe(false)
     expect(composerEnterBusy('must_first')).toBe(true)
+  })
+
+  test('feed thinking is mouth wait after a turn, not a job', () => {
+    const user: FeedItem[] = [{ kind: 'msg', id: 'u1', from: 'user', agentId: 'staff', text: 'Hello.' }]
+    expect(feedThinking('answer', user)).toBe(true)
+    expect(feedThinking('must_first', user)).toBe(true)
+    expect(feedThinking('working', user)).toBe(false)
+    expect(feedThinking('idle', user)).toBe(false)
+    expect(feedThinking('answer', [])).toBe(false)
+    expect(thinkingDots(0)).toBe('.')
+    expect(thinkingDots(3)).toBe('....')
+    expect(thinkingDots(4)).toBe('.')
   })
 
   test('hidden agents stay out of the rail', () => {
@@ -82,6 +99,11 @@ describe('mouth vs job', () => {
     expect(jobKindForKit('lookup', lookup)).toBe('analyze')
     expect(jobKindForKit('code', job)).toBe('implement')
     expect(jobKindForKit('code', lookup)).toBe('analyze')
+    expect(jobKindForKit('code', 'Can you ping Kernel, do we have any PRs or open issues?')).toBe(
+      'analyze',
+    )
+    expect(jobKindForKit('code', 'check the ledger replay in Automaton staff.')).toBe('analyze')
+    expect(jobKindForKit('coordinator', 'check the ledger replay in Automaton staff.')).toBeNull()
   })
 
   test('threads are per agent', () => {
@@ -108,6 +130,17 @@ describe('mouth vs job', () => {
       'research',
     ])
     expect(isPing('Can you ask research if he is online?')).toBe(true)
+    expect(isPing('Can you ping pupetmaster?')).toBe(true)
+    expect(isPing('Can you ping Puppetmaster, do we have any PRs or open issues?')).toBe(false)
+    expect(isPing('Can you see if Puppetmaster has any open issues or PRs for us?')).toBe(false)
+    expect(isPing('hey ping Puppetmaster and check for open PRs', withPm)).toBe(false)
+    expect(isPing('ping Puppetmaster', withPm)).toBe(true)
+    expect(isPing('is Puppetmaster online', withPm)).toBe(true)
+    expect(dispatchWork('hey ping Puppetmaster and check for open PRs', withPm)).toEqual({
+      ping: false,
+      note: 'Check for open PRs',
+    })
+    expect(dispatchWork('ping Puppetmaster', withPm).note).toBe('The operator asked if you are around.')
     expect(dispatchTargets('@Kernel @Research look this up', roster, 'staff')).toEqual([
       'kernel',
       'research',
@@ -161,6 +194,8 @@ describe('mouth vs job', () => {
     expect(ask).toContain('Research answered:')
     expect(ask).toContain("I'm here to assist you. How can I help?")
     expect(ask).toContain('Do not repeat Research')
+    expect(ask).toContain('re-ask')
+    expect(ask).not.toContain('one next step')
   })
 
   test('github homes pair to roster names by repo slug', () => {
@@ -236,5 +271,22 @@ describe('mouth vs job', () => {
     expect(shouldShowFeedClock(first, later)).toBe(true)
     expect(sameFeedVoice(first, soon, false)).toBe(false)
     expect(sameFeedVoice(first, { ...first, id: 'd', text: 'again' }, false)).toBe(true)
+  })
+
+  test('desk URL parse opens github login and leaves bind homes alone', () => {
+    expect(
+      parseDeskUrl('Can you navigate to the github on your pc so I can login?'),
+    ).toBe('https://github.com/login')
+    expect(parseDeskUrl('open https://example.com/login')).toBe('https://example.com/login')
+    expect(sanitizeDeskUrl('javascript:alert(1)')).toBeNull()
+    expect(sanitizeDeskUrl('https://github.com/login')).toBe('https://github.com/login')
+    expect(
+      parseDeskUrl('Create an automaton named Marionette associated with https://github.com/example/marionette'),
+    ).toBeNull()
+    expect(parseDeskUrl('hey ping Kernel and check for open PRs')).toBeNull()
+    expect(parseDeskUrl('can you navigate to Google on your machine')).toBe('https://www.google.com/')
+    expect(parseDeskUrl('open google.com')).toBe('https://google.com/')
+    expect(parseDeskUrl('go to youtube.com')).toBe('https://youtube.com/')
+    expect(parseDeskUrl('What about Puppetmaster?')).toBeNull()
   })
 })

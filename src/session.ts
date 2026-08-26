@@ -9,17 +9,19 @@ import {
   bindHomes,
   composerEnterBusy,
   createAgentNames,
+  deskOpenAck,
   dispatchAck,
   dispatchTargets,
+  dispatchWork,
   emptyThreads,
   homeAck,
   homeNote,
-  isPing,
   jobKindForKit,
   joinAnd,
   mentionedAgentIds,
   needsFanoutConfirm,
   nextId,
+  parseDeskUrl,
   renameAck,
   renameAgents,
   returnBeat,
@@ -34,6 +36,7 @@ export type Session = {
   threads: Record<AgentId, Thread>
   jobs: JobHandle[]
   pendingFanout: { text: string; targets: AgentId[] } | null
+  deskOpen?: { agentId: AgentId; url: string } | null
 }
 
 function thread(session: Session, id: AgentId): Thread {
@@ -203,14 +206,32 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   if (needsFanoutConfirm(named) && session.pendingFanout == null) {
     return { ...session, pendingFanout: { text, targets: named } }
   }
-  const next: Session = { ...session, pendingFanout: null }
+  const next: Session = { ...session, pendingFanout: null, deskOpen: null }
   if (kit === 'coordinator' && named.length > 0) {
-    return coordinatorDispatch(next, body, named, isPing(body), attachmentIds)
+    return coordinatorDispatch(next, body, named, attachmentIds)
   }
   if (named.length > 1) {
     return fanout(next, body, named)
   }
+  if (kit === 'coordinator' && named.length === 0) {
+    const url = parseDeskUrl(body)
+    if (url) return coordinatorDeskOpen(next, body, url, attachmentIds)
+  }
   return deliverTo(next, named[0] ?? active, body, active, attachmentIds)
+}
+
+function coordinatorDeskOpen(
+  session: Session,
+  text: string,
+  url: string,
+  attachmentIds: string[] = [],
+): Session {
+  const focused = session.activeAgentId
+  let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
+  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
+  next = speak(next, focused, deskOpenAck(url), focused)
+  next = wakeMouth(next, focused, 'idle')
+  return { ...next, deskOpen: { agentId: focused, url } }
 }
 
 function coordinatorSetup(
@@ -268,15 +289,15 @@ function coordinatorDispatch(
   session: Session,
   text: string,
   targets: AgentId[],
-  ping: boolean,
   attachmentIds: string[],
 ): Session {
   const focused = session.activeAgentId
+  const work = dispatchWork(text, visibleAgents(session.agents))
   const item = stamped('user', focused, text, attachmentIds)
   let next = append(session, focused, item, focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
-  const note = ping ? 'The operator asked if you are around.' : staffParaphrase(text)
+  const note = work.note
   for (const target of targets) {
     if (target === focused) continue
     next = appendRelay(next, focused, 'sent', target, note, focused)
@@ -286,7 +307,7 @@ function coordinatorDispatch(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
-    next = deliverTo(next, target, note, focused, [], ping)
+    next = deliverTo(next, target, note, focused, [], work.ping)
   }
   return wakeMouth(next, focused, 'idle')
 }

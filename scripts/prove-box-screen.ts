@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { automatonHome } from '../src/runtime/keys'
 import { boxExec, ensureBox } from '../src/runtime/box'
 import { ensureBrowser } from '../src/runtime/chrome'
-import { captureDesk, clickDesk } from '../src/runtime/desk'
+import { captureDesk, clickDesk, openDeskUrl } from '../src/runtime/desk'
 import { boxChromeAlive, boxChromeWindowReady, ensureScreen } from '../src/runtime/screen'
 
 const dest = join(import.meta.dir, '..', 'artifacts', 'box-screen.png')
@@ -46,6 +46,11 @@ if (!boxChromeWindowReady('staff')) {
 await sleep(800)
 clickDesk('staff', { x: 640, y: 400 })
 await sleep(400)
+if (!openDeskUrl('staff', 'https://example.com')) {
+  console.error('openDeskUrl staff failed')
+  process.exit(1)
+}
+await sleep(1200)
 const path = captureDesk('staff')
 if (!path || !existsSync(path)) {
   console.error('captureDesk staff missed')

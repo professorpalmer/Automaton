@@ -7,6 +7,8 @@ import {
   hashFile,
   ingestPath,
   insertClipboardText,
+  pickLocalFiles,
+  CHOOSE_FILE_SCRIPT,
   readClipboardPaths,
   readClipboardText,
   safeName,
@@ -165,5 +167,41 @@ describe('attachments', () => {
       }),
     ).toEqual([source])
     rmSync(home, { recursive: true, force: true })
+  })
+
+  test('picker script activates a floating open panel', () => {
+    expect(CHOOSE_FILE_SCRIPT).toContain('activateIgnoringOtherApps')
+    expect(CHOOSE_FILE_SCRIPT).toContain('NSOpenPanel')
+    expect(CHOOSE_FILE_SCRIPT).toContain('setFloatingPanel')
+  })
+
+  test('tests do not spawn the live file picker', () => {
+    const scripts: string[] = []
+    expect(
+      pickLocalFiles({
+        bunTest: true,
+        platform: 'darwin',
+        env: {},
+        run: (script) => {
+          scripts.push(script)
+          return { ok: true, stdout: '/tmp/note.txt' }
+        },
+      }),
+    ).toEqual([])
+    expect(scripts).toEqual([])
+  })
+
+  test('live picker seam uses the activating script', () => {
+    expect(
+      pickLocalFiles({
+        bunTest: false,
+        platform: 'darwin',
+        env: {},
+        run: (script) => {
+          expect(script).toContain('activateIgnoringOtherApps')
+          return { ok: true, stdout: '/tmp/note.txt' }
+        },
+      }),
+    ).toEqual(['/tmp/note.txt'])
   })
 })

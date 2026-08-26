@@ -27,11 +27,17 @@ OpenRouter is configured in Settings (or `~/.automaton/keys.json`).
 ```sh
 bun install
 bun test
-bun src/main.tsx
+bun run app
 ```
 
+On macOS, `bun run app` opens `macos/Automaton.app` so the Dock and the
+menu bar say Automaton. `bun src/main.tsx` still works, but a bun process
+spawned from Cursor stays under Cursor's menu (Cmd+Plus / Cmd+Minus go to
+the editor). The in-window titlebar paints **Automaton** next to the
+focused mouth.
+
 `--hot` remounts can leave a zombie window. If clicks miss, quit leftover
-Automaton windows and run `bun src/main.tsx`.
+Automaton windows and run `bun run app` (or `bun src/main.tsx`).
 
 `bun run doctor` checks Puppetmaster. `bun scripts/probe-kernel.ts` launches
 a read-only analyze job. Never run an implement worker against this
@@ -45,6 +51,7 @@ Layout:
 - Mouth: `src/runtime/mouth.ts`
 - Jobs: `src/runtime/pm.ts`, `src/runtime/jobs.ts`
 - Tokens: `src/tokens.ts`
+- Mark: `brand/mark.svg` (automata on one computer)
 - Box image: `box/Dockerfile`
 
 ## Org-box host

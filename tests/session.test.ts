@@ -197,6 +197,33 @@ describe('teammate session', () => {
     expect(s.threads.kernel.mouth).toBe('working')
   })
 
+  test('Staff ping plus a repo ask books analyze, not a presence check', () => {
+    const s = send(fresh(), 'Can you ping Kernel, do we have any PRs or open issues?')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.ownerAgentId).toBe('kernel')
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    expect(s.threads.kernel.mouth).toBe('working')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Asking Kernel.',
+      ),
+    ).toBe(true)
+    const note = s.threads.kernel.items.find((item) => item.kind === 'agent_note')
+    expect(note?.kind === 'agent_note' && note.text.includes('PRs')).toBe(true)
+    expect(note?.kind === 'agent_note' && note.text.includes('are you around')).toBe(false)
+  })
+
+  test('Staff ping plus leftover work sends the remainder and books analyze', () => {
+    const s = send(fresh(), 'hey ping Kernel and check for open PRs')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    expect(s.jobs[0]?.ownerAgentId).toBe('kernel')
+    expect(s.threads.kernel.mouth).toBe('working')
+    const note = s.threads.kernel.items.find((item) => item.kind === 'agent_note')
+    expect(note?.kind === 'agent_note' && note.text).toBe('Check for open PRs')
+  })
+
   test('Staff ping asks Research without a job and skips OpenRouter on Staff', () => {
     const s = send(fresh(), 'Can you ask research if he is online?')
     expect(s.pendingFanout).toBeNull()
@@ -428,5 +455,47 @@ describe('teammate session', () => {
         (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Renamed. New Bot is now Puppetmaster.',
       ),
     ).toBe(true)
+  })
+
+  test('Staff github-login ask opens the desk URL and does not mouth-navigate', () => {
+    const s = send(fresh(), 'Can you navigate to the github on your pc so I can login?')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(s)).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(s.deskOpen).toEqual({ agentId: 'staff', url: 'https://github.com/login' })
+    expect(
+      s.threads.staff.items.some(
+        (item) =>
+          item.kind === 'msg' &&
+          item.from === 'agent' &&
+          item.text === 'Opening github.com on this screen. Take control to sign in.',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && /navigated/i.test(item.text),
+      ),
+    ).toBe(false)
+  })
+
+  test('Staff google ask opens the desk and does not lecture about the runtime', () => {
+    const s = send(fresh(), 'can you navigate to Google on your machine')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(s)).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(s.deskOpen).toEqual({ agentId: 'staff', url: 'https://www.google.com/' })
+    expect(
+      s.threads.staff.items.some(
+        (item) =>
+          item.kind === 'msg' &&
+          item.from === 'agent' &&
+          item.text === 'Opening www.google.com on this screen. Take control to sign in.',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && /runtime action|display profile/i.test(item.text),
+      ),
+    ).toBe(false)
   })
 })

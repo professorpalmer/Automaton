@@ -1,7 +1,9 @@
-import { existsSync } from 'node:fs'
+import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { sanitizeDeskUrl } from '../domain'
 import { boxExec, boxStatus, type BoxSeams } from './box'
 import { BOX_DISPLAY_H, BOX_DISPLAY_W, BOX_NAME, mouthScreen } from './computer'
-import { ensureDesktop, screenPath } from './desktop'
+import { desktopDir, ensureDesktop, screenPath } from './desktop'
 import { automatonHome } from './keys'
 import { ensureScreen } from './screen'
 
@@ -24,6 +26,13 @@ const KEYS: Record<string, string> = {
   down: 'Down',
   left: 'Left',
   right: 'Right',
+}
+
+const SAFE_AGENT = /^[A-Za-z0-9_-]+$/
+let paintStamp = 0
+
+function activateThen(command: string): string {
+  return `xdotool search --onlyvisible --class chromium windowactivate --sync >/dev/null 2>&1; ${command}`
 }
 
 /** Map a window click on an object-fit:contain view onto the X display. Letterbox misses are null. */
@@ -106,18 +115,52 @@ export function deskClickArgv(
     '-e',
     `DISPLAY=:${display}`,
     BOX_NAME,
-    'xdotool',
-    'mousemove',
-    String(point.x),
-    String(point.y),
-    'click',
-    String(xdoButton(button)),
+    'sh',
+    '-c',
+    activateThen(
+      `xdotool mousemove ${point.x} ${point.y} click ${xdoButton(button)}`,
+    ),
   ]
 }
 
 export function deskKeyArgv(agentId: string, key: string, home = automatonHome()): string[] {
   const display = mouthScreen(agentId, home).display
-  return ['exec', '-e', `DISPLAY=:${display}`, BOX_NAME, 'xdotool', 'key', '--clearmodifiers', key]
+  return [
+    'exec',
+    '-e',
+    `DISPLAY=:${display}`,
+    BOX_NAME,
+    'sh',
+    '-c',
+    activateThen('xdotool key --clearmodifiers "$1"'),
+    'desk-key',
+    key,
+  ]
+}
+
+export function deskUrlTicketBoxPath(agentId: string): string {
+  return `/home/box/desktops/${agentId}/open-url.txt`
+}
+
+export function deskOpenUrlScript(agentId: string): string {
+  const ticket = deskUrlTicketBoxPath(agentId)
+  return [
+    'best=; bw=0',
+    'for id in $(xdotool search --onlyvisible --class chromium 2>/dev/null); do',
+    '  eval $(xdotool getwindowgeometry --shell "$id")',
+    '  if [ "${WIDTH:-0}" -gt "$bw" ]; then best=$id; bw=$WIDTH; fi',
+    'done',
+    'if [ -z "$best" ]; then exit 1; fi',
+    'xdotool windowactivate --sync "$best"',
+    'xdotool key --window "$best" --clearmodifiers ctrl+l',
+    `xdotool type --window "$best" --delay 1 --file ${ticket}`,
+    'xdotool key --window "$best" Return',
+  ].join('\n')
+}
+
+export function deskOpenUrlArgv(agentId: string, home = automatonHome()): string[] {
+  const display = mouthScreen(agentId, home).display
+  return ['exec', '-e', `DISPLAY=:${display}`, BOX_NAME, 'sh', '-c', deskOpenUrlScript(agentId)]
 }
 
 export function captureDesk(
@@ -137,7 +180,14 @@ export function captureDesk(
   )
   const path = screenPath(agentId, home)
   if (result.status !== 0 || !existsSync(path)) return null
-  return path
+  paintStamp += 1
+  const paint = join(desktopDir(agentId, home), `paint-${paintStamp % 2}.png`)
+  try {
+    copyFileSync(path, paint)
+    return paint
+  } catch {
+    return path
+  }
 }
 
 export function clickDesk(
@@ -150,7 +200,7 @@ export function clickDesk(
   if (!boxStatus(home, seams.box).running) return false
   if (!ensureScreen(agentId, home, seams.box)) return false
   const result = boxExec(
-    ['xdotool', 'mousemove', String(point.x), String(point.y), 'click', String(xdoButton(button))],
+    ['sh', '-c', activateThen(`xdotool mousemove ${point.x} ${point.y} click ${xdoButton(button)}`)],
     { DISPLAY: `:${mouthScreen(agentId, home).display}` },
     seams.box,
   )
@@ -166,7 +216,7 @@ export function keyDesk(
   if (!boxStatus(home, seams.box).running) return false
   if (!ensureScreen(agentId, home, seams.box)) return false
   const result = boxExec(
-    ['xdotool', 'key', '--clearmodifiers', key],
+    ['sh', '-c', activateThen('xdotool key --clearmodifiers "$1"'), 'desk-key', key],
     { DISPLAY: `:${mouthScreen(agentId, home).display}` },
     seams.box,
   )
@@ -184,9 +234,27 @@ export function wheelDesk(
   const button = deltaY < 0 ? 4 : 5
   if (!boxStatus(home, seams.box).running) return false
   const result = boxExec(
-    ['xdotool', 'mousemove', String(point.x), String(point.y), 'click', String(button)],
+    ['sh', '-c', activateThen(`xdotool mousemove ${point.x} ${point.y} click ${button}`)],
     { DISPLAY: `:${mouthScreen(agentId, home).display}` },
     seams.box,
   )
+  return result.status === 0
+}
+
+export function openDeskUrl(
+  agentId: string,
+  url: string,
+  home = automatonHome(),
+  seams: DeskSeams = {},
+): boolean {
+  const safe = sanitizeDeskUrl(url)
+  if (!safe || !SAFE_AGENT.test(agentId)) return false
+  if (!boxStatus(home, seams.box).running) return false
+  if (!ensureScreen(agentId, home, seams.box)) return false
+  ensureDesktop(agentId, home)
+  writeFileSync(join(desktopDir(agentId, home), 'open-url.txt'), safe)
+  const result = boxExec(['sh', '-c', deskOpenUrlScript(agentId)], {
+    DISPLAY: `:${mouthScreen(agentId, home).display}`,
+  }, seams.box)
   return result.status === 0
 }

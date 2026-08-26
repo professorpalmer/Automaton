@@ -19,13 +19,15 @@ use a sandbox cwd and never this checkout. Visual tokens live in
 ```sh
 bun install
 bun test
-bun src/main.tsx
+bun run app
 ```
 
-`bun --hot src/main.tsx` remounts can leave a zombie window. Prefer
-`bun src/main.tsx`. `bun scripts/probe-kernel.ts` is a read-only analyze
-launch. `bun scripts/probe-mouth.ts` exercises the bounded OpenRouter mouth
-and its zero-call query path.
+`bun src/main.tsx` is the raw GPUI process. On macOS, `bun run app` opens
+`macos/Automaton.app` so the Dock icon and the menu bar belong to Automaton
+instead of Cursor. `bun --hot src/main.tsx` remounts can leave a zombie
+window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a read-only
+analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
+OpenRouter mouth and its zero-call query path.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
 An automaton is a cheap screen (X display plus a Chrome profile), not another
