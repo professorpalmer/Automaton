@@ -83,7 +83,7 @@ export function fitBoxChrome(
         '  eval $(xdotool getwindowgeometry --shell "$id")',
         '  if [ "${WIDTH:-0}" -gt "$bw" ]; then best=$id; bw=$WIDTH; fi',
         'done',
-        `if [ -n "$best" ]; then xdotool windowmove "$best" 0 0 windowsize "$best" ${BOX_DISPLAY_W} ${BOX_DISPLAY_H}; fi`,
+        `if [ -n "$best" ]; then xdotool windowmove "$best" 0 0 windowsize "$best" ${BOX_DISPLAY_W} ${BOX_DISPLAY_H} windowactivate --sync "$best"; fi`,
       ].join('\n'),
     ],
     { DISPLAY: `:${display}` },

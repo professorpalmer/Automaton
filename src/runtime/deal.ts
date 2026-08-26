@@ -87,10 +87,8 @@ export function markForId(agentId: string, profile?: { avatarShape: string; avat
   shape: string
   color: string
 } {
-  const seed = seedOverride(agentId)
-  if (seed) return seed
   if (profile?.avatarShape && profile.avatarColor) {
     return { shape: profile.avatarShape, color: profile.avatarColor }
   }
-  return deal(agentId)
+  return seedOverride(agentId) ?? deal(agentId)
 }

@@ -1,0 +1,10 @@
+#!/bin/bash
+set -euo pipefail
+ROOT="$(cd "$(dirname "$0")/../../../.." && pwd)"
+cd "$ROOT"
+export PATH="${HOME}/.bun/bin:/opt/homebrew/bin:/usr/local/bin:${PATH}"
+if ! command -v bun >/dev/null 2>&1; then
+  echo "Automaton needs bun on PATH." >&2
+  exit 1
+fi
+exec bun src/main.tsx

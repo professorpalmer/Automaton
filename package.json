@@ -8,9 +8,11 @@
   "scripts": {
     "dev": "bun --hot src/main.tsx",
     "start": "bun src/main.tsx",
+    "app": "bun scripts/open-mac-app.ts",
     "test": "bun test",
     "doctor": "bun scripts/doctor.ts",
     "bake:marks": "bun scripts/bake-marks.ts",
+    "bake:brand": "bun scripts/bake-brand.ts",
     "probe:kernel": "bun scripts/probe-kernel.ts",
     "probe:mouth": "bun scripts/probe-mouth.ts",
     "prove:durable": "bun scripts/prove-native-durable.ts"

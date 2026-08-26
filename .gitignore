@@ -32,6 +32,7 @@ tenant/soldiers-angels/*
 *.sqlite
 *.sqlite-journal
 var/
+brand/AppIcon.iconset/
 
 # Local agent verification skill. Keep off the public tree.
 .cursor/skills/verify-automaton/

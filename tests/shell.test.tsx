@@ -265,6 +265,9 @@ native('staff shell (GPUI native)', () => {
     expect(painted).toContain('Settings')
     expect(statSync(shot).size).toBeGreaterThan(1000)
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'titlebar-brand')?.text ?? findTestId(tree, 'titlebar-brand')?.children?.[0]?.text).toBe(
+      'Automaton',
+    )
     expect(findTestId(tree, 'blob-staff')).toBeTruthy()
     expect(findTestId(tree, 'blob-kernel')).toBeFalsy()
     expect(findTestId(tree, 'blob-research')).toBeFalsy()
@@ -654,10 +657,16 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desktop-refresh')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-view')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-control')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-shape')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-color')).toBeTruthy()
     clickTestId(renderer, 'desk-control')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage-view')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-release')).toBeTruthy()
+    clickTestId(renderer, 'desk-stage-view')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage-view')).toBeTruthy()
     expect(renderer.getPaintedText().join(' ')).toContain('Release')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-name')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-job')).toBeFalsy()
@@ -677,6 +686,8 @@ native('staff shell (GPUI native)', () => {
     renderer.captureScreenshot(settingsShot)
     const settings = renderer.getPaintedText().join(' ')
     expect(settings).toContain('Usage')
+    expect(settings).not.toContain('unknown (')
+    expect(settings).not.toContain('Prompt tokens')
     expect(settings).toContain('Keys')
     expect(settings).toContain('Model')
     expect(settings).toContain('Computer')
@@ -890,6 +901,77 @@ native('staff shell (GPUI native)', () => {
     expect(painted).toContain('const answer = 42')
   })
 
+  test('user attachment thumbs share the mine bubble gutter', () => {
+    const png = join(import.meta.dir, '../src/marks/blob/staff/rest.png')
+    const items: FeedItem[] = [
+      {
+        kind: 'msg',
+        id: 'user_1',
+        from: 'user',
+        agentId: 'staff',
+        text: 'Are these stats pretty decent?',
+        attachmentIds: ['att_1'],
+      },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed
+          items={items}
+          agents={DEFAULT_AGENTS}
+          storeAnswer={() => false}
+          attachmentsFor={() => [{ id: 'att_1', path: png, kind: 'image' }]}
+        />
+      </div>,
+    )
+    renderer.flush()
+    const thumb = boundsFor(renderer, 'thumb-att_1')
+    const mine = boundsFor(renderer, 'bubble-mine')
+    expect(thumb.x + thumb.width).toBe(mine.x + mine.width)
+  })
+
+  test('feed paints thinking dots while the mouth answers', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: 'user_1', from: 'user', agentId: 'staff', text: 'Hello.' },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} mouth="answer" />
+      </div>,
+    )
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'thinking')).toBeTruthy()
+    expect(renderer.getPaintedText().join(' ')).toContain('.')
+  })
+
+  test('feed hides thinking after a reply and during a job', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: 'user_1', from: 'user', agentId: 'staff', text: 'Hello.' },
+      { kind: 'msg', id: 'agent_1', from: 'agent', agentId: 'staff', text: 'Hi.' },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} mouth="idle" />
+      </div>,
+    )
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'thinking')).toBeNull()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed
+          items={[items[0]!]}
+          agents={DEFAULT_AGENTS}
+          storeAnswer={() => false}
+          mouth="working"
+        />
+      </div>,
+    )
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'thinking')).toBeNull()
+  })
+
   test('New automaton deals a mark, paints the row, and opens inspector', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const { render, renderer } = createTestRoot()
@@ -904,6 +986,8 @@ native('staff shell (GPUI native)', () => {
     expect(painted).toContain('Inspector')
     expect(painted).toContain('code')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-shape')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-color')).toBeTruthy()
     expect(statSync(shot).size).toBeGreaterThan(1000)
   })
 

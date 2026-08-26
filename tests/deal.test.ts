@@ -23,4 +23,15 @@ describe('mark deal', () => {
     expect(mark.color).not.toBe('black')
     expect(markForId('agent_1')).toEqual(mark)
   })
+
+  test('a saved profile mark wins over the seed override', () => {
+    expect(markForId('staff', { avatarShape: 'pebble', avatarColor: 'orange' })).toEqual({
+      shape: 'pebble',
+      color: 'orange',
+    })
+    expect(markForId('agent_9', { avatarShape: 'hex', avatarColor: 'blue' })).toEqual({
+      shape: 'hex',
+      color: 'blue',
+    })
+  })
 })
