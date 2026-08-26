@@ -1,5 +1,7 @@
 #!/bin/sh
 # Idempotent X display for one automaton. DISPLAY number is $1.
+# Do not start a window manager. Fluxbox wraps Chromium in an
+# override-redirect frame that eats xdotool XTEST clicks.
 set -eu
 N="${1:?display}"
 export DISPLAY=":${N}"
@@ -23,27 +25,14 @@ if ! xdpyinfo >/dev/null 2>&1; then
 fi
 
 pidfile="/tmp/fluxbox-${N}.pid"
-mkdir -p "${HOME:-/home/box}/.fluxbox"
-printf '%s\n' \
-  'session.screen0.toolbar.visible: false' \
-  'session.screen0.slit.visible: false' \
-  'session.screen0.workspaces: 1' \
-  "session.screen0.rootCommand: xsetroot -solid '#222222'" \
-  > "${HOME:-/home/box}/.fluxbox/init"
-if command -v fluxbox >/dev/null 2>&1; then
-  alive=0
-  if [ -f "${pidfile}" ]; then
-    pid=$(cat "${pidfile}")
-    if [ -n "${pid}" ] && kill -0 "${pid}" 2>/dev/null; then
-      alive=1
-    fi
+if [ -f "${pidfile}" ]; then
+  pid=$(cat "${pidfile}")
+  if [ -n "${pid}" ]; then
+    kill "${pid}" 2>/dev/null || true
   fi
-  if [ "${alive}" -eq 0 ]; then
-    fluxbox >/tmp/fluxbox-"${N}".log 2>&1 &
-    echo $! > "${pidfile}"
-    sleep 0.2
-  fi
+  rm -f "${pidfile}"
 fi
+pkill -x fluxbox >/dev/null 2>&1 || true
 pkill -x xmessage >/dev/null 2>&1 || true
 
 if command -v xsetroot >/dev/null 2>&1; then

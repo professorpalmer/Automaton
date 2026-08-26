@@ -10,6 +10,8 @@
   <string>Automaton</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
+  <key>CFBundleIconName</key>
+  <string>AppIcon</string>
   <key>CFBundleIdentifier</key>
   <string>ai.professorpalmer.automaton</string>
   <key>CFBundleInfoDictionaryVersion</key>

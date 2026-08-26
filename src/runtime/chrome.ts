@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
-import { boxStatus, type BoxSeams } from './box'
+import { boxExec, boxStatus, type BoxSeams } from './box'
 import { boxChromeAlive, boxChromeWindowReady, ensureScreen, fitBoxChrome, stopBoxChrome } from './screen'
 import {
   BOX_CHROME,
@@ -11,9 +11,14 @@ import {
   boxProfileDir,
   mouthScreen,
 } from './computer'
-import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop, boxChromeHostDir } from './desktop'
+import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop, clearBoxProfileLocks } from './desktop'
 import { captureDesk, openDeskUrl } from './desk'
 import { automatonHome } from './keys'
+
+export function boxProfileLockRmArgv(agentId: string): string[] {
+  const profile = boxProfileDir(agentId)
+  return ['rm', '-f', `${profile}/SingletonLock`, `${profile}/SingletonSocket`, `${profile}/SingletonCookie`]
+}
 
 export type ChromeHandle = { pid: number; port: number; display?: number; via?: 'box' | 'host' }
 
@@ -83,8 +88,7 @@ export function chromeLaunch(input: {
           '--no-sandbox',
           '--disable-dev-shm-usage',
           '--disable-gpu',
-          '--disable-infobars',
-          '--test-type',
+          '--disable-blink-features=AutomationControlled',
           '--start-maximized',
         ]
       : []),
@@ -142,18 +146,6 @@ export function readHandle(agentId: string, home = automatonHome()): ChromeHandl
 
 function writeHandle(agentId: string, handle: ChromeHandle, home: string): void {
   writeFileSync(devtoolsPath(agentId, home), `${JSON.stringify(handle)}\n`)
-}
-
-function clearBoxProfileLocks(agentId: string, home: string): void {
-  const dir = boxChromeHostDir(agentId, home)
-  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
-    const path = join(dir, name)
-    try {
-      if (existsSync(path)) unlinkSync(path)
-    } catch {
-      /* dangling symlink */
-    }
-  }
 }
 
 function defaultAlive(pid: number): boolean {
@@ -300,7 +292,7 @@ export async function ensureBrowser(
   const existing = readHandle(agentId, home)
   const wantedPort = mode === 'box' ? boxChromeDebugPort(mouthScreen(agentId, home).display) : 0
   if (mode === 'box' && boxChromeAlive(agentId, home, seams.box)) {
-    if (existing && existing.port === wantedPort) {
+    if (existing && existing.port === wantedPort && boxChromeWindowReady(agentId, home, seams.box)) {
       fitBoxChrome(agentId, home, seams.box)
       try {
         await (seams.waitReady ?? defaultWaitReady)(existing.port)
@@ -311,7 +303,10 @@ export async function ensureBrowser(
     }
     stopBoxChrome(agentId, home, seams.box)
   }
-  if (mode === 'box') clearBoxProfileLocks(agentId, home)
+  if (mode === 'box') {
+    boxExec(boxProfileLockRmArgv(agentId), {}, seams.box)
+    clearBoxProfileLocks(agentId, home)
+  }
   if (existing && alive(existing.pid) && existing.via !== 'box') return existing
   const pick = seams.pickPort ?? defaultPickPort
   const port = mode === 'box' ? wantedPort : await pick()
@@ -329,8 +324,8 @@ export async function ensureBrowser(
   if (mode === 'box') {
     const deadline = Date.now() + 20_000
     while (Date.now() < deadline) {
-      if (boxChromeAlive(agentId, home, seams.box)) {
-        if (boxChromeWindowReady(agentId, home, seams.box)) fitBoxChrome(agentId, home, seams.box)
+      if (boxChromeAlive(agentId, home, seams.box) && boxChromeWindowReady(agentId, home, seams.box)) {
+        fitBoxChrome(agentId, home, seams.box)
         try {
           await (seams.waitReady ?? defaultWaitReady)(handle.port)
         } catch {

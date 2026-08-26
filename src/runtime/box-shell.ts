@@ -1,5 +1,5 @@
 import { parseBoxShellIntent, type BoxShellIntent, type JobHandle } from '../domain'
-import { boxExec, boxStatus, type BoxSeams } from './box'
+import { boxExecAsync, boxStatus, type BoxSeams } from './box'
 
 export function boxShellArgv(intent: BoxShellIntent): { argv: string[]; user?: string } {
   if (intent.kind === 'which') {
@@ -42,19 +42,29 @@ export function boxShellSpoken(
 export function runBoxShell(
   job: JobHandle,
   seams: BoxSeams = {},
-): { ok: boolean; spoken: string } {
+): Promise<{ ok: boolean; spoken: string }> {
   const intent = parseBoxShellIntent(job.goal)
   if (!intent) {
-    return { ok: false, spoken: 'I can check PATH or apt-install a package on the computer.' }
+    return Promise.resolve({
+      ok: false,
+      spoken: 'I can check PATH or apt-install a package on the computer.',
+    })
   }
   const status = boxStatus(undefined, seams)
   if (status.docker === 'missing' || !status.running) {
-    return { ok: false, spoken: 'The computer is not running.' }
+    return Promise.resolve({ ok: false, spoken: 'The computer is not running.' })
   }
   const mapped = boxShellArgv(intent)
-  const result = boxExec(mapped.argv, {}, seams, {
-    user: mapped.user,
-    timeoutMs: intent.kind === 'install' ? 120_000 : 45_000,
+  return new Promise((resolve) => {
+    boxExecAsync(
+      mapped.argv,
+      {},
+      (result) => resolve(boxShellSpoken(intent, result)),
+      seams,
+      {
+        user: mapped.user,
+        timeoutMs: intent.kind === 'install' ? 120_000 : 45_000,
+      },
+    )
   })
-  return boxShellSpoken(intent, result)
 }

@@ -1,6 +1,13 @@
+import { existsSync, realpathSync } from 'node:fs'
 import { spawn, spawnSync } from 'node:child_process'
 import { BOX_IMAGE, BOX_NAME, BOX_CDP_DISPLAY_MAX, boxChromeDebugPort, computerRoot, desktopsRoot } from './computer'
 import { automatonHome } from './keys'
+import { runningTests } from './test-env'
+
+/** bun test sets NODE_ENV=test, not BUN_TEST. Tests must never reach the live box. */
+function dockerDisabled(): boolean {
+  return runningTests() && !process.env.AUTOMATON_DOCKER?.trim()
+}
 
 export type BoxKind = 'local-docker'
 
@@ -16,7 +23,7 @@ export type BoxSeams = {
 }
 
 function defaultDocker(args: string[], timeoutMs = 45_000): { status: number; text: string } {
-  if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) {
+  if (dockerDisabled()) {
     return { status: 1, text: 'docker disabled in tests' }
   }
   const result = spawnSync('docker', args, {
@@ -108,8 +115,38 @@ function boxHasCdpPublish(seams: BoxSeams = {}): boolean {
   return result.status === 0 && /9221\/tcp/.test(result.text)
 }
 
-function boxNeedsRecreate(seams: BoxSeams = {}): boolean {
-  return !boxHasScreen(seams) || !boxImageMatches(seams) || !boxHasCdpPublish(seams)
+function samePath(a: string, b: string): boolean {
+  if (a === b) return true
+  try {
+    if (existsSync(a) && existsSync(b)) return realpathSync(a) === realpathSync(b)
+  } catch {
+    return false
+  }
+  return false
+}
+
+function boxHasHomeMount(home: string, seams: BoxSeams = {}): boolean {
+  const wanted = boxMounts(home).desktops
+  const result = runDocker(
+    ['inspect', '-f', '{{range .Mounts}}{{.Destination}}={{.Source}}{{println}}{{end}}', BOX_NAME],
+    seams,
+  )
+  if (result.status !== 0) return true
+  const prefix = '/home/box/desktops='
+  for (const line of result.text.split('\n')) {
+    if (!line.startsWith(prefix)) continue
+    return samePath(line.slice(prefix.length), wanted)
+  }
+  return false
+}
+
+function boxNeedsRecreate(home: string, seams: BoxSeams = {}): boolean {
+  return (
+    !boxHasScreen(seams) ||
+    !boxImageMatches(seams) ||
+    !boxHasCdpPublish(seams) ||
+    !boxHasHomeMount(home, seams)
+  )
 }
 
 function recreateBox(home: string, seams: BoxSeams = {}): BoxStatus {
@@ -122,13 +159,13 @@ export function ensureBox(home = automatonHome(), seams: BoxSeams = {}): BoxStat
   const current = boxStatus(home, seams)
   if (current.docker === 'missing') return current
   if (current.running) {
-    if (!boxNeedsRecreate(seams)) return current
+    if (!boxNeedsRecreate(home, seams)) return current
     return recreateBox(home, seams)
   }
   const start = runDocker(['start', BOX_NAME], seams)
   if (start.status === 0) {
     const up = boxStatus(home, seams)
-    if (up.running && !boxNeedsRecreate(seams)) return up
+    if (up.running && !boxNeedsRecreate(home, seams)) return up
     return recreateBox(home, seams)
   }
   runDocker(boxRunArgv(home), seams)
@@ -151,9 +188,10 @@ export function boxExec(
   return runDocker(['exec', ...userFlags, ...flags, BOX_NAME, ...argv], seams, opts.timeoutMs)
 }
 
-function execArgv(argv: string[], env: Record<string, string> = {}): string[] {
+function execArgv(argv: string[], env: Record<string, string> = {}, user?: string): string[] {
+  const userFlags = user ? ['-u', user] : []
   const flags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`])
-  return ['exec', ...flags, BOX_NAME, ...argv]
+  return ['exec', ...userFlags, ...flags, BOX_NAME, ...argv]
 }
 
 /** Fire-and-forget docker exec. The GPUI tick loop must not wait on xdotool. */
@@ -163,7 +201,7 @@ export function boxSpawn(
   seams: BoxSeams = {},
 ): boolean {
   if (seams.docker) return boxExec(argv, env, seams).status === 0
-  if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) return false
+  if (dockerDisabled()) return false
   try {
     const child = spawn('docker', execArgv(argv, env), { stdio: 'ignore', detached: true, env: process.env })
     child.unref()
@@ -178,24 +216,33 @@ export function boxExecAsync(
   env: Record<string, string> = {},
   done: (result: { status: number; text: string }) => void,
   seams: BoxSeams = {},
+  opts: { user?: string; timeoutMs?: number } = {},
 ): void {
   if (seams.docker) {
-    done(boxExec(argv, env, seams))
+    done(boxExec(argv, env, seams, opts))
     return
   }
-  if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) {
+  if (dockerDisabled()) {
     done({ status: 1, text: 'docker disabled in tests' })
     return
   }
   let text = ''
   let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
   const finish = (status: number, extra = '') => {
     if (settled) return
     settled = true
+    if (timer) clearTimeout(timer)
     done({ status, text: `${text}${extra}` })
   }
   try {
-    const child = spawn('docker', execArgv(argv, env), { env: process.env })
+    const child = spawn('docker', execArgv(argv, env, opts.user), { env: process.env })
+    if (opts.timeoutMs && opts.timeoutMs > 0) {
+      timer = setTimeout(() => {
+        child.kill('SIGKILL')
+        finish(1, 'timeout')
+      }, opts.timeoutMs)
+    }
     child.stdout?.on('data', (chunk) => {
       text += String(chunk)
     })

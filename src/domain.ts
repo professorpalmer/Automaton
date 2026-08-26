@@ -45,6 +45,9 @@ export type JobHandle = {
   kind: JobKind
   /** Puppetmaster id. UI must not speak this unless the user asked. */
   pmJobId?: string
+  /** Whitelisted keepalive only. Never a sanitized terminal fallback. */
+  lastNote?: string
+  updatedAt?: number
 }
 
 export type FeedItem =
@@ -60,6 +63,14 @@ export type FeedItem =
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
 
+export const MANDATE_MAX_STEPS = 6
+
+/** Original ask while jobs continue. Closed when leftover is not a job, Stop, or the cap. */
+export type Mandate = {
+  text: string
+  steps: number
+}
+
 export type Thread = {
   agentId: AgentId
   items: FeedItem[]
@@ -67,6 +78,7 @@ export type Thread = {
   pendingPaths: string[]
   mouth: MouthState
   unread: number
+  mandate?: Mandate
 }
 
 export const STAFF_AGENT: Agent = {
@@ -165,6 +177,62 @@ export function looksLikeExplicitLookup(text: string): boolean {
   return /\b(look up|lookup|research|wiki|search)\b/.test(lower) && lower.length > 16
 }
 
+/** Named products on this Mac, not Automaton-as-the-universe. */
+const MACHINE_PRODUCT =
+  /\b(puppetmaster|marionette|automaton|pm-harness|portable-llm-wiki|portable llm wiki|toyvendor)\b/i
+
+const PRODUCT_CUE =
+  /\b(scripts?|files?|modules?|source|excerpts?|routing|router|repo|checkout|codebase|where|how does|what about|stack|dependencies|dependency|frameworks?|manifests?|workspace|made up of|built (?:with|on)|look at)\b/i
+
+const PRODUCT_POSSESSIVE =
+  /\b[A-Z][A-Za-z0-9_-]{3,}'s\s+(stack|repo|checkout|codebase|workspace|dependencies|source|files|router|routing|home|manifest)/
+
+export function looksLikeSourceAsk(text: string): boolean {
+  const lower = text.toLowerCase()
+  if (/\bexcerpts?\b/.test(lower)) return true
+  if (/\bshow me\b/.test(lower) && /\b(code|file|script|source|that)\b/.test(lower)) return true
+  return /\b(that|the) (file|script|module|code)\b/.test(lower)
+}
+
+const FILE_TOKEN = /\b[\w./-]*\w\.(?:md|ts|tsx|js|jsx|py|rs|go|json|toml|yml|yaml|txt|sh|css|html)\b/i
+
+/** A concrete file plus a reveal verb is a look at disk, not a chat answer. */
+export function looksLikeFileAsk(text: string): boolean {
+  if (!FILE_TOKEN.test(text)) return false
+  return /\b(surface|show|read|open|display|print|share|relay|cat|contents?|excerpts?|pull\s+up|what'?s\s+in)\b/i.test(
+    text,
+  )
+}
+
+function namesAProduct(text: string, productNames: string[] = []): boolean {
+  if (MACHINE_PRODUCT.test(text) || PRODUCT_POSSESSIVE.test(text)) return true
+  return productNames.some((name) => {
+    const token = name.trim()
+    if (token.length < 3) return false
+    return new RegExp(`\\b${escapeRe(token)}\\b`, 'i').test(text)
+  })
+}
+
+/** Code/docs about a machine checkout. Chat pings stay mouth. */
+export function looksLikeCodebaseAsk(
+  text: string,
+  productNames: string[] = [],
+  implicitProduct = false,
+): boolean {
+  const lower = text.toLowerCase()
+  if (lower.length < 16) return false
+  if (/\bwhat (scripts?|files?|modules?) does\b/.test(lower)) return true
+  const named = namesAProduct(text, productNames)
+  const aboutRepo = /\b(?:the|this|its)\s+(?:repo|checkout|codebase|workspace)\b/.test(lower)
+  if (named) {
+    if (/\b(on-?board(?:ing)?|routing logic|model routing)\b/.test(lower)) return true
+    return PRODUCT_CUE.test(lower)
+  }
+  if (!implicitProduct) return false
+  if (aboutRepo && /\b(look|find|inspect|read|show|report)\b/.test(lower)) return true
+  return /\b(router|routing logic|stack|dependencies|manifests?)\b/.test(lower)
+}
+
 const BOX_SHELL_NAME = /^[A-Za-z][A-Za-z0-9._+-]{0,63}$/
 
 /** PATH/apt on the shared Docker computer. Not a Mac shell and not a chat PTY. */
@@ -201,29 +269,172 @@ export function jobKindLabel(kind: JobKind): string {
   return kind
 }
 
+export const STILL_RUNNING = 'Still running.'
+
+/** Ask about an in-flight job, not a new booking and not a chat turn. */
+export function looksLikeJobStatusAsk(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    /\b(how did it go|how'?s it going|how is it going)\b/.test(lower) ||
+    /\b(any update|what'?s the status|what is the status|still running)\b/.test(lower) ||
+    /\b(did it (?:finish|land|complete|work)|is it (?:done|finished|ready|complete)|what happened)\b/.test(
+      lower,
+    ) ||
+    /\b(what did (?:you|it|we|they) (?:find|do|say)|last (?:job|result))\b/.test(lower)
+  )
+}
+
+export function isWhitelistedRunningStatus(text: string): boolean {
+  const trimmed = text.trim()
+  if (trimmed === STILL_RUNNING) return true
+  return /^Still installing [A-Za-z][A-Za-z0-9._+-]{0,63}\.$/.test(trimmed)
+}
+
+/** Nonterminal copy the runtime may emit. Never sanitizeSpeak — that can become Done. */
+export function keepAliveStatus(job: Pick<JobHandle, 'kind' | 'goal'>): string {
+  if (job.kind === 'box-shell') {
+    const intent = parseBoxShellIntent(job.goal)
+    if (intent?.kind === 'install') return `Still installing ${intent.name}.`
+  }
+  return STILL_RUNNING
+}
+
+export function runningStatusNote(job: Pick<JobHandle, 'kind' | 'goal' | 'lastNote'>): string {
+  if (job.lastNote && isWhitelistedRunningStatus(job.lastNote)) return job.lastNote
+  return keepAliveStatus(job)
+}
+
+function wantsLook(
+  text: string,
+  prior = '',
+  productNames: string[] = [],
+  implicitProduct = false,
+): boolean {
+  return (
+    looksLikeLookup(text) ||
+    looksLikeRepoAsk(text) ||
+    looksLikeInspect(text) ||
+    looksLikeFileAsk(text) ||
+    looksLikeCodebaseAsk(text, productNames, implicitProduct) ||
+    (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames, implicitProduct))
+  )
+}
+
+function coordinatorLook(text: string, prior = '', productNames: string[] = []): boolean {
+  return (
+    looksLikeExplicitLookup(text) ||
+    looksLikeCodebaseAsk(text, productNames) ||
+    (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames))
+  )
+}
+
 /** Kit sets default job policy. Blank never dispatches. Coordinator books jobs, not every question. */
-export function jobKindForKit(kit: AgentKit, text: string): JobKind | null {
+export function jobKindForKit(
+  kit: AgentKit,
+  text: string,
+  prior = '',
+  productNames: string[] = [],
+): JobKind | null {
   if (kit === 'blank') return null
   if (looksLikeBoxShell(text)) return 'box-shell'
+  const implicit = kit !== 'coordinator'
   if (kit === 'lookup') {
-    return looksLikeJob(text) || looksLikeLookup(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)
-      ? 'analyze'
-      : null
+    return looksLikeJob(text) || wantsLook(text, prior, productNames, implicit) ? 'analyze' : null
   }
   if (looksLikeJob(text)) return 'implement'
   if (kit === 'coordinator') {
-    return looksLikeExplicitLookup(text) ? 'analyze' : null
+    return coordinatorLook(text, prior, productNames) ? 'analyze' : null
   }
-  if (looksLikeLookup(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) return 'analyze'
+  if (wantsLook(text, prior, productNames, implicit)) return 'analyze'
   return null
 }
 
+export function foldAsk(text: string): string {
+  return text.replace(/^@\S+\s*/g, '').trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+/** Sequential leftover. Bare `and find` stays one look. */
+export function splitAskSteps(text: string): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  const parts = trimmed.split(
+    /\s+(?:and\s+)?then\s+|\s+and\s+(?=check|install|which|implement|fix|patch|look)\b|;+\s*/i,
+  )
+  return parts
+    .map((part) => part.replace(/^[,.\s]+|[,\s]+$/g, '').trim())
+    .filter((part) => part.length > 0)
+}
+
+export function firstAskStep(text: string): string {
+  return splitAskSteps(text)[0] ?? text.trim()
+}
+
+export function remainingAsk(text: string, completedGoal: string): string {
+  const steps = splitAskSteps(text)
+  if (steps.length <= 1) return ''
+  const done = foldAsk(completedGoal)
+  const hit = steps.findIndex((step) => stepMatchesCompleted(step, done))
+  if (hit < 0) return steps.slice(1).join(' then ')
+  return steps.slice(hit + 1).join(' then ')
+}
+
+function stepMatchesCompleted(step: string, done: string): boolean {
+  const n = foldAsk(step)
+  if (!n || !done) return false
+  if (n === done) return true
+  if (done.length >= 8 && n.includes(done)) return true
+  if (n.length >= 8 && done.includes(n)) return true
+  return false
+}
+
+export type MandateJob = { kind: JobKind; text: string }
+
+function sameMandateJob(
+  kind: JobKind,
+  text: string,
+  completed: { kind: JobKind; goal: string },
+): boolean {
+  const n = foldAsk(text)
+  const done = foldAsk(completed.goal)
+  if (!n || kind !== completed.kind) return false
+  if (n === done) return true
+  if (done.length >= 8 && done.includes(n)) return true
+  if (n.length >= 8 && n.includes(done)) return true
+  return false
+}
+
+/** Next job from the original ask after a terminal handle. Null means the mandate is done. */
+export function nextMandateJob(
+  kit: AgentKit,
+  mandateText: string,
+  completed: { kind: JobKind; goal: string },
+  productNames: string[] = [],
+  prior = '',
+): MandateJob | null {
+  const remaining = remainingAsk(mandateText, completed.goal)
+  if (remaining) {
+    const first = firstAskStep(remaining)
+    const kind = jobKindForKit(kit, first, prior || mandateText, productNames)
+    if (kind && !sameMandateJob(kind, first, completed)) return { kind, text: first }
+    if (kind && sameMandateJob(kind, first, completed)) {
+      const rest = remainingAsk(remaining, first)
+      if (rest) return nextMandateJob(kit, rest, completed, productNames, prior)
+    }
+  }
+  if (completed.kind !== 'analyze') return null
+  if (kit === 'blank' || kit === 'lookup') return null
+  if (!looksLikeJob(mandateText)) return null
+  const text = remaining || mandateText
+  if (sameMandateJob('implement', text, completed)) return null
+  return { kind: 'implement', text }
+}
+
 /** Seed ids keep the historic policy so existing tests stay pinned. */
-export function jobKindFor(agentId: AgentId, text: string): JobKind | null {
-  if (agentId === 'staff') return jobKindForKit('coordinator', text)
-  if (agentId === 'research') return jobKindForKit('lookup', text)
-  if (agentId === 'kernel') return jobKindForKit('code', text)
-  return jobKindForKit('blank', text)
+export function jobKindFor(agentId: AgentId, text: string, prior = ''): JobKind | null {
+  if (agentId === 'staff') return jobKindForKit('coordinator', text, prior)
+  if (agentId === 'research') return jobKindForKit('lookup', text, prior)
+  if (agentId === 'kernel') return jobKindForKit('code', text, prior)
+  return jobKindForKit('blank', text, prior)
 }
 
 const MENTION = /@([A-Za-z][A-Za-z0-9_-]*)/g
@@ -309,7 +520,7 @@ function stripAddressing(text: string, agents: Agent[]): string {
   }
   next = next.replace(/\b(can you|could you|would you|will you)\b/gi, ' ')
   next = next.replace(/\b(ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check\s+if)\b/gi, ' ')
-  next = next.replace(/\b(hey|hi|please|just|also|then|and)\b/gi, ' ')
+  next = next.replace(/\b(hey|hi|please|just|also|and)\b/gi, ' ')
   return next.replace(/[,:]+/g, ' ').replace(/\s+/g, ' ').replace(/^[\s.?!]+|[\s.?!]+$/g, '').trim()
 }
 
@@ -317,6 +528,7 @@ function remainderIsWork(text: string): boolean {
   if (looksLikeBoxShell(text) || looksLikeJob(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) {
     return true
   }
+  if (looksLikeCodebaseAsk(text) || looksLikeSourceAsk(text)) return true
   if (looksLikeLookup(text) && !/\b(online|around|there)\b/i.test(text)) return true
   return false
 }
@@ -359,7 +571,8 @@ export function isPing(text: string, agents: Agent[] = []): boolean {
   return dispatchWork(text, agents).ping
 }
 
-const DIRECT_ASK = String.raw`ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check\s+if`
+const DIRECT_ASK = String.raw`ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check(?:\s+if)?`
+const NAME_JOIN = /^(and|or|each|both|also|then)$/
 
 function isEditDistanceOne(a: string, b: string): boolean {
   if (a === b) return false
@@ -403,24 +616,66 @@ function fuzzyRosterId(raw: string, roster: Agent[]): AgentId | null {
   return hit
 }
 
+function rosterNameMap(roster: Agent[]): Map<string, AgentId> {
+  const names = new Map<string, AgentId>()
+  for (const agent of roster) {
+    for (const label of nameAliases(agent)) {
+      const key = label.toLowerCase()
+      if (!names.has(key)) names.set(key, agent.id)
+    }
+  }
+  return names
+}
+
+/** Consecutive roster names after ask/tell/check, joined by and/or/each. Stops at leftover work. */
+function namesAfterCue(slice: string, roster: Agent[]): AgentId[] {
+  const names = rosterNameMap(roster)
+  let maxN = 1
+  for (const key of names.keys()) {
+    maxN = Math.max(maxN, key.split(/\s+/).filter(Boolean).length)
+  }
+  const words = slice.toLowerCase().match(/[a-z0-9_-]+/g) ?? []
+  const found: AgentId[] = []
+  for (let i = 0; i < words.length; ) {
+    let hit: { id: AgentId; n: number } | null = null
+    for (let n = Math.min(maxN, words.length - i); n >= 1; n -= 1) {
+      const gram = words.slice(i, i + n).join(' ')
+      const id = names.get(gram)
+      if (id) {
+        hit = { id, n }
+        break
+      }
+      if (n === 1) {
+        const fuzzy = fuzzyRosterId(words[i] ?? '', roster)
+        if (fuzzy) {
+          hit = { id: fuzzy, n: 1 }
+          break
+        }
+      }
+    }
+    if (hit) {
+      if (!found.includes(hit.id)) found.push(hit.id)
+      i += hit.n
+      continue
+    }
+    if (found.length > 0 && NAME_JOIN.test(words[i] ?? '')) {
+      i += 1
+      continue
+    }
+    break
+  }
+  return found
+}
+
 export function dispatchTargets(text: string, agents: Agent[], focused?: AgentId): AgentId[] {
   const roster = agents.filter((agent) => !agent.hidden)
   const found = mentionedAgentIds(text, roster)
   const lower = text.toLowerCase()
-  for (const agent of roster) {
-    for (const label of nameAliases(agent)) {
-      const token = escapeRe(label.toLowerCase())
-      const asked = new RegExp(`\\b(?:${DIRECT_ASK})\\s+${token}\\b`).test(lower)
-      if (asked && !found.includes(agent.id)) found.push(agent.id)
+  for (const match of lower.matchAll(new RegExp(`\\b(?:${DIRECT_ASK})\\b`, 'g'))) {
+    const rest = lower.slice((match.index ?? 0) + match[0].length)
+    for (const id of namesAfterCue(rest, roster)) {
+      if (!found.includes(id)) found.push(id)
     }
-  }
-  for (const match of lower.matchAll(new RegExp(`\\b(?:${DIRECT_ASK})\\s+([a-z0-9_-]+)`, 'g'))) {
-    const raw = match[1]
-    if (!raw) continue
-    const exact = roster.some((agent) => nameAliases(agent).some((label) => label.toLowerCase() === raw))
-    if (exact) continue
-    const id = fuzzyRosterId(raw, roster)
-    if (id && !found.includes(id)) found.push(id)
   }
   if (focused && found.length === 1 && found[0] === focused && !/@/.test(text)) {
     return []
@@ -452,6 +707,8 @@ export function createAgentNames(text: string): string[] {
     /\bone\s+for\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
     /\b(?:an?\s+)?(?:new\s+)?(?:automaton|bot|agent|mouth)\s+(?:named|called)\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
     /\b(?:an?\s+)?(?:new\s+)?(?:automaton|bot|agent|mouth)\s+at\s+(?:the\s+)?([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\b(?:name|call)\s+(?:the\s+|this\s+)?(?:new\s+)?(?:automaton|bot|agent|mouth)\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\b(?:name|call)\s+(?:it|him|her)\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
   ]
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) take(match[1])
@@ -513,6 +770,25 @@ export function parseGithubHomes(text: string): RepoHome[] {
     const slug = `${owner}/${repo}`
     if (!found.some((row) => row.slug.toLowerCase() === slug.toLowerCase())) {
       found.push({ slug, url: `https://github.com/${slug}` })
+    }
+  }
+  return found
+}
+
+/** "the local dugout repo" attaches a machine checkout. Slug is the bare folder name; no clone URL. */
+export function parseLocalHomes(text: string): RepoHome[] {
+  const found: RepoHome[] = []
+  const patterns = [
+    /\blocal\s+([A-Za-z0-9_.-]+)\s+repo(?:sitory)?\b/gi,
+    /\b([A-Za-z0-9_.-]+)\s+repo(?:sitory)?\s+(?:locally|on\s+(?:this|the)\s+(?:mac|machine))\b/gi,
+  ]
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const slug = match[1]
+      if (!slug || NAME_STOP.has(slug.toLowerCase())) continue
+      if (!found.some((row) => row.slug.toLowerCase() === slug.toLowerCase())) {
+        found.push({ slug, url: '' })
+      }
     }
   }
   return found
@@ -604,7 +880,7 @@ function namedInOrder(text: string, agents: Agent[]): Agent[] {
 }
 
 export function bindHomes(text: string, agents: Agent[]): HomeBind[] {
-  const homes = parseGithubHomes(text)
+  const homes = [...parseGithubHomes(text), ...parseLocalHomes(text)]
   if (homes.length === 0) return []
   const roster = agents.filter((agent) => !agent.hidden)
   const used = new Set<AgentId>()
@@ -615,7 +891,7 @@ export function bindHomes(text: string, agents: Agent[]): HomeBind[] {
     out.push({ agentId: agent.id, slug: home.slug, url: home.url })
   }
   for (const home of homes) {
-    const repo = home.slug.split('/')[1] ?? ''
+    const repo = home.slug.split('/')[1] ?? home.slug
     take(
       roster.find(
         (agent) =>

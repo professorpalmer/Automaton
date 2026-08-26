@@ -16,17 +16,28 @@ import {
   dispatchTargets,
   dispatchWork,
   emptyThreads,
+  firstAskStep,
+  foldAsk,
   homeAck,
   homeNote,
+  isWhitelistedRunningStatus,
   jobKindForKit,
   joinAnd,
+  keepAliveStatus,
+  looksLikeCodebaseAsk,
+  looksLikeJobStatusAsk,
+  looksLikeSourceAsk,
+  MANDATE_MAX_STEPS,
   mentionedAgentIds,
   needsFanoutConfirm,
   nextId,
+  nextMandateJob,
   parseDeskUrl,
+  remainingAsk,
   renameAck,
   renameAgents,
   returnBeat,
+  runningStatusNote,
   sanitizeSpeak,
   visibleAgents,
 } from './domain'
@@ -161,6 +172,43 @@ export function confirmFanout(session: Session): Session {
 function staffParaphrase(text: string): string {
   const trimmed = text.replace(/^@\S+\s*/g, '').trim()
   return trimmed.length > 180 ? `${trimmed.slice(0, 177)}...` : trimmed
+}
+
+function priorUserText(items: FeedItem[]): string {
+  const users = items.filter((item) => item.kind === 'msg' && item.from === 'user')
+  if (users.length < 2) return ''
+  const prior = users[users.length - 2]
+  return prior?.kind === 'msg' ? prior.text : ''
+}
+
+function jobGoal(text: string, prior: string, kind: 'analyze' | 'implement' | 'box-shell'): string {
+  const goal = staffParaphrase(text)
+  if (kind === 'analyze' && looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior)) {
+    return `${goal} (continuing: ${staffParaphrase(prior)})`
+  }
+  return goal
+}
+
+function productNames(session: Session): string[] {
+  return visibleAgents(session.agents)
+    .filter((row) => row.id !== 'staff')
+    .map((row) => row.name)
+}
+
+function alreadyRanJob(
+  session: Session,
+  ownerAgentId: AgentId,
+  kind: JobHandle['kind'],
+  goal: string,
+): boolean {
+  const folded = foldAsk(goal)
+  return session.jobs.some(
+    (row) =>
+      row.ownerAgentId === ownerAgentId &&
+      row.kind === kind &&
+      row.status !== 'running' &&
+      foldAsk(row.goal) === folded,
+  )
 }
 
 function stamped(
@@ -322,7 +370,7 @@ function coordinatorDispatch(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
-    next = deliverTo(next, target, note, focused, [], work.ping)
+    next = deliverTo(next, target, note, focused, [], work.ping, text)
   }
   return wakeMouth(next, focused, 'idle')
 }
@@ -359,6 +407,7 @@ function deliverTo(
   focused: AgentId,
   attachmentIds: string[] = [],
   ping = false,
+  mandateText = text,
 ): Session {
   const item = stamped('user', agentId, text, attachmentIds)
   let next = append(session, agentId, item, focused)
@@ -368,20 +417,30 @@ function deliverTo(
     mouth: 'must_first',
   })
   const agent = next.agents.find((item) => item.id === agentId)
-  const kind = ping ? null : jobKindForKit(kitForAgent(agentId), text)
+  const prior = priorUserText(thread(next, agentId).items)
+  const products = productNames(next)
+  const running = ownerRunningJob(next, agentId)
+  if (running && looksLikeJobStatusAsk(text)) {
+    next = speak(next, agentId, runningStatusNote(running), focused)
+    return wakeMouth(next, agentId, 'working')
+  }
+  const step = firstAskStep(text)
+  const kind = ping ? null : jobKindForKit(kitForAgent(agentId), step, prior, products)
   if (kind) {
     next = speak(next, agentId, ackLine(agent?.name ?? 'Agent'), focused)
     next = wakeMouth(next, agentId, 'ack')
     const handle: JobHandle = {
       id: nextId('job'),
       ownerAgentId: agentId,
-      goal: staffParaphrase(text),
+      goal: jobGoal(step, prior, kind),
       status: 'running',
       kind,
     }
     next = { ...next, jobs: [...next.jobs, handle] }
+    next = setThread(next, agentId, { mandate: { text: mandateText, steps: 1 }, mouth: 'working' })
     return wakeMouth(next, agentId, 'working')
   }
+  next = setThread(next, agentId, { mandate: undefined })
   return wakeMouth(next, agentId, 'answer')
 }
 
@@ -480,6 +539,61 @@ export function attachPmJob(session: Session, jobId: string, pmJobId: string): S
   }
 }
 
+function closeMandateThenReturn(
+  session: Session,
+  ownerId: AgentId,
+  from: AgentId | null,
+  spoken: string,
+  focused: AgentId,
+): Session {
+  const next = setThread(session, ownerId, { mandate: undefined, mouth: 'idle' })
+  return coordinatorReturn(next, from, ownerId, spoken, focused)
+}
+
+function continueMandate(
+  session: Session,
+  job: JobHandle,
+  spoken: string,
+  focused: AgentId,
+  from: AgentId | null,
+  afterFail = false,
+): Session {
+  const row = thread(session, job.ownerAgentId)
+  const mandate = row.mandate
+  if (!mandate) return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  if (mandate.steps >= MANDATE_MAX_STEPS) {
+    return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  }
+  const prior = priorUserText(row.items)
+  const products = productNames(session)
+  let nextWork = nextMandateJob(
+    kitForAgent(job.ownerAgentId),
+    mandate.text,
+    job,
+    products,
+    prior,
+  )
+  if (afterFail && !remainingAsk(mandate.text, job.goal)) nextWork = null
+  if (!nextWork) return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  const goal = jobGoal(nextWork.text, prior, nextWork.kind)
+  if (alreadyRanJob(session, job.ownerAgentId, nextWork.kind, goal)) {
+    return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  }
+  const handle: JobHandle = {
+    id: nextId('job'),
+    ownerAgentId: job.ownerAgentId,
+    goal,
+    status: 'running',
+    kind: nextWork.kind,
+  }
+  let next: Session = { ...session, jobs: [...session.jobs, handle] }
+  next = setThread(next, job.ownerAgentId, {
+    mandate: { ...mandate, steps: mandate.steps + 1 },
+    mouth: 'working',
+  })
+  return next
+}
+
 export function completeJob(session: Session, jobId: string, spoken = 'Done.'): Session {
   const job = session.jobs.find((item) => item.id === jobId)
   if (!job || job.status !== 'running') return session
@@ -494,7 +608,7 @@ export function completeJob(session: Session, jobId: string, spoken = 'Done.'): 
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
-  return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+  return continueMandate(next, job, spoken, focused, from)
 }
 
 export function failJob(session: Session, jobId: string, spoken = "Didn't land."): Session {
@@ -511,20 +625,47 @@ export function failJob(session: Session, jobId: string, spoken = "Didn't land."
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
-  return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+  return continueMandate(next, job, spoken, focused, from, true)
 }
 
 export function stopJob(session: Session, jobId: string): Session {
   const job = session.jobs.find((item) => item.id === jobId)
   if (!job || job.status !== 'running') return session
-  return {
+  let next: Session = {
     ...session,
     jobs: session.jobs.map((item) =>
       item.id === jobId ? { ...item, status: 'failed' as const } : item,
     ),
   }
+  next = setThread(next, job.ownerAgentId, { mandate: undefined, mouth: 'idle' })
+  return next
 }
 
 export function runningJobs(session: Session): JobHandle[] {
   return session.jobs.filter((job) => job.status === 'running')
+}
+
+export function ownerRunningJob(session: Session, agentId: AgentId): JobHandle | undefined {
+  const running = session.jobs.filter((job) => job.ownerAgentId === agentId && job.status === 'running')
+  return running.at(-1)
+}
+
+/** Persist keepalive. First note may speak; later ticks stay off the feed. */
+export function noteJobStatus(session: Session, jobId: string, spoken: string): Session {
+  const job = session.jobs.find((item) => item.id === jobId)
+  if (!job || job.status !== 'running') return session
+  const note = isWhitelistedRunningStatus(spoken) ? spoken.trim() : keepAliveStatus(job)
+  const first = !job.lastNote
+  const focused = session.activeAgentId
+  let next: Session = {
+    ...session,
+    jobs: session.jobs.map((item) =>
+      item.id === jobId ? { ...item, lastNote: note, updatedAt: Date.now() } : item,
+    ),
+  }
+  if (first) {
+    next = speak(next, job.ownerAgentId, note, focused)
+    next = wakeMouth(next, job.ownerAgentId, 'working')
+  }
+  return next
 }

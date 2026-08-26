@@ -8,7 +8,7 @@ computer; each automaton is a screen on that box, not a VM.
 
 - [Staff surface](docs/staff.md) — rail, composer, factory, inspector
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
-- [Jobs](docs/jobs.md) — Puppetmaster analyze and implement
+- [Jobs](docs/jobs.md) — analyze, implement, and box-shell
 - [Durable state](docs/durability.md) — store, claims, keys
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
@@ -24,10 +24,11 @@ bun run app
 ```
 
 On macOS, `bun run app` opens `macos/Automaton.app` so the Dock and the
-menu bar say Automaton. `bun src/main.tsx` still works, but a bun process
-spawned from Cursor stays under Cursor's menu (Cmd+Plus / Cmd+Minus go to
-the editor). The in-window titlebar paints **Automaton** next to the
-focused mouth.
+menu bar say Automaton. That wrapper is a Mach-O stub plus bun copied into
+the bundle; Homebrew bun in the Dock is a terminal tile. `bun src/main.tsx`
+still works, but a bun process spawned from Cursor stays under Cursor's
+menu (Cmd+Plus / Cmd+Minus go to the editor). The in-window titlebar paints
+**Automaton** next to the focused mouth.
 
 `--hot` remounts can leave a zombie window. If clicks miss, quit leftover
 Automaton windows and run `bun run app` (or `bun src/main.tsx`).

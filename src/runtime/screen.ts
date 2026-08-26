@@ -14,7 +14,8 @@ function fallbackBoot(display: number): string {
     `export DISPLAY=:${n}`,
     `xdpyinfo >/dev/null 2>&1 || Xvfb :${n} -screen 0 ${geom} -ac >/tmp/xvfb-${n}.log 2>&1 &`,
     `i=0; while [ $i -lt 50 ]; do xdpyinfo >/dev/null 2>&1 && break; i=$((i+1)); sleep 0.1; done`,
-    `if command -v fluxbox >/dev/null; then if ! [ -f /tmp/fluxbox-${n}.pid ] || ! kill -0 $(cat /tmp/fluxbox-${n}.pid) 2>/dev/null; then fluxbox >/tmp/fluxbox-${n}.log 2>&1 & echo $! > /tmp/fluxbox-${n}.pid; fi; fi`,
+    `if [ -f /tmp/fluxbox-${n}.pid ]; then kill $(cat /tmp/fluxbox-${n}.pid) 2>/dev/null || true; rm -f /tmp/fluxbox-${n}.pid; fi`,
+    `pkill -x fluxbox >/dev/null 2>&1 || true`,
     `command -v xsetroot >/dev/null && xsetroot -solid '#222222' || true`,
     `xdpyinfo >/dev/null 2>&1`,
   ].join('; ')
@@ -38,8 +39,22 @@ export function boxChromeAlive(
   home = automatonHome(),
   seams: BoxSeams = {},
 ): boolean {
-  const profile = boxProfileDir(agentId)
-  return boxExec(['pgrep', '-f', '--', `user-data-dir=${profile}`], {}, seams).status === 0
+  const needle = `user-data-dir=${boxProfileDir(agentId)}`
+  return (
+    boxExec(
+      [
+        'sh',
+        '-c',
+        [
+          'ps -eo pid=,state=,args=',
+          '| awk -v needle="$NEEDLE" -v bin="$CHROME_BIN"',
+          '\'$2 !~ /^Z/ && $0 !~ /awk/ && index($0, needle) && index($0, bin) { found=1 } END { exit !found }\'',
+        ].join(' '),
+      ],
+      { NEEDLE: needle, CHROME_BIN: '/usr/lib/chromium/chromium' },
+      seams,
+    ).status === 0
+  )
 }
 
 export function boxChromeWindowReady(
