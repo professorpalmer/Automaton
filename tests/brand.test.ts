@@ -8,8 +8,9 @@ describe('product brand', () => {
   test('product name is Automaton and the mark files exist', () => {
     expect(PRODUCT).toBe('Automaton')
     expect(T.brand.yellow).toBe('#F0C000')
+    expect(T.brand.mark).toBe(20)
     expect(markSvg()).toContain('circle')
-    expect(markSvg()).toContain(T.brand.yellow)
+    expect(markSvg()).toContain(T.inverse)
     expect(existsSync(MARK_PATH)).toBe(true)
     expect(statSync(MARK_PATH).size).toBeGreaterThan(100)
     expect(existsSync(join(import.meta.dir, '..', 'brand', 'app-icon.png'))).toBe(true)

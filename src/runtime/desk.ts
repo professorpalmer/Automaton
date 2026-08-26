@@ -1,7 +1,7 @@
 import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sanitizeDeskUrl } from '../domain'
-import { boxExec, boxStatus, type BoxSeams } from './box'
+import { boxExec, boxExecAsync, boxSpawn, boxStatus, type BoxSeams } from './box'
 import { BOX_DISPLAY_H, BOX_DISPLAY_W, BOX_NAME, mouthScreen } from './computer'
 import { desktopDir, ensureDesktop, screenPath } from './desktop'
 import { automatonHome } from './keys'
@@ -32,7 +32,7 @@ const SAFE_AGENT = /^[A-Za-z0-9_-]+$/
 let paintStamp = 0
 
 function activateThen(command: string): string {
-  return `xdotool search --onlyvisible --class chromium windowactivate --sync >/dev/null 2>&1; ${command}`
+  return `xdotool search --onlyvisible --class chromium windowactivate >/dev/null 2>&1; ${command}`
 }
 
 /** Map a window click on an object-fit:contain view onto the X display. Letterbox misses are null. */
@@ -118,7 +118,7 @@ export function deskClickArgv(
     'sh',
     '-c',
     activateThen(
-      `xdotool mousemove ${point.x} ${point.y} click ${xdoButton(button)}`,
+      `xdotool mousemove --sync ${point.x} ${point.y} click ${xdoButton(button)}`,
     ),
   ]
 }
@@ -163,6 +163,22 @@ export function deskOpenUrlArgv(agentId: string, home = automatonHome()): string
   return ['exec', '-e', `DISPLAY=:${display}`, BOX_NAME, 'sh', '-c', deskOpenUrlScript(agentId)]
 }
 
+function paintPath(agentId: string, home: string, src: string): string | null {
+  paintStamp += 1
+  const paint = join(desktopDir(agentId, home), `paint-${paintStamp % 2}.png`)
+  try {
+    copyFileSync(src, paint)
+    return paint
+  } catch {
+    return src
+  }
+}
+
+function captureScript(agentId: string): string {
+  const dest = `/home/box/desktops/${agentId}/screen.png`
+  return `xwd -root -silent | xwdtopnm | pnmtopng > ${dest}`
+}
+
 export function captureDesk(
   agentId: string,
   home = automatonHome(),
@@ -172,22 +188,47 @@ export function captureDesk(
   if (!ensureScreen(agentId, home, seams.box)) return null
   ensureDesktop(agentId, home)
   const display = mouthScreen(agentId, home).display
-  const dest = `/home/box/desktops/${agentId}/screen.png`
-  const result = boxExec(
-    ['sh', '-c', `xwd -root -silent | xwdtopnm | pnmtopng > ${dest}`],
-    { DISPLAY: `:${display}` },
-    seams.box,
-  )
+  const result = boxExec(['sh', '-c', captureScript(agentId)], { DISPLAY: `:${display}` }, seams.box)
   const path = screenPath(agentId, home)
   if (result.status !== 0 || !existsSync(path)) return null
-  paintStamp += 1
-  const paint = join(desktopDir(agentId, home), `paint-${paintStamp % 2}.png`)
-  try {
-    copyFileSync(path, paint)
-    return paint
-  } catch {
-    return path
-  }
+  return paintPath(agentId, home, path)
+}
+
+/** Same capture as captureDesk, but the UI thread never waits on docker. */
+export function captureDeskAsync(
+  agentId: string,
+  done: (path: string | null) => void,
+  home = automatonHome(),
+  seams: DeskSeams = {},
+): void {
+  ensureDesktop(agentId, home)
+  const display = mouthScreen(agentId, home).display
+  boxExecAsync(
+    ['sh', '-c', captureScript(agentId)],
+    { DISPLAY: `:${display}` },
+    (result) => {
+      const path = screenPath(agentId, home)
+      if (result.status !== 0 || !existsSync(path)) {
+        done(null)
+        return
+      }
+      done(paintPath(agentId, home, path))
+    },
+    seams.box,
+  )
+}
+
+function injectDesk(
+  agentId: string,
+  command: string,
+  home = automatonHome(),
+  seams: DeskSeams = {},
+): boolean {
+  if (!boxStatus(home, seams.box).running) return false
+  const env = { DISPLAY: `:${mouthScreen(agentId, home).display}` }
+  const argv = ['sh', '-c', activateThen(command)]
+  if (seams.box?.docker) return boxExec(argv, env, seams.box).status === 0
+  return boxSpawn(argv, env, seams.box)
 }
 
 export function clickDesk(
@@ -197,14 +238,12 @@ export function clickDesk(
   home = automatonHome(),
   seams: DeskSeams = {},
 ): boolean {
-  if (!boxStatus(home, seams.box).running) return false
-  if (!ensureScreen(agentId, home, seams.box)) return false
-  const result = boxExec(
-    ['sh', '-c', activateThen(`xdotool mousemove ${point.x} ${point.y} click ${xdoButton(button)}`)],
-    { DISPLAY: `:${mouthScreen(agentId, home).display}` },
-    seams.box,
+  return injectDesk(
+    agentId,
+    `xdotool mousemove --sync ${point.x} ${point.y} click ${xdoButton(button)}`,
+    home,
+    seams,
   )
-  return result.status === 0
 }
 
 export function keyDesk(
@@ -214,13 +253,10 @@ export function keyDesk(
   seams: DeskSeams = {},
 ): boolean {
   if (!boxStatus(home, seams.box).running) return false
-  if (!ensureScreen(agentId, home, seams.box)) return false
-  const result = boxExec(
-    ['sh', '-c', activateThen('xdotool key --clearmodifiers "$1"'), 'desk-key', key],
-    { DISPLAY: `:${mouthScreen(agentId, home).display}` },
-    seams.box,
-  )
-  return result.status === 0
+  const env = { DISPLAY: `:${mouthScreen(agentId, home).display}` }
+  const argv = ['sh', '-c', activateThen('xdotool key --clearmodifiers "$1"'), 'desk-key', key]
+  if (seams.box?.docker) return boxExec(argv, env, seams.box).status === 0
+  return boxSpawn(argv, env, seams.box)
 }
 
 export function wheelDesk(
@@ -232,13 +268,7 @@ export function wheelDesk(
 ): boolean {
   if (!deltaY) return false
   const button = deltaY < 0 ? 4 : 5
-  if (!boxStatus(home, seams.box).running) return false
-  const result = boxExec(
-    ['sh', '-c', activateThen(`xdotool mousemove ${point.x} ${point.y} click ${button}`)],
-    { DISPLAY: `:${mouthScreen(agentId, home).display}` },
-    seams.box,
-  )
-  return result.status === 0
+  return injectDesk(agentId, `xdotool mousemove --sync ${point.x} ${point.y} click ${button}`, home, seams)
 }
 
 export function openDeskUrl(

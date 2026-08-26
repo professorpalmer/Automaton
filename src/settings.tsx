@@ -122,6 +122,7 @@ export function Settings({
         display: 'flex',
         flexDirection: 'column',
         flexGrow: 1,
+        height: '100%',
         minHeight: 0,
         overflowY: 'scroll',
         paddingLeft: T.space.xl,
@@ -129,6 +130,7 @@ export function Settings({
         paddingTop: T.space.lg,
         paddingBottom: T.space.lg,
         gap: T.space.xl,
+        backgroundColor: T.raised,
       }}
     >
       <PaneHeader title="Settings" onClose={onClose} closeId="settings-close" />

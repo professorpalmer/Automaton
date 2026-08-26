@@ -46,6 +46,7 @@ export const T = {
   brand: {
     yellow: '#F0C000',
     ink: '#111111',
+    mark: 20,
   },
   catalog: {
     black: '#000000',

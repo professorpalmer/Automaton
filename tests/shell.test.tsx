@@ -268,6 +268,9 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'titlebar-brand')?.text ?? findTestId(tree, 'titlebar-brand')?.children?.[0]?.text).toBe(
       'Automaton',
     )
+    expect(findTestId(tree, 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
+    expect(findTestId(tree, 'desk-stage')).toBeFalsy()
+    expect(findTestId(tree, 'send')?.text ?? findTestId(tree, 'send')?.children?.[0]?.text).toBe('Send')
     expect(findTestId(tree, 'blob-staff')).toBeTruthy()
     expect(findTestId(tree, 'blob-kernel')).toBeFalsy()
     expect(findTestId(tree, 'blob-research')).toBeFalsy()
@@ -659,6 +662,11 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-control')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-shape')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-mark-color')).toBeTruthy()
+    const inspectorBox = boundsFor(renderer, 'inspector')
+    const dock = boundsFor(renderer, 'dock')
+    const send = boundsFor(renderer, 'send')
+    expect(inspectorBox.x).toBeGreaterThanOrEqual(dock.x + dock.width - 1)
+    expect(send.x + send.width).toBeLessThanOrEqual(inspectorBox.x + 1)
     clickTestId(renderer, 'desk-control')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage')).toBeTruthy()
@@ -671,11 +679,6 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-name')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-job')).toBeFalsy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-ledger')).toBeFalsy()
-    const inspectorBox = boundsFor(renderer, 'inspector')
-    const dock = boundsFor(renderer, 'dock')
-    const send = boundsFor(renderer, 'send')
-    expect(inspectorBox.x).toBeGreaterThanOrEqual(dock.x + dock.width - 1)
-    expect(send.x + send.width).toBeLessThanOrEqual(inspectorBox.x + 1)
     expect(statSync(inspectorShot).size).toBeGreaterThan(1000)
 
     clickTestId(renderer, 'inspector-close')

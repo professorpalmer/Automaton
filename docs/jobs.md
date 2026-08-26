@@ -23,7 +23,8 @@ exists. The runtime does not clone for you.
 
 A flying job is not mouth busy. Send stays Send. Completion wakes the
 owning automaton; the thread is unread if the user is looking at someone
-else.
+else. Jobs do not pixel-click the shared computer. Take control is the
+operator on that X display.
 
 ## Probes
 

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { BOX_IMAGE, BOX_NAME, computerRoot, desktopsRoot } from './computer'
 import { automatonHome } from './keys'
 
@@ -128,6 +128,64 @@ export function boxExec(
 ): { status: number; text: string } {
   const flags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`])
   return runDocker(['exec', ...flags, BOX_NAME, ...argv], seams)
+}
+
+function execArgv(argv: string[], env: Record<string, string> = {}): string[] {
+  const flags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`])
+  return ['exec', ...flags, BOX_NAME, ...argv]
+}
+
+/** Fire-and-forget docker exec. The GPUI tick loop must not wait on xdotool. */
+export function boxSpawn(
+  argv: string[],
+  env: Record<string, string> = {},
+  seams: BoxSeams = {},
+): boolean {
+  if (seams.docker) return boxExec(argv, env, seams).status === 0
+  if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) return false
+  try {
+    const child = spawn('docker', execArgv(argv, env), { stdio: 'ignore', detached: true, env: process.env })
+    child.unref()
+    return Boolean(child.pid)
+  } catch {
+    return false
+  }
+}
+
+export function boxExecAsync(
+  argv: string[],
+  env: Record<string, string> = {},
+  done: (result: { status: number; text: string }) => void,
+  seams: BoxSeams = {},
+): void {
+  if (seams.docker) {
+    done(boxExec(argv, env, seams))
+    return
+  }
+  if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) {
+    done({ status: 1, text: 'docker disabled in tests' })
+    return
+  }
+  let text = ''
+  let settled = false
+  const finish = (status: number, extra = '') => {
+    if (settled) return
+    settled = true
+    done({ status, text: `${text}${extra}` })
+  }
+  try {
+    const child = spawn('docker', execArgv(argv, env), { env: process.env })
+    child.stdout?.on('data', (chunk) => {
+      text += String(chunk)
+    })
+    child.stderr?.on('data', (chunk) => {
+      text += String(chunk)
+    })
+    child.on('close', (status) => finish(status ?? 1))
+    child.on('error', (error) => finish(1, String(error)))
+  } catch (error) {
+    finish(1, String(error))
+  }
 }
 
 export function computerLabel(status: BoxStatus): string {

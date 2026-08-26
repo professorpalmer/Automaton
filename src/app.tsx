@@ -23,7 +23,7 @@ import {
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
 import { watchPasteHotkey } from './runtime/paste-hotkey'
-import { runningTests } from './runtime/test-env'
+import { clockDuration, runningTests } from './runtime/test-env'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey } from './runtime/keys'
@@ -355,29 +355,41 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         if (quitChord(event) && !runningTests()) process.exit(0)
       }}
     >
-      <Rail
-        session={session}
-        width={railWidth}
-        onSelect={(id) => {
-          if (skipSelect.current) {
-            skipSelect.current = false
-            return
-          }
-          setRailMenu(null)
-          setSession((current) => setActive(current, id))
-          setPane((current) => (current === 'settings' ? 'none' : current))
+      <motion.div
+        initial={false}
+        animate={{ width: railWidth }}
+        transition={{ duration: railDragging ? 0 : clockDuration(T.motion.pane), ease: 'easeOut' }}
+        style={{
+          width: railWidth,
+          height: '100%',
+          overflow: 'hidden',
+          flexShrink: 0,
         }}
-        onCreate={onCreateAgent}
-        onMenu={(id, event) => {
-          const x = typeof event.x === 'number' && Number.isFinite(event.x) ? event.x : railWidth
-          const y = typeof event.y === 'number' && Number.isFinite(event.y) ? event.y : T.layout.titlebarHeight
-          setRailMenu((current) => (current?.id === id ? null : { id, x, y }))
-        }}
-        onSettings={() => {
-          setRailMenu(null)
-          setPane((current) => (current === 'settings' ? 'none' : 'settings'))
-        }}
-      />
+      >
+        <Rail
+          session={session}
+          width={railWidth}
+          onSelect={(id) => {
+            if (skipSelect.current) {
+              skipSelect.current = false
+              return
+            }
+            setRailMenu(null)
+            setSession((current) => setActive(current, id))
+            setPane((current) => (current === 'settings' ? 'none' : current))
+          }}
+          onCreate={onCreateAgent}
+          onMenu={(id, event) => {
+            const x = typeof event.x === 'number' && Number.isFinite(event.x) ? event.x : railWidth
+            const y = typeof event.y === 'number' && Number.isFinite(event.y) ? event.y : T.layout.titlebarHeight
+            setRailMenu((current) => (current?.id === id ? null : { id, x, y }))
+          }}
+          onSettings={() => {
+            setRailMenu(null)
+            setPane((current) => (current === 'settings' ? 'none' : 'settings'))
+          }}
+        />
+      </motion.div>
       <RailResize
         dragging={railDragging}
         onDown={startRail}
@@ -397,45 +409,53 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         }}
       >
         <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
-        {pane === 'settings' ? (
-          <Settings metrics={metrics} onClose={() => setPane('none')} />
-        ) : (
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: 'row',
+            flexGrow: 1,
+            minHeight: 0,
+            minWidth: 0,
+            backgroundColor: T.canvas,
+          }}
+        >
           <div
             style={{
               display: 'flex',
-              flexDirection: 'row',
+              flexDirection: 'column',
               flexGrow: 1,
               minHeight: 0,
               minWidth: 0,
             }}
           >
+            <Feed
+              key={session.activeAgentId}
+              items={thread?.items ?? []}
+              mouth={thread?.mouth ?? 'idle'}
+              agents={session.agents}
+              dockPad={jobs.length > 0 ? T.jobStrip.height : 0}
+              storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
+              attachmentsFor={(ids) =>
+                ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
+              }
+            />
             <div
+              testId="dock"
               style={{
                 display: 'flex',
                 flexDirection: 'column',
-                flexGrow: 1,
-                minHeight: 0,
-                minWidth: 0,
+                flexShrink: 0,
+                backgroundColor: T.canvas,
               }}
             >
-              <Feed
-                key={session.activeAgentId}
-                items={thread?.items ?? []}
-                mouth={thread?.mouth ?? 'idle'}
-                agents={session.agents}
-                dockPad={jobs.length > 0 ? T.jobStrip.height : 0}
-                storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
-                attachmentsFor={(ids) =>
-                  ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
-                }
-              />
-              <div
-                testId="dock"
+              <motion.div
+                initial={false}
+                animate={{ height: jobs.length > 0 ? T.jobStrip.height : 0 }}
+                transition={{ duration: clockDuration(T.motion.strip), ease: 'easeOut' }}
                 style={{
-                  display: 'flex',
-                  flexDirection: 'column',
+                  height: jobs.length > 0 ? T.jobStrip.height : 0,
+                  overflow: 'hidden',
                   flexShrink: 0,
-                  backgroundColor: T.canvas,
                 }}
               >
                 {jobs.length > 0 ? (
@@ -448,32 +468,34 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     }}
                   />
                 ) : null}
-                {session.pendingFanout ? (
-                  <ConfirmCard
-                    testId="fanout-confirm"
-                    prompt={`Message ${session.pendingFanout.targets
-                      .map((id) => session.agents.find((agent) => agent.id === id)?.name)
-                      .filter(Boolean)
-                      .join(', ')}?`}
-                    confirmId="fanout-confirm-yes"
-                    dismissId="fanout-confirm-no"
-                    confirmLabel="Confirm"
-                    onConfirm={() => setSession((current) => confirmFanout(current))}
-                    onDismiss={() => setSession((current) => dismissFanout(current))}
-                  />
-                ) : null}
-                <Composer
-                  value={thread?.draft ?? ''}
-                  pendingPaths={thread?.pendingPaths ?? []}
-                  locked={!thread || isMouthBusy(thread.mouth)}
-                  onChange={(value) => setSession((current) => setDraft(current, value))}
-                  onAttach={onAttach}
-                  onPaste={enqueueClipboard}
-                  onDropPending={(path) => setSession((current) => dropPendingPath(current, path))}
-                  onSend={onSend}
+              </motion.div>
+              {session.pendingFanout ? (
+                <ConfirmCard
+                  testId="fanout-confirm"
+                  prompt={`Message ${session.pendingFanout.targets
+                    .map((id) => session.agents.find((agent) => agent.id === id)?.name)
+                    .filter(Boolean)
+                    .join(', ')}?`}
+                  confirmId="fanout-confirm-yes"
+                  dismissId="fanout-confirm-no"
+                  confirmLabel="Confirm"
+                  onConfirm={() => setSession((current) => confirmFanout(current))}
+                  onDismiss={() => setSession((current) => dismissFanout(current))}
                 />
-              </div>
+              ) : null}
+              <Composer
+                value={thread?.draft ?? ''}
+                pendingPaths={thread?.pendingPaths ?? []}
+                locked={!thread || isMouthBusy(thread.mouth)}
+                onChange={(value) => setSession((current) => setDraft(current, value))}
+                onAttach={onAttach}
+                onPaste={enqueueClipboard}
+                onDropPending={(path) => setSession((current) => dropPendingPath(current, path))}
+                onSend={onSend}
+              />
             </div>
+          </div>
+          <SlidePane testId="inspector-pane" open={pane === 'inspector' && Boolean(active)}>
             {pane === 'inspector' && active ? (
               <Inspector
                 agent={active}
@@ -492,14 +514,18 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 }}
               />
             ) : null}
-          </div>
-        )}
+          </SlidePane>
+          <SlidePane testId="settings-pane" open={pane === 'settings'}>
+            {pane === 'settings' ? <Settings metrics={metrics} onClose={() => setPane('none')} /> : null}
+          </SlidePane>
+        </div>
       </div>
       {deskControl && active ? (
         <DeskStage
           agentId={active.id}
           name={active.name}
           left={railWidth + T.layout.railHandle}
+          open={deskControl}
           onRelease={() => setDeskControl(false)}
         />
       ) : null}
@@ -783,6 +809,7 @@ function Rail({
                 width: '100%',
               }}
             >
+            <div style={{ position: 'relative', flexShrink: 0 }}>
             <SisterBlob
               agent={agent}
               selected={selected}
@@ -790,36 +817,15 @@ function Rail({
               mouthBusy={isMouthBusy(row?.mouth ?? 'idle')}
               index={index}
             />
-            {compact ? null : (
-              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
-                <div
-                  style={{
-                    fontSize: T.type.md,
-                    color: T.text,
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {agent.name}
-                </div>
-                <div
-                  style={{
-                    fontSize: T.type.xs,
-                    color: T.tertiary,
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
-                  }}
-                >
-                  {row ? lastSpoken(row, agent.title) : agent.title}
-                </div>
-              </div>
-            )}
-            {!compact && row?.unread ? (
+            {row?.unread ? (
               <motion.div
                 initial={{ opacity: 0, width: 0, height: T.size.badge }}
                 animate={{ opacity: 1, width: T.size.badge, height: T.size.badge }}
-                transition={{ duration: T.motion.unread, ease: 'easeOut' }}
+                transition={{ duration: clockDuration(T.motion.unread), ease: 'easeOut' }}
                 style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: 0,
                   minWidth: T.size.badge,
                   paddingLeft: T.space.inset,
                   paddingRight: T.space.inset,
@@ -832,6 +838,22 @@ function Rail({
                 {String(row.unread)}
               </motion.div>
             ) : null}
+            </div>
+            {compact ? null : (
+              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    fontSize: T.type.md,
+                    color: T.text,
+                    whiteSpace: 'nowrap',
+                    textOverflow: 'ellipsis',
+                  }}
+                >
+                  {agent.name}
+                </div>
+                <SpokenLine text={row ? lastSpoken(row, agent.title) : agent.title} />
+              </div>
+            )}
             </div>
           </div>
         )
@@ -922,14 +944,69 @@ function Titlebar({
         src={MARK_PATH}
         alt=""
         objectFit="contain"
-        style={{ width: 18, height: 18, pointerEvents: 'none' }}
+        style={{ width: T.brand.mark, height: T.brand.mark, pointerEvents: 'none' }}
       />
-      <div testId="titlebar-brand" style={{ fontSize: T.type.md, color: T.secondary }}>
+      <div testId="titlebar-brand" style={{ fontSize: T.type.md, color: T.text }}>
         {PRODUCT}
       </div>
       <div testId="titlebar-name" style={{ fontSize: T.type.md, color: T.text }}>
         {name}
       </div>
+    </div>
+  )
+}
+
+function SpokenLine({ text }: { text: string }) {
+  return (
+    <motion.div
+      key={text}
+      initial={{ opacity: 0.4 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: clockDuration(T.motion.unread), ease: 'easeOut' }}
+      style={{
+        fontSize: T.type.xs,
+        color: T.tertiary,
+        whiteSpace: 'nowrap',
+        textOverflow: 'ellipsis',
+      }}
+    >
+      {text}
+    </motion.div>
+  )
+}
+
+function SlidePane({
+  open,
+  testId,
+  children,
+}: {
+  open: boolean
+  testId: string
+  children: React.ReactNode
+}) {
+  const width = open ? T.inspector.width : 0
+  return (
+    <div
+      testId={testId}
+      style={{
+        width,
+        height: '100%',
+        overflow: 'hidden',
+        flexShrink: 0,
+      }}
+    >
+      <motion.div
+        initial={false}
+        animate={{ width }}
+        transition={{ duration: clockDuration(T.motion.pane), ease: 'easeOut' }}
+        style={{
+          width,
+          height: '100%',
+          overflow: 'hidden',
+        }}
+      >
+        <div style={{ width: T.inspector.width, height: '100%', minHeight: 0 }}>{children}</div>
+      </motion.div>
     </div>
   )
 }
@@ -1223,6 +1300,11 @@ export function Feed({
                 alignItems: 'flex-start',
               }}
             >
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: clockDuration(T.motion.enter), ease: 'easeOut' }}
+            >
             <div
               testId={mine ? 'bubble-mine' : 'bubble-theirs'}
               style={{
@@ -1241,6 +1323,7 @@ export function Feed({
             >
               {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
+            </motion.div>
             {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
             </div>
             ) : null}
@@ -1561,6 +1644,7 @@ function Composer({
               color: T.text,
               fontSize: T.type.sm,
               ...HIT,
+              hover: { backgroundColor: T.selected },
             }}
             onClick={(event) => {
               if (event.isRightClick || event.button === 2) return
@@ -1581,10 +1665,12 @@ function Composer({
               paddingBottom: T.space.control,
               borderRadius: T.radius.sm,
               backgroundColor: ready ? T.inverse : T.raised,
-              color: ready ? T.onInverse : T.tertiary,
+              color: ready ? T.onInverse : T.ghost,
               fontSize: T.type.sm,
               ...HIT,
               cursor: ready ? 'pointer' : 'default',
+              hover: ready ? { opacity: T.blob.hover } : undefined,
+              active: ready ? { opacity: T.blob.active } : undefined,
             }}
             onClick={() => {
               if (ready) onSend()

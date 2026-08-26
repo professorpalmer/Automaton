@@ -229,13 +229,14 @@ export function Inspector({
       ref={ref}
       testId="inspector"
       style={{
-        width: T.layout.sidebarWidth,
+        width: T.inspector.width,
         flexShrink: 0,
         minHeight: 0,
+        height: '100%',
         alignSelf: 'stretch',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: T.sidebar,
+        backgroundColor: T.raised,
         borderLeftWidth: T.stroke.hairline,
         borderLeftColor: T.border,
         paddingLeft: T.space.lg,
@@ -484,6 +485,8 @@ export function Inspector({
                     color: selected ? T.onInverse : T.text,
                     fontSize: T.type.xs,
                     ...HIT,
+                    hover: { backgroundColor: selected ? T.inverse : T.selected },
+                    active: { opacity: T.blob.active },
                   }}
                   onClick={() => onPatch?.({ kit: item })}
                   onScroll={passWheel}

@@ -51,10 +51,11 @@ describe('mouth desk', () => {
     expect(capture).not.toContain('anyrun')
     const click = deskClickArgv('staff', { x: 40, y: 80 }, 0, home).join(' ')
     expect(click).toContain('xdotool')
-    expect(click).toContain('mousemove')
+    expect(click).toContain('mousemove --sync')
     expect(click).toContain('40')
     expect(click).toContain('click')
     expect(click).toContain('1')
+    expect(click).not.toContain('windowactivate --sync')
     expect(deskKeyArgv('staff', 'Return', home).join(' ')).toContain('xdotool')
     const open = deskOpenUrlArgv('staff', home).join(' ')
     expect(open).toContain('xdotool')
@@ -79,6 +80,21 @@ describe('mouth desk', () => {
     expect(clickDesk('staff', { x: 1, y: 1 }, 0, home, { box: { docker } })).toBe(false)
     expect(keyDesk('staff', 'a', home, { box: { docker } })).toBe(false)
     expect(openDeskUrl('staff', 'https://github.com/login', home, { box: { docker } })).toBe(false)
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('a live click does not boot the screen on the hot path', () => {
+    const home = tmpHome()
+    const calls: string[][] = []
+    const docker = (args: string[]) => {
+      calls.push(args)
+      if (args[0] === 'inspect') return { status: 0, text: 'true\n' }
+      return { status: 0, text: '' }
+    }
+    expect(clickDesk('staff', { x: 8, y: 12 }, 0, home, { box: { docker } })).toBe(true)
+    const joined = calls.map((row) => row.join(' '))
+    expect(joined.some((row) => row.includes('xdotool') && row.includes('mousemove --sync'))).toBe(true)
+    expect(joined.some((row) => row.includes('automaton-screen'))).toBe(false)
     rmSync(home, { recursive: true, force: true })
   })
 })

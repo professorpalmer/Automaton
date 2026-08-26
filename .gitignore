@@ -5,7 +5,6 @@ dist/
 .venv/
 .env
 .env.*
-!.env.example
 *.pem
 *.key
 keys.json
@@ -16,19 +15,6 @@ __pycache__/
 artifacts/
 results/*.sqlite
 .codegraph/
-tenant/secrets/*
-!tenant/secrets/.gitkeep
-tenant/jobs/*
-!tenant/jobs/.gitkeep
-tenant/products/*
-!tenant/products/.gitkeep
-tenant/uploads/*
-!tenant/uploads/.gitkeep
-tenant/wiki/*
-!tenant/wiki/.gitkeep
-tenant/soldiers-angels/*
-!tenant/soldiers-angels/.gitkeep
-!tenant/soldiers-angels/box.json
 *.sqlite
 *.sqlite-journal
 var/

@@ -8,7 +8,7 @@ render(<App />, {
   width: T.window.width,
   height: T.window.height,
   titlebarTransparent: true,
-  windowBackground: 'blurred',
+  windowBackground: 'opaque',
   trafficLightX: T.window.trafficLightX,
   trafficLightY: T.window.trafficLightY,
   debugFrameOverlay: process.env.AUTOMATON_PERF === '1' ? 'minimal' : 'hidden',

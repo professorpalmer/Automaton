@@ -3,17 +3,17 @@ import { T } from './tokens'
 
 export const PRODUCT = 'Automaton'
 
-/** Yellow mark, no plate. Titlebar and SVG source of truth. */
+/** White control-bar mark, no plate. Titlebar and SVG source of truth. */
 export const MARK_PATH = join(import.meta.dir, '..', 'brand', 'mark.png')
 
-export function markSvg(color = T.brand.yellow): string {
+export function markSvg(color = T.inverse): string {
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">`,
-    `<rect x="20" y="42" width="24" height="14" rx="3" fill="${color}"/>`,
-    `<path d="M16 24.5L32 42L48 24.5M32 20.5V42" stroke="${color}" stroke-width="1.75" stroke-linecap="round"/>`,
-    `<circle cx="16" cy="20" r="5.5" stroke="${color}" stroke-width="2"/>`,
-    `<circle cx="32" cy="16" r="5.5" stroke="${color}" stroke-width="2"/>`,
-    `<circle cx="48" cy="20" r="5.5" stroke="${color}" stroke-width="2"/>`,
+    `<rect x="10" y="14" width="44" height="8" rx="4" fill="${color}"/>`,
+    `<path d="M18 22V46M32 22V50M46 22V46" stroke="${color}" stroke-width="2" stroke-linecap="round"/>`,
+    `<circle cx="18" cy="48" r="3.2" fill="${color}"/>`,
+    `<circle cx="32" cy="52" r="3.2" fill="${color}"/>`,
+    `<circle cx="46" cy="48" r="3.2" fill="${color}"/>`,
     `</svg>`,
   ].join('')
 }

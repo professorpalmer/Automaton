@@ -6,7 +6,7 @@ import { spawnSync } from 'node:child_process'
 import { T } from '../src/tokens'
 
 const ROOT = join(import.meta.dir, '..')
-const YELLOW = hex(T.brand.yellow)
+const PAPER = hex(T.inverse)
 const INK = hex(T.brand.ink)
 
 function hex(value: string): [number, number, number] {
@@ -47,7 +47,7 @@ function paintMark(size: number, plate: boolean): Uint8Array {
     const hw = width / 2
     for (let y = 0; y < size; y += 1) {
       for (let x = 0; x < size; x += 1) {
-        if (fn(x / s, y / s) <= hw) set(pixels, size, x, y, YELLOW, 255)
+        if (fn(x / s, y / s) <= hw) set(pixels, size, x, y, PAPER, 255)
       }
     }
   }
@@ -59,12 +59,27 @@ function paintMark(size: number, plate: boolean): Uint8Array {
       pixels[i + 3] = 255
     }
   }
-  fillRounded(pixels, size, s, 20, 42, 24, 14, 3)
-  stroke(1.75, (x, y) => Math.min(seg(x, y, 16, 24.5, 32, 42), seg(x, y, 48, 24.5, 32, 42), seg(x, y, 32, 20.5, 32, 42)))
-  ring(pixels, size, s, 16, 20, 5.5, 2)
-  ring(pixels, size, s, 32, 16, 5.5, 2)
-  ring(pixels, size, s, 48, 20, 5.5, 2)
+  fillRounded(pixels, size, s, 10, 14, 44, 8, 4)
+  stroke(2, (x, y) => Math.min(seg(x, y, 18, 22, 18, 46), seg(x, y, 32, 22, 32, 50), seg(x, y, 46, 22, 46, 46)))
+  fillCircle(pixels, size, s, 18, 48, 3.2)
+  fillCircle(pixels, size, s, 32, 52, 3.2)
+  fillCircle(pixels, size, s, 46, 48, 3.2)
   return pixels
+}
+
+function fillCircle(pixels: Uint8Array, size: number, s: number, cx: number, cy: number, r: number) {
+  const ox = cx * s
+  const oy = cy * s
+  const rr = r * s
+  const x0 = Math.max(0, Math.floor(ox - rr - 1))
+  const x1 = Math.min(size - 1, Math.ceil(ox + rr + 1))
+  const y0 = Math.max(0, Math.floor(oy - rr - 1))
+  const y1 = Math.min(size - 1, Math.ceil(oy + rr + 1))
+  for (let y = y0; y <= y1; y += 1) {
+    for (let x = x0; x <= x1; x += 1) {
+      if (Math.hypot(x - ox, y - oy) <= rr) set(pixels, size, x, y, PAPER, 255)
+    }
+  }
 }
 
 function set(pixels: Uint8Array, size: number, x: number, y: number, rgb: [number, number, number], a: number) {
@@ -95,24 +110,7 @@ function fillRounded(
     for (let px = Math.floor(x0); px < x1; px += 1) {
       const dx = px < x0 + rad ? x0 + rad - px : px > x1 - rad ? px - (x1 - rad) : 0
       const dy = py < y0 + rad ? y0 + rad - py : py > y1 - rad ? py - (y1 - rad) : 0
-      if (dx * dx + dy * dy <= rad * rad + 0.5) set(pixels, size, px, py, YELLOW, 255)
-    }
-  }
-}
-
-function ring(pixels: Uint8Array, size: number, s: number, cx: number, cy: number, r: number, width: number) {
-  const hw = (width * s) / 2
-  const rr = r * s
-  const ox = cx * s
-  const oy = cy * s
-  const x0 = Math.max(0, Math.floor(ox - rr - hw - 1))
-  const x1 = Math.min(size - 1, Math.ceil(ox + rr + hw + 1))
-  const y0 = Math.max(0, Math.floor(oy - rr - hw - 1))
-  const y1 = Math.min(size - 1, Math.ceil(oy + rr + hw + 1))
-  for (let y = y0; y <= y1; y += 1) {
-    for (let x = x0; x <= x1; x += 1) {
-      const d = Math.hypot(x - ox, y - oy)
-      if (Math.abs(d - rr) <= hw) set(pixels, size, x, y, YELLOW, 255)
+      if (dx * dx + dy * dy <= rad * rad + 0.5) set(pixels, size, px, py, PAPER, 255)
     }
   }
 }

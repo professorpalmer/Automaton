@@ -1,10 +1,12 @@
 import { copyFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { describe, expect, test } from 'bun:test'
+import { describe, expect, spyOn, test } from 'bun:test'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { DeskStage } from '../src/desk'
+import * as deskRuntime from '../src/runtime/desk'
+import { mapViewToDisplay } from '../src/runtime/desk'
 import { screenPath } from '../src/runtime/desktop'
 import { T } from '../src/tokens'
 
@@ -61,6 +63,14 @@ function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], te
   const bounds = boundsFor(renderer, testId)
   renderer.nativeSimulateClick(
     Math.floor(bounds.x + bounds.width / 2),
+    Math.floor(bounds.y + bounds.height / 2),
+  )
+}
+
+function mouseDownTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+  const bounds = boundsFor(renderer, testId)
+  renderer.nativeSimulateMouseDown(
+    Math.floor(bounds.x + Math.min(40, bounds.width / 2)),
     Math.floor(bounds.y + bounds.height / 2),
   )
 }
@@ -135,9 +145,86 @@ native('take-control blit hits', () => {
     const el = renderer.getElement(view!.id as number)
     expect(el?.type).toBe('div')
     expect(el?.events.has('click')).toBe(true)
+    expect(el?.events.has('mouseDown')).toBe(true)
     expect(el?.events.has('keyDown')).toBe(true)
     clickTestId(renderer, 'desk-stage-view')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-release')).toBeTruthy()
+  })
+
+  test('a mouseDown on desk-stage-view forwards a mapped display point', () => {
+    const home = join(tmpdir(), `automaton-desk-hit-${Date.now()}-${Math.random()}`)
+    mkdirSync(join(home, 'desktops', 'staff'), { recursive: true })
+    copyFileSync(PNG, screenPath('staff', home))
+    process.env.AUTOMATON_HOME = home
+    const clicks: Array<{ x: number; y: number }> = []
+    const spy = spyOn(deskRuntime, 'clickDesk').mockImplementation((_id, point) => {
+      clicks.push(point)
+      return true
+    })
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ width: 960, height: 720, backgroundColor: T.canvas }}>
+        <DeskStage agentId="staff" name="Chief of Staff" left={0} onRelease={() => {}} />
+      </div>,
+    )
+    renderer.flush()
+    const bounds = boundsFor(renderer, 'desk-stage-view')
+    const cx = Math.floor(bounds.x + bounds.width / 2)
+    const cy = Math.floor(bounds.y + bounds.height / 2)
+    const mapped = mapViewToDisplay(bounds, { x: cx, y: cy })
+    expect(mapped).not.toBeNull()
+    renderer.nativeSimulateMouseDown(cx, cy)
+    renderer.flush()
+    spy.mockRestore()
+    expect(clicks).toEqual([mapped])
+  })
+
+  test('a blit mouseDown does not fire Release', () => {
+    const home = join(tmpdir(), `automaton-desk-stay-${Date.now()}-${Math.random()}`)
+    mkdirSync(join(home, 'desktops', 'staff'), { recursive: true })
+    copyFileSync(PNG, screenPath('staff', home))
+    process.env.AUTOMATON_HOME = home
+    let released = 0
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ width: 960, height: 720, backgroundColor: T.canvas }}>
+        <DeskStage agentId="staff" name="Chief of Staff" left={0} onRelease={() => { released += 1 }} />
+      </div>,
+    )
+    renderer.flush()
+    clickTestId(renderer, 'desk-stage-view')
+    renderer.flush()
+    expect(released).toBe(0)
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-stage-view')).toBeTruthy()
+    mouseDownTestId(renderer, 'desk-release')
+    renderer.flush()
+    expect(released).toBe(1)
+  })
+
+  test('a click fallback still forwards once when mouseDown did not arm', () => {
+    const home = join(tmpdir(), `automaton-desk-click-${Date.now()}-${Math.random()}`)
+    mkdirSync(join(home, 'desktops', 'staff'), { recursive: true })
+    copyFileSync(PNG, screenPath('staff', home))
+    process.env.AUTOMATON_HOME = home
+    const clicks: Array<{ x: number; y: number }> = []
+    const spy = spyOn(deskRuntime, 'clickDesk').mockImplementation((_id, point) => {
+      clicks.push(point)
+      return true
+    })
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ width: 960, height: 720, backgroundColor: T.canvas }}>
+        <DeskStage agentId="staff" name="Chief of Staff" left={0} onRelease={() => {}} />
+      </div>,
+    )
+    renderer.flush()
+    const bounds = boundsFor(renderer, 'desk-stage-view')
+    const cx = Math.floor(bounds.x + bounds.width / 2)
+    const cy = Math.floor(bounds.y + bounds.height / 2)
+    renderer.nativeSimulateClick(cx, cy)
+    renderer.flush()
+    spy.mockRestore()
+    expect(clicks).toHaveLength(1)
   })
 })

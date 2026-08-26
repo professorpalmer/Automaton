@@ -3,7 +3,8 @@
 Native staff is a GPUI window authored in React (`src/app.tsx`). There is no
 Electron shell and no webview. The product name is **Automaton**. The
 titlebar shows that mark and word, then the focused mouth (Chief of Staff
-until you switch).
+until you switch). The window is opaque (`windowBackground: 'opaque'`) so
+clicks land on the rail and composer.
 
 Chief of Staff (`staff`) is the only seeded automaton. Other automata are
 created from chat or the factory (`New automaton`). Each named automaton has
@@ -13,6 +14,10 @@ On macOS, launch `macos/Automaton.app` (`bun run app`) so the menu bar is
 Automaton. A `bun src/main.tsx` spawn from Cursor keeps Cursor as the
 frontmost Mac app, which is why Cmd+Plus / Cmd+Minus zoom the editor
 instead of this window.
+
+The brand mark is the white control-bar marionette (`brand/mark.svg`). Rail
+blobs are baked poses (`src/marks/`). Mouth busy chews; a flying job does
+not. Idle stays still.
 
 ## Composer
 
