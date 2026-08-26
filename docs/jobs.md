@@ -1,19 +1,22 @@
 # Jobs
 
-Puppetmaster is the only job runtime. Workers never appear as chat. Spoken
-lines must not include job ids unless the user asked.
+Puppetmaster runs analyze and implement. Box-shell is `docker exec` on the
+shared computer so PATH and apt do not pretend this Mac is the machine.
+Workers never appear as chat. Spoken lines must not include job ids unless
+the user asked.
 
-## Analyze vs implement
+## Analyze vs implement vs shell
 
 Kit sets the default. Code mouths book implement on job-shaped asks.
 Lookup mouths book analyze. Chief of Staff books analyze for explicit
 lookup phrasing, and may book implement when the line is a job and no
-sister is named.
+sister is named. PATH, `which`, and apt-install-on-the-computer book
+`box-shell` first.
 
 Analyze runs read-only against the bound home checkout (or this repo if
 none is bound). Implement copies that git tree into an isolated sandbox
 under `~/.automaton/sandboxes/`. It never writes the live Automaton
-checkout.
+checkout. Box-shell never calls Puppetmaster.
 
 Bind a GitHub home from Staff (`Point Kernel at https://github.com/…`).
 `homePath` is a local clone under `~/Projects/<repo>` when that checkout

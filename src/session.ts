@@ -1,6 +1,7 @@
 import {
   type Agent,
   type AgentId,
+  type DeskHandoff,
   type FeedItem,
   type JobHandle,
   type MouthState,
@@ -9,6 +10,7 @@ import {
   bindHomes,
   composerEnterBusy,
   createAgentNames,
+  deskHandoffInstruction,
   deskOpenAck,
   dispatchAck,
   dispatchTargets,
@@ -37,6 +39,7 @@ export type Session = {
   jobs: JobHandle[]
   pendingFanout: { text: string; targets: AgentId[] } | null
   deskOpen?: { agentId: AgentId; url: string } | null
+  deskHandoff?: DeskHandoff | null
 }
 
 function thread(session: Session, id: AgentId): Thread {
@@ -112,6 +115,14 @@ export function clearPendingPaths(session: Session): Session {
 
 export function dismissFanout(session: Session): Session {
   return { ...session, pendingFanout: null }
+}
+
+export function dismissDeskHandoff(session: Session): Session {
+  return { ...session, deskHandoff: null }
+}
+
+export function confirmDeskHandoff(session: Session): Session {
+  return { ...session, deskHandoff: null }
 }
 
 export function addLiveAgent(session: Session, agent: Agent, focus = true): Session {
@@ -206,7 +217,7 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   if (needsFanoutConfirm(named) && session.pendingFanout == null) {
     return { ...session, pendingFanout: { text, targets: named } }
   }
-  const next: Session = { ...session, pendingFanout: null, deskOpen: null }
+  const next: Session = { ...session, pendingFanout: null, deskOpen: null, deskHandoff: null }
   if (kit === 'coordinator' && named.length > 0) {
     return coordinatorDispatch(next, body, named, attachmentIds)
   }
@@ -231,7 +242,11 @@ function coordinatorDeskOpen(
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, deskOpenAck(url), focused)
   next = wakeMouth(next, focused, 'idle')
-  return { ...next, deskOpen: { agentId: focused, url } }
+  return {
+    ...next,
+    deskOpen: { agentId: focused, url },
+    deskHandoff: { agentId: focused, url, instruction: deskHandoffInstruction(url) },
+  }
 }
 
 function coordinatorSetup(

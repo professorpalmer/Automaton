@@ -5,15 +5,13 @@ import { motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { markForAgent, resolveFramePath } from './runtime/factory'
+import { clockDuration, runningTests } from './runtime/test-env'
 import { T } from './tokens'
-
-export type ChewSide = 'a' | 'b'
 
 export type BlobView = {
   selected: boolean
   unread: number
   mouthBusy: boolean
-  chewSide: ChewSide
   index: number
   entered: boolean
 }
@@ -22,8 +20,7 @@ export type BlobWeights = {
   rest: number
   breathe: number
   selected: number
-  chewA: number
-  chewB: number
+  body: number
 }
 
 export type BlobMotion = {
@@ -37,6 +34,17 @@ export type BlobMotion = {
   ease: 'easeOut' | 'easeInOut'
 }
 
+export type BusyLook = { x: number; y: number }
+
+/** Slow glances. Not a left/right chew flip. */
+export const BUSY_LOOKS: BusyLook[] = [
+  { x: 0, y: 0 },
+  { x: 1, y: -0.55 },
+  { x: -0.85, y: 0.35 },
+  { x: 0.45, y: 0.75 },
+  { x: -1, y: -0.25 },
+]
+
 export const SEED_MARKS: Record<string, { shape: string; tint: string }> = {
   staff: { shape: 'blob', tint: 'staff' },
   kernel: { shape: 'hex', tint: 'kernel' },
@@ -49,11 +57,10 @@ const POSE_LAYERS: { weight: keyof BlobWeights; frame: string }[] = [
   { weight: 'rest', frame: 'rest' },
   { weight: 'breathe', frame: 'breathe' },
   { weight: 'selected', frame: 'selected' },
-  { weight: 'chewA', frame: 'chew-a' },
-  { weight: 'chewB', frame: 'chew-b' },
+  { weight: 'body', frame: 'body' },
 ]
 
-const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, chewA: 0, chewB: 0 }
+const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, body: 0 }
 
 export function blobTestId(id: string): string {
   return `blob-${id}`
@@ -91,7 +98,7 @@ function hold(weight: keyof BlobWeights): BlobWeights {
   return { ...ZERO, [weight]: 1 }
 }
 
-/** Five still poses. Jobs are not an input — only mouthBusy chews, and chew darts the eyes. */
+/** Idle and selected are still PNGs. Mouth-busy is an eyeless body; eyes are overlay dots. */
 export function presentBlob(view: BlobView): BlobMotion {
   const delay = view.entered ? 0 : view.index * T.blob.stagger
   if (!view.entered) {
@@ -111,11 +118,11 @@ export function presentBlob(view: BlobView): BlobMotion {
       glyphWidth: T.blob.size,
       glyphHeight: T.blob.size,
       lift: view.selected ? T.blob.selectedLift : 0,
-      weights: hold(view.chewSide === 'b' ? 'chewB' : 'chewA'),
-      duration: T.blob.chewMs / 1000,
+      weights: hold('body'),
+      duration: T.motion.selected,
       layoutDuration: T.motion.selected,
       delay,
-      ease: 'easeInOut',
+      ease: 'easeOut',
     }
   }
   if (view.selected) {
@@ -142,6 +149,23 @@ export function presentBlob(view: BlobView): BlobMotion {
   }
 }
 
+export function busyEyeLayout(
+  look: number,
+  blink: boolean,
+): { left: number; top: number; width: number; height: number }[] {
+  const glance = BUSY_LOOKS[((look % BUSY_LOOKS.length) + BUSY_LOOKS.length) % BUSY_LOOKS.length]
+  const height = blink ? T.space.xxs : T.blob.eye
+  const pairX = T.blob.eyeX + glance.x * T.blob.eyeWander
+  const pairY = T.blob.eyeY + glance.y * T.blob.eyeWander
+  const top = pairY - height / 2
+  return [-1, 1].map((side) => ({
+    left: pairX + side * (T.blob.eyeGap / 2) - T.blob.eye / 2,
+    top,
+    width: T.blob.eye,
+    height,
+  }))
+}
+
 export function SisterBlob({
   agent,
   selected,
@@ -156,8 +180,9 @@ export function SisterBlob({
   index: number
 }) {
   const mark = markFor(agent)
-  const [entered, setEntered] = useState(false)
-  const [chewSide, setChewSide] = useState<ChewSide>('a')
+  const [entered, setEntered] = useState(() => runningTests())
+  const [look, setLook] = useState(0)
+  const [blink, setBlink] = useState(false)
 
   useEffect(() => {
     setEntered(true)
@@ -165,25 +190,36 @@ export function SisterBlob({
 
   useEffect(() => {
     if (!blobNeedsClock(mouthBusy)) {
-      setChewSide('a')
+      setLook(0)
+      setBlink(false)
       return
     }
-    const timer = setInterval(() => {
-      setChewSide((side) => (side === 'a' ? 'b' : 'a'))
-    }, T.blob.chewMs)
-    return () => clearInterval(timer)
+    const wander = setInterval(() => {
+      setLook((n) => n + 1)
+    }, T.blob.wanderMs)
+    let close: ReturnType<typeof setTimeout> | undefined
+    const lids = setInterval(() => {
+      setBlink(true)
+      close = setTimeout(() => setBlink(false), T.blob.blinkMs)
+    }, T.blob.blinkEveryMs)
+    return () => {
+      clearInterval(wander)
+      clearInterval(lids)
+      if (close) clearTimeout(close)
+    }
   }, [mouthBusy])
 
   const motionState = presentBlob({
     selected,
     unread,
     mouthBusy,
-    chewSide,
     index,
     entered,
   })
   const insetX = (T.blob.slot - motionState.glyphWidth) / 2
   const insetY = (T.blob.slot - motionState.glyphHeight) / 2 + motionState.lift
+  const showEyes = Boolean(entered && mouthBusy)
+  const eyes = showEyes ? busyEyeLayout(look, blink) : []
 
   return (
     <div
@@ -252,6 +288,28 @@ export function SisterBlob({
               }}
             />
           </motion.div>
+        ))}
+        {eyes.map((eye, side) => (
+          <motion.div
+            key={side}
+            testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
+            initial={false}
+            animate={{ left: eye.left, top: eye.top, height: eye.height }}
+            transition={{
+              duration: clockDuration(blink ? T.blob.blinkMs / 1000 : T.blob.wanderMs / 1000),
+              ease: 'easeInOut',
+            }}
+            style={{
+              position: 'absolute',
+              left: eye.left,
+              top: eye.top,
+              width: eye.width,
+              height: eye.height,
+              borderRadius: T.blob.eye,
+              backgroundColor: T.catalog.black,
+              pointerEvents: 'none',
+            }}
+          />
         ))}
       </motion.div>
     </div>

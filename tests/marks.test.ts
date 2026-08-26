@@ -32,7 +32,7 @@ describe('baked seed marks', () => {
     expect(occupancyAt('leaf', 64, 64)).toBe(1)
   })
 
-  test('catalog fill stays neon and chew darts black eyes', () => {
+  test('catalog fill stays neon and body is eyeless', () => {
     const rest = bakeFrame('pebble', T.catalog.orange, 'rest')
     const core = (64 * BAKE_SIZE + 64) * 4
     expect(rest[core]).toBeGreaterThan(200)
@@ -42,16 +42,13 @@ describe('baked seed marks', () => {
     expect(eyes.n).toBeGreaterThan(20)
     const mid = (Math.round(eyes.y) * BAKE_SIZE + Math.round(eyes.x)) * 4
     expect(rest[mid] + rest[mid + 1] + rest[mid + 2]).toBeGreaterThan(36)
-    const chewA = blackInkCentroid(bakeFrame('pebble', T.catalog.orange, 'chew-a'), BAKE_SIZE)
-    const chewB = blackInkCentroid(bakeFrame('pebble', T.catalog.orange, 'chew-b'), BAKE_SIZE)
-    expect(chewA.n).toBeGreaterThan(12)
-    expect(chewB.n).toBeGreaterThan(8)
-    expect(Math.abs(chewA.x - chewB.x) + Math.abs(chewA.y - chewB.y)).toBeGreaterThan(2)
+    const body = blackInkCentroid(bakeFrame('pebble', T.catalog.orange, 'body'), BAKE_SIZE)
+    expect(body.n).toBeLessThan(8)
     const cloudEyes = blackInkCentroid(bakeFrame('cloud', T.catalog.cyan, 'rest'), BAKE_SIZE)
     expect(cloudEyes.n).toBeGreaterThan(20)
   })
 
-  test('seed trio writes the five still poses', () => {
+  test('seed trio writes rest, breathe, selected, and body', () => {
     for (const seed of SEED_BAKES) {
       for (const frame of MARK_FRAMES) {
         const path = framePath(marksRoot, seed.shape, seed.tint, frame)

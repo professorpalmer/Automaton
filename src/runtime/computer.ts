@@ -8,6 +8,11 @@ export const BOX_IMAGE = 'automaton-computer:local'
 export const BOX_CHROME = 'chromium'
 export const BOX_DISPLAY_W = 1280
 export const BOX_DISPLAY_H = 800
+export const BOX_CDP_DISPLAY_MAX = 32
+
+export function boxChromeDebugPort(display: number): number {
+  return 9220 + display
+}
 
 const SEED_DISPLAY: Record<string, number> = {
   staff: 1,

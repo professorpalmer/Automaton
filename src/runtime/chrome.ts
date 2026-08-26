@@ -7,6 +7,7 @@ import { boxChromeAlive, boxChromeWindowReady, ensureScreen, fitBoxChrome, stopB
 import {
   BOX_CHROME,
   BOX_NAME,
+  boxChromeDebugPort,
   boxProfileDir,
   mouthScreen,
 } from './computer'
@@ -72,7 +73,7 @@ export function chromeLaunch(input: {
     input.mode === 'box' || input.headed === true || process.env.AUTOMATON_CHROME_HEADED === '1'
   const flags = [
     `--remote-debugging-port=${input.port}`,
-    '--remote-debugging-address=127.0.0.1',
+    `--remote-debugging-address=${input.mode === 'box' ? '0.0.0.0' : '127.0.0.1'}`,
     '--no-first-run',
     '--no-default-browser-check',
     '--disable-sync',
@@ -268,6 +269,24 @@ async function defaultNavigate(port: number, url: string): Promise<void> {
   await cdp(wsUrl, 'Page.navigate', { url })
 }
 
+export async function goToUrl(
+  mode: 'box' | 'host',
+  port: number,
+  agentId: string,
+  url: string,
+  home: string,
+  seams: ChromeSeams,
+): Promise<boolean> {
+  const go = seams.navigate ?? defaultNavigate
+  try {
+    await go(port, url)
+    return true
+  } catch {
+    if (mode !== 'box') return false
+    return openDeskUrl(agentId, url, home, { box: seams.box })
+  }
+}
+
 export async function ensureBrowser(
   agentId: string,
   home = automatonHome(),
@@ -279,14 +298,23 @@ export async function ensureBrowser(
   if (mode === 'box') ensureScreen(agentId, home, seams.box)
   const alive = seams.alive ?? defaultAlive
   const existing = readHandle(agentId, home)
+  const wantedPort = mode === 'box' ? boxChromeDebugPort(mouthScreen(agentId, home).display) : 0
   if (mode === 'box' && boxChromeAlive(agentId, home, seams.box)) {
-    fitBoxChrome(agentId, home, seams.box)
-    return existing ?? { pid: 1, port: 1, display: mouthScreen(agentId, home).display, via: 'box' }
+    if (existing && existing.port === wantedPort) {
+      fitBoxChrome(agentId, home, seams.box)
+      try {
+        await (seams.waitReady ?? defaultWaitReady)(existing.port)
+      } catch {
+        /* xdotool can still type the URL */
+      }
+      return existing
+    }
+    stopBoxChrome(agentId, home, seams.box)
   }
   if (mode === 'box') clearBoxProfileLocks(agentId, home)
   if (existing && alive(existing.pid) && existing.via !== 'box') return existing
   const pick = seams.pickPort ?? defaultPickPort
-  const port = mode === 'box' ? 1 : await pick()
+  const port = mode === 'box' ? wantedPort : await pick()
   const launch = chromeLaunch({
     agentId,
     port,
@@ -303,6 +331,11 @@ export async function ensureBrowser(
     while (Date.now() < deadline) {
       if (boxChromeAlive(agentId, home, seams.box)) {
         if (boxChromeWindowReady(agentId, home, seams.box)) fitBoxChrome(agentId, home, seams.box)
+        try {
+          await (seams.waitReady ?? defaultWaitReady)(handle.port)
+        } catch {
+          /* headed Chrome can still take xdotool */
+        }
         return handle
       }
       await new Promise((resolve) => setTimeout(resolve, 150))
@@ -363,24 +396,7 @@ export async function browse(
   const mode = chromeMode(seams, home)
   const handle = await ensureBrowser(agentId, home, seams)
   if (!handle) return null
-  if (mode === 'box') {
-    if (seams.navigate) {
-      try {
-        await seams.navigate(handle.port, url)
-      } catch {
-        return null
-      }
-    } else if (!openDeskUrl(agentId, url, home, { box: seams.box })) {
-      return null
-    }
-    return captureScreen(agentId, home, seams)
-  }
-  const go = seams.navigate ?? defaultNavigate
-  try {
-    await go(handle.port, url)
-  } catch {
-    return null
-  }
+  if (!(await goToUrl(mode, handle.port, agentId, url, home, seams))) return null
   return captureScreen(agentId, home, seams)
 }
 

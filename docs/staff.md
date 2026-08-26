@@ -16,14 +16,15 @@ frontmost Mac app, which is why Cmd+Plus / Cmd+Minus zoom the editor
 instead of this window.
 
 The brand mark is the white control-bar marionette (`brand/mark.svg`). Rail
-blobs are baked poses (`src/marks/`). Mouth busy chews; a flying job does
-not. Idle stays still.
+blobs are baked poses (`src/marks/`). Mouth busy thinks with wandering
+eyes on an eyeless body; a flying job does not. Idle stays the rest PNG.
 
 ## Composer
 
-Send stays Send while a Puppetmaster job is running. Mouth busy is only a
+Send stays Send while a job is running. Mouth busy is only a
 live speak turn (`must_first` / `answer`). Fan-out to three or more named
-automata needs a confirm card; dismiss means no send.
+automata needs a confirm card; dismiss means no send. Opening a login URL
+puts a one-line auth card on the dock; Take control latches the stage.
 
 Paste: screenshot flavors become attachments. Plain text (including copies
 that also carry a TIFF preview) lands in the draft.
@@ -31,7 +32,7 @@ that also carry a TIFF preview) lands in the draft.
 ## Head seat
 
 From Chief of Staff, a named ask dispatches at send time. Staff acks
-(`Asking Kernel.`) without an OpenRouter turn. The sister chews on its own
+(`Asking Kernel.`) without an OpenRouter turn. The sister thinks on its own
 thread. When that sister finishes, Staff speaks an assessment; it does not
 paint the sister's words as its own bubble.
 

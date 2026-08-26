@@ -468,9 +468,19 @@ describe('teammate session', () => {
         (item) =>
           item.kind === 'msg' &&
           item.from === 'agent' &&
-          item.text === 'Opening github.com on this screen. Take control to sign in.',
+          item.text === 'Opening github.com.',
       ),
     ).toBe(true)
+    expect(s.deskHandoff).toEqual({
+      agentId: 'staff',
+      url: 'https://github.com/login',
+      instruction: 'Sign in to GitHub.',
+    })
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && /Take control to sign in/i.test(item.text),
+      ),
+    ).toBe(false)
     expect(
       s.threads.staff.items.some(
         (item) => item.kind === 'msg' && item.from === 'agent' && /navigated/i.test(item.text),
@@ -489,13 +499,24 @@ describe('teammate session', () => {
         (item) =>
           item.kind === 'msg' &&
           item.from === 'agent' &&
-          item.text === 'Opening www.google.com on this screen. Take control to sign in.',
+          item.text === 'Opening www.google.com.',
       ),
     ).toBe(true)
+    expect(s.deskHandoff?.instruction).toBe('Sign in to your Google account.')
     expect(
       s.threads.staff.items.some(
         (item) => item.kind === 'msg' && item.from === 'agent' && /runtime action|display profile/i.test(item.text),
       ),
     ).toBe(false)
+  })
+
+  test('PATH and apt asks book a box-shell job, not implement on the Mac', () => {
+    const pathAsk = send(fresh(), 'is claude on PATH')
+    expect(pathAsk.jobs).toHaveLength(1)
+    expect(pathAsk.jobs[0]?.kind).toBe('box-shell')
+    expect(pathAsk.jobs[0]?.ownerAgentId).toBe('staff')
+    expect(pathAsk.threads.staff.mouth).toBe('working')
+    const install = send(fresh(), 'install curl on the computer')
+    expect(install.jobs[0]?.kind).toBe('box-shell')
   })
 })

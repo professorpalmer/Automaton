@@ -15,6 +15,7 @@ import {
   feedClock,
   feedThinking,
   thinkingDots,
+  jobKindLabel,
   type Agent,
   type FeedItem,
   type JobHandle,
@@ -41,15 +42,16 @@ import {
 } from './inspector'
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
-import { ensureBrowser } from './runtime/chrome'
-import { captureDesk, openDeskUrl } from './runtime/desk'
+import { browse, ensureBrowser } from './runtime/chrome'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
   attachPmJob,
   completeJob,
   completeMouth,
+  confirmDeskHandoff,
   confirmFanout,
+  dismissDeskHandoff,
   dismissFanout,
   dropLiveAgent,
   dropPendingPath,
@@ -167,10 +169,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     if (!req || runningTests()) return
     const { agentId, url } = req
     void (async () => {
-      await ensureBrowser(agentId)
-      openDeskUrl(agentId, url)
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-      captureDesk(agentId)
+      await browse(agentId, url)
       setSession((current) => {
         if (!current.deskOpen || current.deskOpen.agentId !== agentId || current.deskOpen.url !== url) {
           return current
@@ -202,19 +201,21 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             setSession((current) => attachPmJob(current, job.id, pmJobId))
           },
           onComplete: (spoken) => {
-            store.remember({
-              ownerAgentId: job.ownerAgentId,
-              text: spoken,
-              source: 'job',
-              jobId: pmIdentity,
-              taskKey: claimTaskKey({
+            if (job.kind !== 'box-shell') {
+              store.remember({
                 ownerAgentId: job.ownerAgentId,
-                kind: job.kind,
-                goal: job.goal,
-              }),
-              artifactKind: job.kind,
-              freshness: 'fresh',
-            })
+                text: spoken,
+                source: 'job',
+                jobId: pmIdentity,
+                taskKey: claimTaskKey({
+                  ownerAgentId: job.ownerAgentId,
+                  kind: job.kind,
+                  goal: job.goal,
+                }),
+                artifactKind: job.kind,
+                freshness: 'fresh',
+              })
+            }
             setSession((current) => completeJob(current, job.id, spoken))
           },
           onFail: (spoken) => {
@@ -481,6 +482,21 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                   confirmLabel="Confirm"
                   onConfirm={() => setSession((current) => confirmFanout(current))}
                   onDismiss={() => setSession((current) => dismissFanout(current))}
+                />
+              ) : session.deskHandoff ? (
+                <ConfirmCard
+                  testId="desk-handoff"
+                  prompt={session.deskHandoff.instruction}
+                  confirmId="desk-handoff-yes"
+                  dismissId="desk-handoff-no"
+                  confirmLabel="Take control"
+                  onConfirm={() => {
+                    const agentId = session.deskHandoff?.agentId
+                    setSession((current) => confirmDeskHandoff(current))
+                    setDeskControl(true)
+                    if (agentId) void ensureBrowser(agentId)
+                  }}
+                  onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
                 />
               ) : null}
               <Composer
@@ -1381,7 +1397,7 @@ export function JobStrip({
     >
       {jobs.map((job) => {
         const owner = agents.find((agent) => agent.id === job.ownerAgentId)
-        const label = `${owner?.name ?? 'Agent'} · ${job.kind} · ${job.goal}`
+        const label = `${owner?.name ?? 'Agent'} · ${jobKindLabel(job.kind)} · ${job.goal}`
         return (
           <div
             key={job.id}
