@@ -17,7 +17,7 @@ export type MarkPose = { squashY: number; spec: number; shine: number; key: Pt; 
 const HEAD =
   'M228.541 114.228C228.541 130.133 225.184 145.994 218.738 160.534C212.674 174.217 203.904 186.669 193.065 196.988C155.933 232.34 99.497 238.596 55.5255 212.24C45.097 205.99 35.6851 198.072 27.7451 188.866C19.1926 178.953 12.3686 167.569 7.65781 155.351C2.60712 142.264 0 128.257 0 114.228C0 98.3219 3.35751 82.4611 9.80315 67.9215C15.8672 54.2382 24.6377 41.7862 35.4767 31.4668C72.6081 -3.88483 129.044 -10.1413 173.016 16.2153C183.444 22.4653 192.856 30.3829 200.796 39.5896C209.349 49.5018 216.173 60.8859 220.883 73.1037C225.934 86.1906 228.541 100.198 228.541 114.228Z'
 
-export const MARK_BAKE_REV = 5
+export const MARK_BAKE_REV = 6
 
 export const SEED_BAKES: { shape: MarkShape; tint: string; hex: string }[] = [
   { shape: 'blob', tint: 'staff', hex: T.staff.face },
@@ -30,30 +30,25 @@ export type EyeLook = { dx: number; dy: number; open: number }
 const REST_POSE: MarkPose = { squashY: 1, spec: 0.12, shine: 48, key: [-0.45, -0.65], keyZ: 0.6 }
 const BREATHE_PEAK: MarkPose = { squashY: 1.02, spec: 0.14, shine: 46, key: [-0.45, -0.66], keyZ: 0.62 }
 const SELECTED_POSE: MarkPose = { squashY: 1, spec: 0.18, shine: 40, key: [-0.38, -0.72], keyZ: 0.62 }
-const CHEW_OPEN: MarkPose = { squashY: 1, spec: 0.14, shine: 48, key: [-0.45, -0.62], keyZ: 0.58 }
-const CHEW_SHUT: MarkPose = { squashY: 1, spec: 0.12, shine: 36, key: [-0.48, -0.58], keyZ: 0.55 }
 
 export function poseForName(frame: MarkFrame): MarkPose {
-  if (frame === 'rest') return REST_POSE
+  if (frame === 'rest' || frame === 'body') return REST_POSE
   if (frame === 'breathe') return BREATHE_PEAK
   if (frame === 'selected') return SELECTED_POSE
-  if (frame === 'chew-a') return CHEW_OPEN
-  if (frame === 'chew-b') return CHEW_SHUT
   throw new Error(`unknown mark frame ${frame}`)
 }
 
-/** Busy chew darts the pair; the body stays unsquashed. Eyes are round dots. */
+/** Idle/selected bake eyes into the PNG. Body is eyeless so the rail can overlay dots. */
 export function eyeLookForName(frame: MarkFrame): EyeLook {
+  if (frame === 'body') return { dx: 0, dy: 0, open: 0 }
   if (frame === 'rest') return { dx: 0, dy: 0, open: 1 }
   if (frame === 'breathe') return { dx: 0.01, dy: -0.015, open: 1 }
   if (frame === 'selected') return { dx: -0.03, dy: 0.01, open: 1 }
-  if (frame === 'chew-a') return { dx: 0.16, dy: -0.1, open: 1 }
-  if (frame === 'chew-b') return { dx: -0.16, dy: 0.12, open: 1 }
   throw new Error(`unknown mark frame ${frame}`)
 }
 
 export function allFrameNames(): MarkFrame[] {
-  return ['rest', 'breathe', 'selected', 'chew-a', 'chew-b']
+  return ['rest', 'breathe', 'selected', 'body']
 }
 
 export const MARK_FRAMES = allFrameNames()
@@ -578,6 +573,7 @@ function stampEyes(
   frame: MarkFrame,
 ): void {
   const look = eyeLookForName(frame)
+  if (look.open <= 0) return
   const box = polyBounds(pts)
   const w = Math.max(box.maxX - box.minX, 1)
   const h = Math.max(box.maxY - box.minY, 1)

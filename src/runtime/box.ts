@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process'
-import { BOX_IMAGE, BOX_NAME, computerRoot, desktopsRoot } from './computer'
+import { BOX_IMAGE, BOX_NAME, BOX_CDP_DISPLAY_MAX, boxChromeDebugPort, computerRoot, desktopsRoot } from './computer'
 import { automatonHome } from './keys'
 
 export type BoxKind = 'local-docker'
@@ -15,13 +15,13 @@ export type BoxSeams = {
   docker?: (args: string[]) => { status: number; text: string }
 }
 
-function defaultDocker(args: string[]): { status: number; text: string } {
+function defaultDocker(args: string[], timeoutMs = 45_000): { status: number; text: string } {
   if (process.env.BUN_TEST && !process.env.AUTOMATON_DOCKER?.trim()) {
     return { status: 1, text: 'docker disabled in tests' }
   }
   const result = spawnSync('docker', args, {
     encoding: 'utf8',
-    timeout: 45_000,
+    timeout: timeoutMs,
     env: process.env,
   })
   if (result.error && /ENOENT|not found/i.test(String(result.error))) {
@@ -33,8 +33,21 @@ function defaultDocker(args: string[]): { status: number; text: string } {
   }
 }
 
-function runDocker(args: string[], seams: BoxSeams = {}): { status: number; text: string } {
-  return (seams.docker ?? defaultDocker)(args)
+function runDocker(
+  args: string[],
+  seams: BoxSeams = {},
+  timeoutMs?: number,
+): { status: number; text: string } {
+  return (seams.docker ?? ((argv) => defaultDocker(argv, timeoutMs)))(args)
+}
+
+export function boxCdpPublishArgv(): string[] {
+  const flags: string[] = []
+  for (let display = 1; display <= BOX_CDP_DISPLAY_MAX; display += 1) {
+    const port = boxChromeDebugPort(display)
+    flags.push('-p', `127.0.0.1:${port}:${port}`)
+  }
+  return flags
 }
 
 export function boxName(): string {
@@ -55,6 +68,7 @@ export function boxRunArgv(home = automatonHome()): string[] {
     '-d',
     '--name',
     BOX_NAME,
+    ...boxCdpPublishArgv(),
     '-v',
     `${mounts.desktops}:/home/box/desktops`,
     '-v',
@@ -89,8 +103,13 @@ function boxImageMatches(seams: BoxSeams = {}): boolean {
   return image === container
 }
 
+function boxHasCdpPublish(seams: BoxSeams = {}): boolean {
+  const result = runDocker(['inspect', '-f', '{{json .HostConfig.PortBindings}}', BOX_NAME], seams)
+  return result.status === 0 && /9221\/tcp/.test(result.text)
+}
+
 function boxNeedsRecreate(seams: BoxSeams = {}): boolean {
-  return !boxHasScreen(seams) || !boxImageMatches(seams)
+  return !boxHasScreen(seams) || !boxImageMatches(seams) || !boxHasCdpPublish(seams)
 }
 
 function recreateBox(home: string, seams: BoxSeams = {}): BoxStatus {
@@ -125,9 +144,11 @@ export function boxExec(
   argv: string[],
   env: Record<string, string> = {},
   seams: BoxSeams = {},
+  opts: { user?: string; timeoutMs?: number } = {},
 ): { status: number; text: string } {
+  const userFlags = opts.user ? ['-u', opts.user] : []
   const flags = Object.entries(env).flatMap(([key, value]) => ['-e', `${key}=${value}`])
-  return runDocker(['exec', ...flags, BOX_NAME, ...argv], seams)
+  return runDocker(['exec', ...userFlags, ...flags, BOX_NAME, ...argv], seams, opts.timeoutMs)
 }
 
 function execArgv(argv: string[], env: Record<string, string> = {}): string[] {

@@ -23,7 +23,17 @@ export type Agent = {
 
 export type JobStatus = 'running' | 'complete' | 'failed'
 
-export type JobKind = 'analyze' | 'implement'
+export type JobKind = 'analyze' | 'implement' | 'box-shell'
+
+export type DeskHandoff = {
+  agentId: AgentId
+  url: string
+  instruction: string
+}
+
+export type BoxShellIntent =
+  | { kind: 'which'; name: string }
+  | { kind: 'install'; name: string }
 
 export type AgentKit = 'coordinator' | 'code' | 'lookup' | 'blank'
 
@@ -155,9 +165,46 @@ export function looksLikeExplicitLookup(text: string): boolean {
   return /\b(look up|lookup|research|wiki|search)\b/.test(lower) && lower.length > 16
 }
 
+const BOX_SHELL_NAME = /^[A-Za-z][A-Za-z0-9._+-]{0,63}$/
+
+/** PATH/apt on the shared Docker computer. Not a Mac shell and not a chat PTY. */
+export function looksLikeBoxShell(text: string): boolean {
+  const lower = text.toLowerCase()
+  if (/\bapt-get\b|\bapt install\b/.test(lower)) return true
+  if (/\b(on(?:\s+the)?\s+path|which\s+|command\s+-v)\b/.test(lower)) return true
+  if (/\binstall\b/.test(lower) && /\b(computer|box|linux|the vm)\b/.test(lower)) return true
+  return /\binstalled\b/.test(lower) && /\b(computer|box|linux|on path)\b/.test(lower)
+}
+
+export function parseBoxShellIntent(text: string): BoxShellIntent | null {
+  const which =
+    /\b(?:which|command\s+-v)\s+([A-Za-z][A-Za-z0-9._+-]*)/i.exec(text) ??
+    /\bis\s+([A-Za-z][A-Za-z0-9._+-]*)\s+(?:on(?:\s+the)?\s+path|installed)\b/i.exec(text)
+  const install = /\b(?:apt-get\s+install|apt\s+install|install)\s+([A-Za-z][A-Za-z0-9._+-]*)/i.exec(text)
+  const whichName = which?.[1]
+  const installName = install?.[1]
+  if (/\bon(?:\s+the)?\s+path\b/i.test(text) && whichName && BOX_SHELL_NAME.test(whichName)) {
+    return { kind: 'which', name: whichName }
+  }
+  if (installName && BOX_SHELL_NAME.test(installName) && /\b(computer|box|linux|the vm|apt)\b/i.test(text)) {
+    return { kind: 'install', name: installName.toLowerCase() }
+  }
+  if (whichName && BOX_SHELL_NAME.test(whichName)) return { kind: 'which', name: whichName }
+  if (looksLikeBoxShell(text) && installName && BOX_SHELL_NAME.test(installName)) {
+    return { kind: 'install', name: installName.toLowerCase() }
+  }
+  return null
+}
+
+export function jobKindLabel(kind: JobKind): string {
+  if (kind === 'box-shell') return 'shell'
+  return kind
+}
+
 /** Kit sets default job policy. Blank never dispatches. Coordinator books jobs, not every question. */
 export function jobKindForKit(kit: AgentKit, text: string): JobKind | null {
   if (kit === 'blank') return null
+  if (looksLikeBoxShell(text)) return 'box-shell'
   if (kit === 'lookup') {
     return looksLikeJob(text) || looksLikeLookup(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)
       ? 'analyze'
@@ -267,7 +314,9 @@ function stripAddressing(text: string, agents: Agent[]): string {
 }
 
 function remainderIsWork(text: string): boolean {
-  if (looksLikeJob(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) return true
+  if (looksLikeBoxShell(text) || looksLikeJob(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) {
+    return true
+  }
   if (looksLikeLookup(text) && !/\b(online|around|there)\b/i.test(text)) return true
   return false
 }
@@ -522,7 +571,19 @@ export function deskOpenAck(url: string): string {
   } catch {
     host = url
   }
-  return `Opening ${host} on this screen. Take control to sign in.`
+  return `Opening ${host}.`
+}
+
+export function deskHandoffInstruction(url: string): string {
+  let host = ''
+  try {
+    host = new URL(url).host.toLowerCase()
+  } catch {
+    return 'Sign in if this page asks.'
+  }
+  if (host.includes('google')) return 'Sign in to your Google account.'
+  if (host.includes('github')) return 'Sign in to GitHub.'
+  return `Sign in if ${host} asks.`
 }
 
 function namedInOrder(text: string, agents: Agent[]): Agent[] {

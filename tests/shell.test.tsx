@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Feed, JobStrip } from '../src/app'
-import { assertSeedFrames, blobNeedsClock, presentBlob, SisterBlob } from '../src/blob'
+import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
 import { Inspector, inspectorChord, pasteChord, quitChord } from '../src/inspector'
 import { createAgent } from '../src/runtime/factory'
@@ -146,20 +146,21 @@ describe('sister blob presentation', () => {
   test('seed trio frames exist and the glyph source is not a fill chip', () => {
     assertSeedFrames()
     const src = readFileSync(join(import.meta.dir, '../src/blob.tsx'), 'utf8')
-    expect(src).not.toMatch(/backgroundColor/)
-    expect(src).not.toMatch(/tickMs|splitCycle|cycleLayers/)
+    expect(src).not.toMatch(/tickMs|splitCycle|cycleLayers|chewSide|chewMs/)
     expect(src).toMatch(/pointerEvents:\s*'none'/)
+    expect(src).toMatch(/framePath\(mark.shape, mark.tint, layer.frame\)/)
+    expect(src).toMatch(/busyEyeLayout/)
+    expect(src).toMatch(/T\.catalog\.black/)
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).not.toMatch(/selected \? T.overlayStrong : T.clear/)
     expect(app).toMatch(/pointerEvents: 'auto'/)
   })
 
-  test('selected lifts, idle is still, and chew is mouth-busy only', () => {
+  test('selected lifts, idle is still, and thinking eyes are mouth-busy only', () => {
     const idle = presentBlob({
       selected: false,
       unread: 0,
       mouthBusy: false,
-      chewSide: 'a',
       index: 0,
       entered: true,
     })
@@ -167,7 +168,6 @@ describe('sister blob presentation', () => {
       selected: true,
       unread: 0,
       mouthBusy: false,
-      chewSide: 'a',
       index: 0,
       entered: true,
     })
@@ -175,7 +175,6 @@ describe('sister blob presentation', () => {
       selected: false,
       unread: 2,
       mouthBusy: false,
-      chewSide: 'b',
       index: 2,
       entered: true,
     })
@@ -183,51 +182,54 @@ describe('sister blob presentation', () => {
       selected: true,
       unread: 1,
       mouthBusy: true,
-      chewSide: 'a',
       index: 1,
       entered: true,
     })
-    const busyB = presentBlob({
+    const busyIdleSeat = presentBlob({
       selected: false,
       unread: 0,
       mouthBusy: true,
-      chewSide: 'b',
       index: 0,
       entered: true,
     })
-    expect(idle.weights).toEqual({ rest: 1, breathe: 0, selected: 0, chewA: 0, chewB: 0 })
+    expect(idle.weights).toEqual({ rest: 1, breathe: 0, selected: 0, body: 0 })
     expect(idle.glyphHeight).toBe(T.blob.size)
     expect(idle.lift).toBe(0)
     expect(blobNeedsClock(false)).toBe(false)
-    expect(selected.weights).toEqual({ rest: 0, breathe: 0, selected: 1, chewA: 0, chewB: 0 })
+    expect(selected.weights).toEqual({ rest: 0, breathe: 0, selected: 1, body: 0 })
     expect(selected.lift).toBe(T.blob.selectedLift)
     expect(selected.duration).toBe(T.motion.selected)
     expect(blobNeedsClock(false)).toBe(false)
     expect(unread.weights.rest).toBe(1)
-    expect(unread.weights.chewA).toBe(0)
-    expect(unread.weights.chewB).toBe(0)
-    expect(busy.weights).toEqual({ rest: 0, breathe: 0, selected: 0, chewA: 1, chewB: 0 })
-    expect(busy.duration).toBe(T.blob.chewMs / 1000)
+    expect(unread.weights.body).toBe(0)
+    expect(busy.weights).toEqual({ rest: 0, breathe: 0, selected: 0, body: 1 })
+    expect(busy.duration).toBe(T.motion.selected)
     expect(busy.glyphHeight).toBe(T.blob.size)
     expect(busy.lift).toBe(T.blob.selectedLift)
-    expect(busyB.weights.chewB).toBe(1)
-    expect(busyB.weights.chewA).toBe(0)
+    expect(busyIdleSeat.weights.body).toBe(1)
+    expect(busyIdleSeat.weights.rest).toBe(0)
     expect(blobNeedsClock(true)).toBe(true)
+    const open = busyEyeLayout(0, false)
+    const shut = busyEyeLayout(0, true)
+    const glance = busyEyeLayout(1, false)
+    expect(open).toHaveLength(2)
+    expect(open[0]?.height).toBe(T.blob.eye)
+    expect(shut[0]?.height).toBe(T.space.xxs)
+    expect(shut[0]?.height).toBeLessThan(open[0]?.height ?? 0)
+    expect(Math.abs((glance[0]?.left ?? 0) - (open[0]?.left ?? 0))).toBeGreaterThan(0)
   })
 
-  test('a job handle is not an input, so it cannot chew a mouth', () => {
+  test('a job handle is not an input, so it cannot think a mouth', () => {
     const kernel = presentBlob({
       selected: false,
       unread: 0,
       mouthBusy: false,
-      chewSide: 'b',
       index: 1,
       entered: true,
     })
-    expect(kernel.weights.chewA).toBe(0)
-    expect(kernel.weights.chewB).toBe(0)
+    expect(kernel.weights.body).toBe(0)
     expect(kernel.weights.rest).toBe(1)
-    expect(kernel.duration).not.toBe(T.blob.chewMs / 1000)
+    expect(kernel.duration).not.toBe(T.blob.wanderMs / 1000)
     expect(kernel.glyphWidth).toBe(T.blob.size)
   })
 
@@ -236,12 +238,11 @@ describe('sister blob presentation', () => {
       selected: false,
       unread: 0,
       mouthBusy: false,
-      chewSide: 'a',
       index: 2,
       entered: false,
     })
     expect(mount.weights.rest).toBe(1)
-    expect(mount.weights.chewA).toBe(0)
+    expect(mount.weights.body).toBe(0)
     expect(mount.glyphWidth).toBe(T.blob.enterSize)
     expect(mount.delay).toBe(2 * T.blob.stagger)
   })
@@ -427,6 +428,7 @@ native('staff shell (GPUI native)', () => {
       </div>,
     )
     renderer.flush()
+    renderer.flush()
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
     const staff = findTestId(tree, 'blob-staff')
     const kernel = findTestId(tree, 'blob-kernel')
@@ -434,12 +436,17 @@ native('staff shell (GPUI native)', () => {
     expect(staff).toBeTruthy()
     expect(kernel).toBeTruthy()
     expect(research).toBeTruthy()
+    expect(findTestId(tree, 'blob-eye-kernel-left')).toBeTruthy()
+    expect(findTestId(tree, 'blob-eye-kernel-right')).toBeTruthy()
+    expect(findTestId(tree, 'blob-eye-staff-left')).toBeFalsy()
 
     renderer.clockPause()
-    renderer.clockFastForward(T.blob.chewMs)
+    renderer.clockFastForward(T.blob.wanderMs)
     renderer.flush()
-    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'blob-kernel')).toBeTruthy()
-    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'blob-staff')).toBeTruthy()
+    const after = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(after, 'blob-eye-kernel-left')).toBeTruthy()
+    expect(findTestId(after, 'blob-kernel')).toBeTruthy()
+    expect(findTestId(after, 'blob-staff')).toBeTruthy()
   })
 
   test('job handle labels stay on one row', () => {
@@ -600,6 +607,36 @@ native('staff shell (GPUI native)', () => {
     expect(painted).toContain('Staff line 23')
     expect(painted).toContain('Stop')
     expect(statSync(shot).size).toBeGreaterThan(1000)
+  })
+
+  test('desk handoff is a Take control card, not a spoken hint', () => {
+    resetIdsForTests()
+    const store = testStore()
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+      deskHandoff: {
+        agentId: 'staff',
+        url: 'https://github.com/login',
+        instruction: 'Sign in to GitHub.',
+      },
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'desk-handoff')).toBeTruthy()
+    expect(findTestId(tree, 'desk-handoff-yes')).toBeTruthy()
+    expect(findTestId(tree, 'desk-stage')).toBeFalsy()
+    expect(renderer.getPaintedText().join(' ')).toContain('Sign in to GitHub.')
+    clickTestId(renderer, 'desk-handoff-yes')
+    renderer.flush()
+    const after = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(after, 'desk-handoff')).toBeFalsy()
+    expect(findTestId(after, 'desk-stage')).toBeTruthy()
   })
 
   test('a growing last line stays on the tail', () => {

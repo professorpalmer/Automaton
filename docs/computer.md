@@ -28,8 +28,8 @@ docker build -t automaton-computer:local box
 ```
 
 Boot calls `ensureBox` then `ensureScreen` for the focused automaton. The
-named container is recreated when the image id drifted or
-`automaton-screen` is missing.
+named container is recreated when the image id drifted,
+`automaton-screen` is missing, or Chromium debug ports are not published.
 
 ## Take control
 
@@ -45,13 +45,22 @@ pointer is down.
 
 Staff does not pixel-click as a mouth. The operator drives the screen.
 Named sites (Google) and https links are runtime URL opens
-(`openDeskUrl`). Staff acks `Opening {host} on this screen. Take control
-to sign in.` It does not type passwords and does not lecture about the
-display.
+(`browse` → CDP `Page.navigate` on the box Chrome debug port, xdotool
+omnibox as fallback). Staff acks `Opening {host}.` Auth is a dock card
+with one instruction line; Take control latches the stage. Staff does not
+type passwords (`keyDesk` is the operator on the blit only) and does not
+lecture about the display.
+
+The container publishes Chromium debug ports on loopback
+(`127.0.0.1:9221` for display `:1`). Inside the box Chrome listens on
+`0.0.0.0` so the published port works. That is not Marionette's Mac CDP
+port 9333.
+
+PATH and apt asks are a `box-shell` job (`docker exec`), not implement on
+this Mac. Do not stdio a PTY into the VM for computer-use.
 
 Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Host
-Chrome is a fallback when the box is down, not a second computer. Do not
-stdio a PTY into the VM for computer-use; tools talk to docker exec.
+Chrome is a fallback when the box is down, not a second computer.
 
 Live capture proof (needs Docker):
 

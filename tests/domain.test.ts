@@ -14,9 +14,14 @@ import {
   jobKindForKit,
   lastSpoken,
   looksLikeJob,
+  looksLikeBoxShell,
+  parseBoxShellIntent,
+  jobKindLabel,
   mentionedAgentIds,
   needsFanoutConfirm,
   parseDeskUrl,
+  deskOpenAck,
+  deskHandoffInstruction,
   parseGithubHomes,
   sanitizeDeskUrl,
   renameAgents,
@@ -104,6 +109,16 @@ describe('mouth vs job', () => {
     )
     expect(jobKindForKit('code', 'check the ledger replay in Automaton staff.')).toBe('analyze')
     expect(jobKindForKit('coordinator', 'check the ledger replay in Automaton staff.')).toBeNull()
+    expect(jobKindForKit('coordinator', 'is claude on PATH')).toBe('box-shell')
+    expect(jobKindForKit('code', 'install curl on the computer')).toBe('box-shell')
+    expect(jobKindForKit('blank', 'is claude on PATH')).toBeNull()
+    expect(looksLikeBoxShell('is claude on PATH')).toBe(true)
+    expect(looksLikeBoxShell('install curl on the computer')).toBe(true)
+    expect(looksLikeBoxShell('implement the mention insert on the composer')).toBe(false)
+    expect(parseBoxShellIntent('is claude on PATH')).toEqual({ kind: 'which', name: 'claude' })
+    expect(parseBoxShellIntent('install curl on the computer')).toEqual({ kind: 'install', name: 'curl' })
+    expect(parseBoxShellIntent('rm -rf /')).toBeNull()
+    expect(jobKindLabel('box-shell')).toBe('shell')
   })
 
   test('threads are per agent', () => {
@@ -288,5 +303,8 @@ describe('mouth vs job', () => {
     expect(parseDeskUrl('open google.com')).toBe('https://google.com/')
     expect(parseDeskUrl('go to youtube.com')).toBe('https://youtube.com/')
     expect(parseDeskUrl('What about Puppetmaster?')).toBeNull()
+    expect(deskOpenAck('https://github.com/login')).toBe('Opening github.com.')
+    expect(deskHandoffInstruction('https://github.com/login')).toBe('Sign in to GitHub.')
+    expect(deskHandoffInstruction('https://www.google.com/')).toBe('Sign in to your Google account.')
   })
 })

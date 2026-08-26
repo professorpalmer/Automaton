@@ -418,3 +418,38 @@ describe('bound product home', () => {
     rmSync(agents, { recursive: true, force: true })
   })
 })
+
+describe('box-shell dispatch', () => {
+  beforeEach(() => {
+    resetJobsForTests()
+  })
+
+  test('docker exec answers PATH without spawning Puppetmaster', async () => {
+    const seen: string[] = []
+    const h = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_box_which',
+        ownerAgentId: 'staff',
+        kind: 'box-shell',
+        goal: 'is claude on PATH',
+      }),
+      h,
+      [],
+      {
+        spawn: async (argv) => {
+          seen.push(argv.join(' '))
+          throw new Error('pm must not start')
+        },
+        boxShell: (item) => {
+          expect(item.kind).toBe('box-shell')
+          return { ok: true, spoken: 'claude is on the computer at /usr/bin/claude.' }
+        },
+      },
+    )
+    expect(seen).toEqual([])
+    expect(h.attached).toEqual([])
+    expect(h.complete).toEqual(['claude is on the computer at /usr/bin/claude.'])
+    expect(h.fail).toEqual([])
+  })
+})

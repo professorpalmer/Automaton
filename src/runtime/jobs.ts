@@ -2,6 +2,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
+import { type BoxSeams } from './box'
+import { runBoxShell } from './box-shell'
 import { readProfile } from './profile'
 import {
   PRODUCT_ROOT,
@@ -46,6 +48,8 @@ export type DispatchSeams = {
   implementFiles?: (job: JobHandle) => { configPath: string; goalPath: string }
   sleep?: (ms: number) => Promise<void>
   maxUnavailableStatusReads?: number
+  box?: BoxSeams
+  boxShell?: (job: JobHandle) => { ok: boolean; spoken: string }
 }
 
 type Inflight = {
@@ -133,6 +137,13 @@ export async function ensureDispatched(
   try {
     if (job.pmJobId) {
       await attachExisting(job.pmJobId, row, hooks, statusOf, refsOf, seams)
+      return
+    }
+    if (job.kind === 'box-shell') {
+      const result = (seams.boxShell ?? ((item) => runBoxShell(item, seams.box)))(job)
+      if (row.abandoned) return
+      if (result.ok) hooks.onComplete(result.spoken)
+      else hooks.onFail(result.spoken)
       return
     }
     if (job.kind === 'analyze') {

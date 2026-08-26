@@ -19,6 +19,9 @@ describe('local docker box', () => {
     const docker = (args: string[]) => {
       seen.push(args)
       if (args[0] === 'inspect' && args.includes('{{.Image}}')) return { status: 0, text: 'sha256:abc\n' }
+      if (args[0] === 'inspect' && args.some((arg) => arg.includes('PortBindings'))) {
+        return { status: 0, text: '{"9221/tcp":[{"HostIp":"127.0.0.1","HostPort":"9221"}]}\n' }
+      }
       if (args[0] === 'inspect') return { status: 0, text: running ? 'true\n' : 'false\n' }
       if (args[0] === 'image') return { status: 0, text: 'sha256:abc\n' }
       if (args[0] === 'exec') return { status: 0, text: '/usr/local/bin/automaton-screen\n' }
@@ -44,6 +47,7 @@ describe('local docker box', () => {
     expect(argv).toContain(BOX_NAME)
     expect(argv).toContain('--shm-size')
     expect(argv.join(' ')).toContain('/home/box/desktops')
+    expect(argv.join(' ')).toContain('127.0.0.1:9221:9221')
     expect(computerLabel(up)).toContain('running')
     const slept = sleepBox(home, { docker })
     expect(slept.running).toBe(false)
@@ -60,6 +64,12 @@ describe('local docker box', () => {
       seen.push(args)
       if (args[0] === 'inspect' && args.includes('{{.Image}}')) {
         return { status: 0, text: hasScreen ? 'sha256:new\n' : 'sha256:old\n' }
+      }
+      if (args[0] === 'inspect' && args.some((arg) => arg.includes('PortBindings'))) {
+        return {
+          status: 0,
+          text: hasScreen ? '{"9221/tcp":[{"HostIp":"127.0.0.1","HostPort":"9221"}]}\n' : '{}\n',
+        }
       }
       if (args[0] === 'inspect') return { status: 0, text: running ? 'true\n' : 'false\n' }
       if (args[0] === 'image') return { status: 0, text: 'sha256:new\n' }

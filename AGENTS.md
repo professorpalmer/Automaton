@@ -2,7 +2,8 @@
 
 Named automata have their own threads. Chief of Staff is the only seeded
 automaton; others are created by the user or by Staff. Automata speak, then
-dispatch. Puppetmaster is the only job runtime. Workers never appear as chat.
+dispatch. Puppetmaster runs analyze and implement. Box-shell is `docker exec`
+on the shared computer, not a chat PTY. Workers never appear as chat.
 
 The native face is React authored and rendered through Zed GPUI using
 `@gpuix/react`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.

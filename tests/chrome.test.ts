@@ -11,11 +11,12 @@ import {
   chromeMode,
   devtoolsPath,
   ensureBrowser,
+  goToUrl,
   readHandle,
   teardownBrowserDesktop,
   type ChromeSeams,
 } from '../src/runtime/chrome'
-import { BOX_NAME } from '../src/runtime/computer'
+import { BOX_NAME, boxChromeDebugPort } from '../src/runtime/computer'
 import { desktopDir, desktopPreview, ensureDesktop, teardownDesktop } from '../src/runtime/desktop'
 
 const TINY_PNG = Buffer.from(
@@ -44,11 +45,15 @@ describe('browser helper', () => {
     expect(launch.argv).toContain(BOX_NAME)
     expect(launch.argv.join(' ')).toContain('DISPLAY=:2')
     expect(launch.argv.join(' ')).toContain('/home/box/desktops/kernel/box-chrome')
+    expect(launch.argv.join(' ')).toContain('--remote-debugging-port=9333')
+    expect(launch.argv.join(' ')).toContain('--remote-debugging-address=0.0.0.0')
     expect(launch.argv.join(' ')).toContain('--no-sandbox')
     expect(launch.argv.join(' ')).toContain('--disable-dev-shm-usage')
     expect(launch.argv.join(' ')).not.toContain('Xvfb')
     expect(launch.argv.join(' ')).not.toContain('novnc')
     expect(launch.argv.join(' ')).not.toContain('headless')
+    expect(boxChromeDebugPort(1)).toBe(9221)
+    expect(boxChromeDebugPort(2)).toBe(9222)
     rmSync(home, { recursive: true, force: true })
   })
 
@@ -116,6 +121,28 @@ describe('browser helper', () => {
     const home = tmpHome()
     expect(await captureScreen('staff', home, { binary: null })).toBeNull()
     expect(desktopPreview('staff', home).screen).toBeNull()
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('box navigate uses CDP then falls back to typing the URL', async () => {
+    const home = tmpHome()
+    const seen: string[] = []
+    expect(
+      await goToUrl('box', 9221, 'staff', 'https://example.com', home, {
+        navigate: async (port, url) => {
+          expect(port).toBe(9221)
+          seen.push(url)
+        },
+      }),
+    ).toBe(true)
+    expect(seen).toEqual(['https://example.com'])
+    expect(
+      await goToUrl('host', 9333, 'staff', 'https://example.com', home, {
+        navigate: async () => {
+          throw new Error('cdp down')
+        },
+      }),
+    ).toBe(false)
     rmSync(home, { recursive: true, force: true })
   })
 })
