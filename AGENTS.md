@@ -2,8 +2,10 @@
 
 Named automata have their own threads. Chief of Staff is the only seeded
 automaton; others are created by the user or by Staff. Automata speak, then
-dispatch. Puppetmaster runs analyze and implement. Box-shell is `docker exec`
-on the shared computer, not a chat PTY. Workers never appear as chat.
+dispatch. The mouths are a harness for this Mac, not a chatbot about this
+checkout. Puppetmaster runs analyze and implement against the named
+product tree. Box-shell is `docker exec` on the shared computer, not a chat
+PTY. Workers never appear as chat.
 
 The native face is React authored and rendered through Zed GPUI using
 `@gpuix/react`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
@@ -21,9 +23,9 @@ CI is `bun test`. There is no Python host, pytest job, or `tenant/` tree.
 
 `bun src/main.tsx` is the raw GPUI process. On macOS, `bun run app` opens
 `macos/Automaton.app` so the Dock icon and the menu bar belong to Automaton
-instead of Cursor. `bun --hot src/main.tsx` remounts can leave a zombie
-window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a read-only
-analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
+instead of a bun terminal tile. `bun --hot src/main.tsx` remounts can leave a
+zombie window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a
+read-only analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
 OpenRouter mouth and its zero-call query path.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
@@ -35,8 +37,8 @@ Invariants:
 
 - Running a job is not mouth busy. Composer stays Send.
 - Fan-out to 3+ automata needs confirmation. Dismiss means no send.
-- Completion wakes the owning automaton. It is unread when the user is on
-  another thread.
+- Completion continues leftover steps from the original ask.
+- The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
 

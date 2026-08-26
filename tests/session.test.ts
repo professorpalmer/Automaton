@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'bun:test'
-import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { mkdirSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { emptyThreads, MANDATE_MAX_STEPS, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { writeProfile } from '../src/runtime/profile'
 import {
   addLiveAgent,
   attachPmJob,
@@ -11,11 +15,13 @@ import {
   failJob,
   failMouth,
   idleOrphanMouths,
+  noteJobStatus,
   pendingMouthTurns,
   queuePaths,
   send,
   setActive,
   setDraft,
+  stopJob,
   type Session,
 } from '../src/session'
 
@@ -105,6 +111,115 @@ describe('teammate session', () => {
     expect(s.jobs[0].ownerAgentId).toBe('staff')
     expect(s.jobs[0].kind).toBe('implement')
     expect(s.threads.staff.mouth).toBe('working')
+  })
+
+  test('Staff looks at a named machine checkout instead of chatting Automaton internals', () => {
+    const s = send(
+      fresh(),
+      'what script does puppetmaster have its model routing logic contained in?',
+    )
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0].ownerAgentId).toBe('staff')
+    expect(s.jobs[0].kind).toBe('analyze')
+    expect(s.threads.staff.mouth).toBe('working')
+  })
+
+  test("Staff product-stack ask books a look instead of offering to dispatch", () => {
+    const dugout = {
+      id: 'agent_d',
+      name: 'Dugout',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), dugout]
+    resetIdsForTests()
+    const s = send(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      "What is Dugout's stack made up of?",
+    )
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    expect(s.jobs[0]?.ownerAgentId).toBe('staff')
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(s.threads.staff.items.some((item) => item.kind === 'relay')).toBe(false)
+  })
+
+  test('Staff ask-Puppetmaster repo look books analyze on that mouth', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-pm-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_pm',
+        name: 'Puppetmaster',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'hex',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-25T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const puppetmaster = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    try {
+      const s = send(
+        {
+          agents: [...staffWithSisters(), puppetmaster],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), puppetmaster]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        'Ask Puppetmaster to look at the repo and find the router logic.',
+      )
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(s.jobs).toHaveLength(1)
+      expect(s.jobs[0]?.kind).toBe('analyze')
+      expect(s.jobs[0]?.ownerAgentId).toBe('agent_pm')
+      expect(s.threads.agent_pm.mouth).toBe('working')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('Staff excerpt follow-up keeps the earlier product in the look goal', () => {
+    let s = send(
+      fresh(),
+      'what script does puppetmaster have its model routing logic contained in?',
+    )
+    s = completeJob(s, s.jobs[0].id, 'Routing lives in puppetmaster/router.py.')
+    s = send(s, 'can you show me some excerpts')
+    expect(s.jobs).toHaveLength(2)
+    expect(s.jobs[1].kind).toBe('analyze')
+    expect(s.jobs[1].goal).toContain('continuing:')
+    expect(s.jobs[1].goal).toContain('puppetmaster')
   })
 
   test('Research lookup dispatches analyze, not implement', () => {
@@ -277,6 +392,59 @@ describe('teammate session', () => {
         (item) => item.kind === 'agent_note' && item.fromId === 'staff',
       ),
     ).toBe(true)
+  })
+
+  test('Staff check-each order sends to both mouths without an OpenRouter turn', () => {
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const puppetmaster = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette, puppetmaster]
+    resetIdsForTests()
+    const s = send(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      'Check Marionette and Puppetmaster each for open PRs or issues, please.',
+    )
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(
+      s.threads.staff.items.some(
+        (item) =>
+          item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Marionette and Puppetmaster.',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_mn',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_pm',
+      ),
+    ).toBe(true)
+    expect(s.threads.agent_mn.mouth).toBe('answer')
+    expect(s.threads.agent_pm.mouth).toBe('answer')
+    expect(s.threads.agent_mn.items.some((item) => item.kind === 'agent_note')).toBe(true)
+    expect(s.threads.agent_pm.items.some((item) => item.kind === 'agent_note')).toBe(true)
+    expect(s.threads.staff.mouth).not.toBe('answer')
   })
 
   test('Staff two-name lookup dispatches without a fan-out card', () => {
@@ -510,6 +678,63 @@ describe('teammate session', () => {
     ).toBe(false)
   })
 
+  test('status ask while the owner job runs stays working and skips a mouth turn', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    expect(s.threads.kernel.mouth).toBe('working')
+    const jobId = s.jobs[0]?.id
+    expect(jobId).toBeTruthy()
+    s = send(s, 'how did it go?')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.status).toBe('running')
+    expect(s.threads.kernel.mouth).toBe('working')
+    expect(pendingMouthTurns(s)).toEqual([])
+    const last = s.threads.kernel.items.at(-1)
+    expect(last?.kind).toBe('msg')
+    if (last?.kind === 'msg') {
+      expect(last.from).toBe('agent')
+      expect(last.text).toBe('Still running.')
+      expect(last.text).not.toBe('Done.')
+    }
+    s = send(s, 'what did you find')
+    expect(s.threads.kernel.mouth).toBe('working')
+    expect(pendingMouthTurns(s)).toEqual([])
+    expect(s.jobs[0]?.status).toBe('running')
+    s = completeJob(s, s.jobs[0].id, 'The ledger replay is deterministic.')
+    s = send(s, 'how did it go?')
+    expect(s.threads.kernel.mouth).toBe('answer')
+    expect(pendingMouthTurns(s)).toHaveLength(1)
+    expect(pendingMouthTurns(s)[0]?.userText).toBe('how did it go?')
+  })
+
+  test('noteJobStatus speaks once, then only refreshes the handle', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    const jobId = s.jobs[0].id
+    s = noteJobStatus(s, jobId, 'Still running.')
+    expect(s.jobs[0]?.lastNote).toBe('Still running.')
+    expect(typeof s.jobs[0]?.updatedAt).toBe('number')
+    expect(s.threads.kernel.mouth).toBe('working')
+    const spoken = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
+    expect(spoken.some((item) => item.kind === 'msg' && item.text === 'Still running.')).toBe(true)
+    const afterFirst = spoken.length
+    s = noteJobStatus(s, jobId, 'Still running.')
+    const spokenAgain = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
+    expect(spokenAgain).toHaveLength(afterFirst)
+    expect(s.jobs[0]?.status).toBe('running')
+    s = noteJobStatus(s, jobId, 'Done.')
+    expect(s.jobs[0]?.lastNote).toBe('Still running.')
+    expect(s.jobs[0]?.status).toBe('running')
+    s = completeJob(s, jobId, 'The ledger replay is deterministic.')
+    expect(s.jobs[0]?.status).toBe('complete')
+    const last = s.threads.kernel.items.at(-1)
+    expect(last?.kind).toBe('msg')
+    if (last?.kind === 'msg') {
+      expect(last.text).toBe('The ledger replay is deterministic.')
+    }
+    expect(s.threads.kernel.mouth).toBe('idle')
+  })
+
   test('PATH and apt asks book a box-shell job, not implement on the Mac', () => {
     const pathAsk = send(fresh(), 'is claude on PATH')
     expect(pathAsk.jobs).toHaveLength(1)
@@ -518,5 +743,98 @@ describe('teammate session', () => {
     expect(pathAsk.threads.staff.mouth).toBe('working')
     const install = send(fresh(), 'install curl on the computer')
     expect(install.jobs[0]?.kind).toBe('box-shell')
+  })
+
+  test('install then PATH check books the leftover box-shell without a new send', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.kind).toBe('box-shell')
+    expect(s.jobs[0]?.goal.toLowerCase()).toContain('curl')
+    expect(s.jobs[0]?.goal.toLowerCase()).not.toContain('python')
+    expect(s.threads.staff.mandate?.text).toContain('python')
+    const firstId = s.jobs[0].id
+    s = completeJob(s, firstId, 'curl is installed.')
+    expect(s.jobs).toHaveLength(2)
+    expect(s.jobs[1]?.kind).toBe('box-shell')
+    expect(s.jobs[1]?.status).toBe('running')
+    expect(s.jobs[1]?.goal.toLowerCase()).toContain('python')
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(pendingMouthTurns(s)).toEqual([])
+    const last = s.threads.staff.items.at(-1)
+    expect(last?.kind).toBe('msg')
+    if (last?.kind === 'msg') expect(last.text).toBe('curl is installed.')
+    s = completeJob(s, s.jobs[1].id, 'python is on PATH.')
+    expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(0)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.mandate).toBeUndefined()
+  })
+
+  test('analyze then implement leftover books implement on the same owner', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'look at marionette then implement the router patch in that checkout')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    s = completeJob(s, s.jobs[0].id, 'Routing lives in the marionette bridge.')
+    expect(s.jobs).toHaveLength(2)
+    expect(s.jobs[1]?.kind).toBe('implement')
+    expect(s.jobs[1]?.ownerAgentId).toBe('kernel')
+    expect(s.threads.kernel.mouth).toBe('working')
+    s = completeJob(s, s.jobs[1].id, 'The patch landed.')
+    expect(s.threads.kernel.mouth).toBe('idle')
+    expect(s.threads.kernel.mandate).toBeUndefined()
+  })
+
+  test('Staff assess waits until the sister mandate is closed', () => {
+    let s = send(fresh(), 'Ask Kernel to install curl on the computer then check if python is on PATH')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.ownerAgentId).toBe('kernel')
+    expect(s.threads.staff.mouth).toBe('idle')
+    s = completeJob(s, s.jobs[0].id, 'curl is installed.')
+    expect(s.jobs).toHaveLength(2)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(s)).toEqual([])
+    s = completeJob(s, s.jobs[1].id, 'python is on PATH.')
+    expect(s.threads.kernel.mouth).toBe('idle')
+    expect(s.threads.staff.mouth).toBe('answer')
+    const pending = pendingMouthTurns(s)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.agentId).toBe('staff')
+    expect(pending[0]?.mode).toBe('assess')
+    expect(pending[0]?.userText).toContain('Do not ask permission')
+  })
+
+  test('Stop closes the mandate and does not book leftover', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    s = stopJob(s, s.jobs[0].id)
+    expect(s.jobs[0]?.status).toBe('failed')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.threads.staff.mandate).toBeUndefined()
+    expect(s.threads.staff.mouth).toBe('idle')
+  })
+
+  test('failed first step still books a different leftover step', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    s = failJob(s, s.jobs[0].id, "Didn't land.")
+    expect(s.jobs).toHaveLength(2)
+    expect(s.jobs[1]?.kind).toBe('box-shell')
+    expect(s.jobs[1]?.goal.toLowerCase()).toContain('python')
+    expect(s.threads.staff.mouth).toBe('working')
+  })
+
+  test('mandate cap stops leftover dispatch', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    const mandate = s.threads.staff.mandate
+    expect(mandate).toBeTruthy()
+    s = {
+      ...s,
+      threads: {
+        ...s.threads,
+        staff: { ...s.threads.staff, mandate: { ...mandate!, steps: MANDATE_MAX_STEPS } },
+      },
+    }
+    s = completeJob(s, s.jobs[0].id, 'curl is installed.')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.threads.staff.mandate).toBeUndefined()
+    expect(s.threads.staff.mouth).toBe('idle')
   })
 })

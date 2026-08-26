@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import type { JobHandle } from '../domain'
+import { keepAliveStatus, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { type BoxSeams } from './box'
 import { runBoxShell } from './box-shell'
+import { listMachineProjects, matchMachineProject } from './machine'
 import { readProfile } from './profile'
 import {
   PRODUCT_ROOT,
@@ -29,6 +30,7 @@ import {
 
 export type DispatchHooks = {
   onAttached: (pmJobId: string) => void
+  onStatus?: (spoken: string) => void
   onComplete: (spoken: string) => void
   onFail: (spoken: string) => void
 }
@@ -39,6 +41,9 @@ export type AnalyzeReuseHit = {
 }
 
 export const WATCH_UNAVAILABLE_GRACE = 3
+export const STATUS_FIRST_DELAY_MS = 1500
+export const STATUS_THROTTLE_MS = 15_000
+const WATCH_POLL_MS = 1500
 
 export type DispatchSeams = {
   readStatus?: (pmJobId: string) => StatusSnap
@@ -49,7 +54,9 @@ export type DispatchSeams = {
   sleep?: (ms: number) => Promise<void>
   maxUnavailableStatusReads?: number
   box?: BoxSeams
-  boxShell?: (job: JobHandle) => { ok: boolean; spoken: string }
+  boxShell?: (
+    job: JobHandle,
+  ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
 }
 
 type Inflight = {
@@ -136,11 +143,12 @@ export async function ensureDispatched(
   const refsOf = seams.readArtifactRefs ?? ((pmJobId) => readArtifactRefs(pmJobId, PRODUCT_ROOT))
   try {
     if (job.pmJobId) {
-      await attachExisting(job.pmJobId, row, hooks, statusOf, refsOf, seams)
+      await attachExisting(job, row, hooks, statusOf, refsOf, seams)
       return
     }
     if (job.kind === 'box-shell') {
-      const result = (seams.boxShell ?? ((item) => runBoxShell(item, seams.box)))(job)
+      const run = seams.boxShell ?? ((item) => runBoxShell(item, seams.box))
+      const result = await awaitWithStatus(Promise.resolve(run(job)), row, job, hooks, seams)
       if (row.abandoned) return
       if (result.ok) hooks.onComplete(result.spoken)
       else hooks.onFail(result.spoken)
@@ -175,7 +183,7 @@ export async function ensureDispatched(
       return
     }
     hooks.onAttached(spawned.pmJobId)
-    await watchUntilTerminal(spawned.pmJobId, row, statusOf, seams)
+    await watchUntilTerminal(spawned.pmJobId, row, statusOf, seams, hooks, job)
     if (row.abandoned) return
     deliverTerminal(spawned.pmJobId, hooks, statusOf, refsOf)
   } catch {
@@ -191,7 +199,7 @@ function writeAnalyzeLaunch(job: JobHandle): { configPath: string; goalPath: str
   return writeAnalyzeConfig({
     localId: job.id,
     instruction: analysisInstruction(analyzePrompt(job)),
-    workerCwd: analyzeCwd(implementSeedRoot(job.ownerAgentId)),
+    workerCwd: analyzeCwd(resolveJobCwd(job)),
   })
 }
 
@@ -205,11 +213,28 @@ export function implementSeedRoot(
   return fallback
 }
 
+export function resolveJobCwd(
+  job: JobHandle,
+  fallback = PRODUCT_ROOT,
+  home = automatonHome(),
+  projects = listMachineProjects(),
+): string {
+  const hit = matchMachineProject(job.goal, projects)
+  if (hit) return hit.path
+  const profile = readProfile(job.ownerAgentId, home)
+  const ownerHint = [profile?.name, profile?.homeRepo, profile?.title].filter(Boolean).join(' ')
+  if (ownerHint) {
+    const byOwner = matchMachineProject(ownerHint, projects)
+    if (byOwner) return byOwner.path
+  }
+  return implementSeedRoot(job.ownerAgentId, fallback, home)
+}
+
 function writeImplementLaunch(job: JobHandle): { configPath: string; goalPath: string } {
   return writeImplementConfig({
     localId: job.id,
     instruction: implementInstruction(job),
-    workerCwd: seedSandboxFromProduct(job.id, implementSeedRoot(job.ownerAgentId)),
+    workerCwd: seedSandboxFromProduct(job.id, resolveJobCwd(job)),
   })
 }
 
@@ -220,17 +245,53 @@ async function spawnFresh(argv: string[], row: Inflight): Promise<SpawnedPm> {
 }
 
 async function attachExisting(
-  pmJobId: string,
+  job: JobHandle,
   row: Inflight,
   hooks: DispatchHooks,
   statusOf: StatusReader,
   refsOf: RefsReader,
   seams: DispatchSeams,
 ): Promise<void> {
+  const pmJobId = job.pmJobId
+  if (!pmJobId) return
   hooks.onAttached(pmJobId)
-  await watchUntilTerminal(pmJobId, row, statusOf, seams)
+  await watchUntilTerminal(pmJobId, row, statusOf, seams, hooks, job)
   if (row.abandoned) return
   deliverTerminal(pmJobId, hooks, statusOf, refsOf)
+}
+
+function emitKeepAlive(job: JobHandle, hooks: DispatchHooks): void {
+  const note = keepAliveStatus(job)
+  if (!note || note === 'Done.') return
+  hooks.onStatus?.(note)
+}
+
+async function awaitWithStatus<T>(
+  work: Promise<T>,
+  row: Inflight,
+  job: JobHandle,
+  hooks: DispatchHooks,
+  seams: DispatchSeams,
+): Promise<T> {
+  if (!hooks.onStatus) return work
+  let settled = false
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const tracked = work.finally(() => {
+    settled = true
+    if (timer) clearTimeout(timer)
+  })
+  if (seams.sleep) {
+    void seams.sleep(STATUS_FIRST_DELAY_MS).then(() => {
+      if (settled || row.abandoned) return
+      emitKeepAlive(job, hooks)
+    })
+  } else {
+    timer = setTimeout(() => {
+      if (settled || row.abandoned) return
+      emitKeepAlive(job, hooks)
+    }, STATUS_FIRST_DELAY_MS)
+  }
+  return tracked
 }
 
 async function watchUntilTerminal(
@@ -238,20 +299,33 @@ async function watchUntilTerminal(
   row: Inflight,
   statusOf: StatusReader,
   seams: DispatchSeams,
+  hooks: DispatchHooks,
+  job: JobHandle,
 ): Promise<void> {
   const pause = seams.sleep ?? sleep
   const grace = seams.maxUnavailableStatusReads ?? WATCH_UNAVAILABLE_GRACE
   let unavailable = 0
+  let waited = 0
+  let lastStatusAt = -1
   for (;;) {
     if (row.abandoned) return
     try {
       if (jobOutcome(statusOf(pmJobId)) !== 'running') return
       unavailable = 0
+      if (
+        hooks.onStatus &&
+        waited >= STATUS_FIRST_DELAY_MS &&
+        (lastStatusAt < 0 || waited - lastStatusAt >= STATUS_THROTTLE_MS)
+      ) {
+        emitKeepAlive(job, hooks)
+        lastStatusAt = waited
+      }
     } catch {
       unavailable += 1
       if (unavailable >= grace) return
     }
-    await pause(1500)
+    await pause(WATCH_POLL_MS)
+    waited += WATCH_POLL_MS
   }
 }
 

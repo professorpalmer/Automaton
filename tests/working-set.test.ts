@@ -117,6 +117,7 @@ describe('mouth working set', () => {
       agent: DEFAULT_AGENTS[0],
       thread,
       claims: [{ ownerAgentId: 'kernel', text: 'The ledger replay is deterministic.' }],
+      projects: [],
     })
     const chat = messages.filter((row) => row.role !== 'system')
     expect(chat).toHaveLength(TAIL)
@@ -131,6 +132,7 @@ describe('mouth working set', () => {
       thread: emptyThreads(DEFAULT_AGENTS).staff,
       claims: [],
       rules: 'Never mention the sandbox.',
+      projects: [],
     })
     expect(messages[0]?.content).toContain('Standing rules: Never mention the sandbox.')
   })
@@ -143,6 +145,7 @@ describe('mouth working set', () => {
       claims: [],
       kit: 'coordinator',
       roster: staffWithSisters(),
+      projects: [],
     })
     const prompt = String(messages[0]?.content)
     expect(prompt).toContain('head seat')
@@ -154,12 +157,45 @@ describe('mouth working set', () => {
     expect(prompt).toContain('Never anyrun')
     expect(prompt).toContain('Never tell the operator to ask Kernel for a VM')
     expect(prompt).toContain('already named')
+    expect(prompt).toContain('do not offer to dispatch')
     expect(prompt).toContain('Do not parrot')
     expect(prompt).toContain('Never claim you navigated Chrome')
     expect(prompt).toContain('Never explain displays')
+    expect(prompt).toContain('This Mac keeps git checkouts under ~/Projects.')
+    expect(prompt).toContain('not the default subject')
     expect(prompt).not.toContain('one next step they can ask')
     expect(prompt).not.toContain('cannot make inquiries')
     expect(prompt).not.toContain('You never do Kernel implement')
+  })
+
+  test('mouth prompt is the machine harness, not Automaton-as-the-universe', () => {
+    resetIdsForTests()
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread: emptyThreads(DEFAULT_AGENTS).staff,
+      claims: [],
+      kit: 'coordinator',
+      roster: staffWithSisters(),
+      projects: [
+        {
+          name: 'Puppetmaster',
+          path: '/tmp/Puppetmaster',
+          keys: ['puppetmaster'],
+        },
+        {
+          name: 'Marionette',
+          path: '/tmp/marionette',
+          keys: ['marionette'],
+        },
+      ],
+    })
+    const prompt = String(messages[0]?.content)
+    expect(prompt).toContain('Puppetmaster at /tmp/Puppetmaster')
+    expect(prompt).toContain('Marionette at /tmp/marionette')
+    expect(prompt).toContain('not the default subject')
+    expect(prompt).toContain('plane.json')
+    expect(prompt).toContain('AUTOMATON_MODEL')
+    expect(prompt).toContain('You do not read disk this turn')
   })
 
   test('seat model is a fact in the prompt, not an API scavenger hunt', () => {
@@ -170,6 +206,7 @@ describe('mouth working set', () => {
       claims: [],
       kit: 'lookup',
       model: 'openai/gpt-4o-mini',
+      projects: [],
     })
     const prompt = String(messages[0]?.content)
     expect(prompt).toContain('OpenRouter model openai/gpt-4o-mini')
@@ -184,9 +221,11 @@ describe('mouth working set', () => {
       claims: [],
       kit: 'code',
       homeRepo: 'example/Puppetmaster',
+      projects: [],
     })
     const prompt = String(messages[0]?.content)
     expect(prompt).toContain('Your home is example/Puppetmaster.')
+    expect(prompt).toContain('Do not ask for a repo path')
     expect(prompt).toContain('not Automaton')
   })
 })

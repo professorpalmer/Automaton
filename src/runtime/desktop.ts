@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, rmSync, unlinkSync } from 'node:fs'
 import { join } from 'node:path'
 import { desktopsRoot } from './computer'
 import { automatonHome } from './keys'
@@ -17,6 +17,17 @@ export function browserDir(agentId: string, home = automatonHome()): string {
 
 export function boxChromeHostDir(agentId: string, home = automatonHome()): string {
   return join(desktopDir(agentId, home), 'box-chrome')
+}
+
+export function clearBoxProfileLocks(agentId: string, home = automatonHome()): void {
+  const dir = boxChromeHostDir(agentId, home)
+  for (const name of ['SingletonLock', 'SingletonSocket', 'SingletonCookie']) {
+    try {
+      unlinkSync(join(dir, name))
+    } catch {
+      /* missing */
+    }
+  }
 }
 
 export function ensureDesktop(agentId: string, home = automatonHome()): string {

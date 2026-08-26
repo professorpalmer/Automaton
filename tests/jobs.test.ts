@@ -12,7 +12,9 @@ import {
   isReusableAnalyzePrior,
   normalizeGoal,
   resetJobsForTests,
+  resolveJobCwd,
 } from '../src/runtime/jobs.ts'
+import { listMachineProjects } from '../src/runtime/machine.ts'
 import { writeProfile } from '../src/runtime/profile'
 import type { StatusSnap } from '../src/runtime/pm.ts'
 
@@ -40,14 +42,19 @@ function completeAnalyze(id: string, ownerAgentId = 'kernel'): JobHandle {
 
 function hooks() {
   const attached: string[] = []
+  const status: string[] = []
   const complete: string[] = []
   const fail: string[] = []
   return {
     attached,
+    status,
     complete,
     fail,
     onAttached: (pmJobId: string) => {
       attached.push(pmJobId)
+    },
+    onStatus: (spoken: string) => {
+      status.push(spoken)
     },
     onComplete: (spoken: string) => {
       complete.push(spoken)
@@ -366,8 +373,22 @@ describe('durable analyze dispatch', () => {
     })
     expect(reads).toBeGreaterThanOrEqual(3)
     expect(recorded.attached).toEqual(['job_live'])
+    expect(recorded.status).toEqual(['Still running.'])
+    expect(recorded.status).not.toContain('Done.')
     expect(recorded.complete).toEqual([FINDING])
     expect(recorded.fail).toEqual([])
+  })
+
+  test('immediate complete does not emit a keepalive status', async () => {
+    const recorded = hooks()
+    await ensureDispatched(job({ id: 'job_quick', pmJobId: 'job_ready' }), recorded, [], {
+      ...live({ job_ready: completeFinding() }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(recorded.status).toEqual([])
+    expect(recorded.complete).toEqual([FINDING])
   })
 
   test('complete with no finding fails closed instead of speaking Done.', async () => {
@@ -417,6 +438,71 @@ describe('bound product home', () => {
     rmSync(fixture, { recursive: true, force: true })
     rmSync(agents, { recursive: true, force: true })
   })
+
+  test('resolveJobCwd prefers a named machine checkout over the Automaton tree', () => {
+    const root = join(tmpdir(), `automaton-machine-${Date.now()}`)
+    const pm = join(root, 'Puppetmaster')
+    mkdirSync(pm, { recursive: true })
+    const init = spawnSync('git', ['init'], { cwd: pm, encoding: 'utf8' })
+    expect(init.status).toBe(0)
+    const projects = listMachineProjects(root)
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_named_pm',
+          goal: 'what script does puppetmaster have its model routing logic contained in?',
+        }),
+        '/fallback-automaton',
+        join(tmpdir(), 'no-agents'),
+        projects,
+      ),
+    ).toBe(pm)
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test('resolveJobCwd uses the owner mouth name when the goal only says the repo', () => {
+    const root = join(tmpdir(), `automaton-machine-owner-${Date.now()}`)
+    const pm = join(root, 'Puppetmaster')
+    const agents = join(tmpdir(), `automaton-owner-agents-${Date.now()}`)
+    mkdirSync(pm, { recursive: true })
+    const init = spawnSync('git', ['init'], { cwd: pm, encoding: 'utf8' })
+    expect(init.status).toBe(0)
+    writeProfile(
+      {
+        id: 'agent_p',
+        name: 'Puppetmaster',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'hex',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-25T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      agents,
+    )
+    const projects = listMachineProjects(root)
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_owner_pm',
+          ownerAgentId: 'agent_p',
+          goal: 'Look at the repo and find the router logic',
+        }),
+        '/fallback-automaton',
+        agents,
+        projects,
+      ),
+    ).toBe(pm)
+    rmSync(root, { recursive: true, force: true })
+    rmSync(agents, { recursive: true, force: true })
+  })
 })
 
 describe('box-shell dispatch', () => {
@@ -449,7 +535,44 @@ describe('box-shell dispatch', () => {
     )
     expect(seen).toEqual([])
     expect(h.attached).toEqual([])
+    expect(h.status).toEqual([])
     expect(h.complete).toEqual(['claude is on the computer at /usr/bin/claude.'])
     expect(h.fail).toEqual([])
+  })
+
+  test('long box-shell emits one delayed install status then completes', async () => {
+    let release!: (value: { ok: boolean; spoken: string }) => void
+    const gate = new Promise<{ ok: boolean; spoken: string }>((resolve) => {
+      release = resolve
+    })
+    const ticks: Array<() => void> = []
+    const recorded = hooks()
+    const done = ensureDispatched(
+      job({
+        id: 'job_apt',
+        ownerAgentId: 'staff',
+        kind: 'box-shell',
+        goal: 'install curl on the computer',
+      }),
+      recorded,
+      [],
+      {
+        boxShell: () => gate,
+        sleep: () => new Promise<void>((resolve) => ticks.push(resolve)),
+      },
+    )
+    await Promise.resolve()
+    expect(ticks).toHaveLength(1)
+    expect(recorded.status).toEqual([])
+    ticks[0]?.()
+    await Promise.resolve()
+    expect(recorded.status).toEqual(['Still installing curl.'])
+    expect(recorded.status).not.toContain('Done.')
+    expect(recorded.complete).toEqual([])
+    release({ ok: true, spoken: 'Installed curl on the computer.' })
+    await done
+    expect(recorded.complete).toEqual(['Installed curl on the computer.'])
+    expect(recorded.status).toEqual(['Still installing curl.'])
+    expect(recorded.fail).toEqual([])
   })
 })

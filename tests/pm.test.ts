@@ -7,6 +7,7 @@ import { sanitizeSpeak } from '../src/domain'
 import {
   PRODUCT_ROOT,
   analysisInstruction,
+  analyzePrompt,
   assertSandboxCwd,
   buildAnalyzeArgv,
   buildImplementArgv,
@@ -70,6 +71,21 @@ describe('puppetmaster spawn contract', () => {
     expect(argv[argv.indexOf('--launch-key') + 1]).toBe('test_config')
     expect(argv).not.toContain('--implement')
     expect(argv).not.toContain('swarm')
+  })
+
+  test('analyze prompt treats the worker cwd as the subject, not Automaton', () => {
+    const prompt = analyzePrompt({
+      id: 'j',
+      ownerAgentId: 'staff',
+      goal: 'what script does puppetmaster have its model routing logic contained in?',
+      status: 'running',
+      kind: 'analyze',
+    })
+    expect(prompt).toContain('That tree is the subject')
+    expect(prompt).toContain('Do not ask for a repo path')
+    expect(prompt).toContain('not the default subject')
+    expect(prompt).toContain('plane.json')
+    expect(prompt).not.toContain('analysis worker for Automaton staff')
   })
 
   test('implement argv refuses the Automaton checkout', () => {

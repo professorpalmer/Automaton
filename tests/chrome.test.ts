@@ -14,6 +14,7 @@ import {
   goToUrl,
   readHandle,
   teardownBrowserDesktop,
+  boxProfileLockRmArgv,
   type ChromeSeams,
 } from '../src/runtime/chrome'
 import { BOX_NAME, boxChromeDebugPort } from '../src/runtime/computer'
@@ -49,11 +50,16 @@ describe('browser helper', () => {
     expect(launch.argv.join(' ')).toContain('--remote-debugging-address=0.0.0.0')
     expect(launch.argv.join(' ')).toContain('--no-sandbox')
     expect(launch.argv.join(' ')).toContain('--disable-dev-shm-usage')
+    expect(launch.argv.join(' ')).toContain('--disable-blink-features=AutomationControlled')
+    expect(launch.argv.join(' ')).not.toContain('--test-type')
+    expect(launch.argv.join(' ')).not.toContain('--disable-infobars')
     expect(launch.argv.join(' ')).not.toContain('Xvfb')
     expect(launch.argv.join(' ')).not.toContain('novnc')
     expect(launch.argv.join(' ')).not.toContain('headless')
     expect(boxChromeDebugPort(1)).toBe(9221)
     expect(boxChromeDebugPort(2)).toBe(9222)
+    expect(boxProfileLockRmArgv('staff').join(' ')).toContain('rm -f')
+    expect(boxProfileLockRmArgv('staff').join(' ')).toContain('/home/box/desktops/staff/box-chrome/SingletonLock')
     rmSync(home, { recursive: true, force: true })
   })
 

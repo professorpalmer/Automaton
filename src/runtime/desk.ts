@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, writeFileSync } from 'node:fs'
+import { copyFileSync, existsSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { sanitizeDeskUrl } from '../domain'
 import { boxExec, boxExecAsync, boxSpawn, boxStatus, type BoxSeams } from './box'
@@ -29,10 +29,12 @@ const KEYS: Record<string, string> = {
 }
 
 const SAFE_AGENT = /^[A-Za-z0-9_-]+$/
-let paintStamp = 0
+const paintPid = process.pid
+let paintSeq = 0
+const paintsByDesk = new Map<string, string[]>()
 
 function activateThen(command: string): string {
-  return `xdotool search --onlyvisible --class chromium windowactivate >/dev/null 2>&1; ${command}`
+  return `ids=$(xdotool search --onlyvisible --class chromium 2>/dev/null || true); [ -n "$ids" ] && xdotool windowactivate $ids >/dev/null 2>&1; ${command}`
 }
 
 /** Map a window click on an object-fit:contain view onto the X display. Letterbox misses are null. */
@@ -66,6 +68,11 @@ export function mapViewToDisplay(
   }
 }
 
+/** GPUI events are window pixels. A missed origin still maps if the click was local to the view. */
+export function resolveDeskHit(view: ViewBox, click: Point): Point | null {
+  return mapViewToDisplay(view, click) ?? mapViewToDisplay({ ...view, x: 0, y: 0 }, click)
+}
+
 export function xdoButton(button?: number): number {
   if (button === 2) return 3
   if (button === 1) return 2
@@ -77,16 +84,72 @@ export function xdoKey(event: {
   keyChar?: string
   modifiers?: { shift?: boolean; ctrl?: boolean; alt?: boolean; cmd?: boolean }
 }): string | null {
+  const stroke = deskStroke(event)
+  if (!stroke) return null
+  if (stroke.via === 'type') return punctKeysym(stroke.value) ?? stroke.value
+  return stroke.value
+}
+
+export type DeskStroke = { via: 'key'; value: string } | { via: 'type'; value: string }
+
+const PUNCT: Record<string, string> = {
+  '.': 'period',
+  ',': 'comma',
+  '/': 'slash',
+  '-': 'minus',
+  '=': 'equal',
+  ';': 'semicolon',
+  "'": 'apostrophe',
+  '[': 'bracketleft',
+  ']': 'bracketright',
+  '\\': 'backslash',
+  '`': 'grave',
+  ' ': 'space',
+}
+
+function punctKeysym(ch: string): string | null {
+  return PUNCT[ch] ?? null
+}
+
+function printableChar(event: {
+  key?: string
+  keyChar?: string
+}): string | null {
+  if (event.keyChar && event.keyChar.length === 1 && event.keyChar >= ' ') return event.keyChar
+  if (event.key && event.key.length === 1 && event.key >= ' ') return event.key
   const raw = event.key?.toLowerCase() ?? ''
-  const named = KEYS[raw]
-  const base = named ?? (event.keyChar && event.keyChar.length === 1 ? event.keyChar : raw)
-  if (!base) return null
-  const parts: string[] = []
-  if (event.modifiers?.cmd || event.modifiers?.ctrl) parts.push('ctrl')
-  if (event.modifiers?.alt) parts.push('alt')
-  if (event.modifiers?.shift && base.length > 1) parts.push('shift')
-  parts.push(base)
-  return parts.join('+')
+  if (raw === 'period') return '.'
+  if (raw === 'comma') return ','
+  if (raw === 'slash') return '/'
+  if (raw === 'minus' || raw === 'hyphen') return '-'
+  if (raw === 'equal') return '='
+  if (raw === 'space') return ' '
+  return null
+}
+
+/** Named keys use xdotool key. Printable glyphs use type; `.` is not an X keysym. */
+export function deskStroke(event: {
+  key?: string
+  keyChar?: string
+  modifiers?: { shift?: boolean; ctrl?: boolean; alt?: boolean; cmd?: boolean }
+}): DeskStroke | null {
+  const chord = Boolean(event.modifiers?.cmd || event.modifiers?.ctrl || event.modifiers?.alt)
+  const named = KEYS[event.key?.toLowerCase() ?? '']
+  if (chord) {
+    const raw = event.key?.toLowerCase() ?? ''
+    const base = named ?? (event.keyChar && event.keyChar.length === 1 ? event.keyChar : raw)
+    if (!base) return null
+    const parts: string[] = []
+    if (event.modifiers?.cmd || event.modifiers?.ctrl) parts.push('ctrl')
+    if (event.modifiers?.alt) parts.push('alt')
+    if (event.modifiers?.shift && base.length > 1) parts.push('shift')
+    parts.push(punctKeysym(base) ?? base)
+    return { via: 'key', value: parts.join('+') }
+  }
+  if (named) return { via: 'key', value: named }
+  const ch = printableChar(event)
+  if (ch) return { via: 'type', value: ch }
+  return null
 }
 
 export function deskCaptureArgv(agentId: string, home = automatonHome()): string[] {
@@ -124,7 +187,17 @@ export function deskClickArgv(
 }
 
 export function deskKeyArgv(agentId: string, key: string, home = automatonHome()): string[] {
+  return deskStrokeArgv(agentId, { via: 'key', value: key }, home)
+}
+
+export function deskStrokeArgv(
+  agentId: string,
+  stroke: DeskStroke,
+  home = automatonHome(),
+): string[] {
   const display = mouthScreen(agentId, home).display
+  const inner =
+    stroke.via === 'type' ? 'xdotool type --clearmodifiers -- "$1"' : 'xdotool key --clearmodifiers "$1"'
   return [
     'exec',
     '-e',
@@ -132,9 +205,9 @@ export function deskKeyArgv(agentId: string, key: string, home = automatonHome()
     BOX_NAME,
     'sh',
     '-c',
-    activateThen('xdotool key --clearmodifiers "$1"'),
-    'desk-key',
-    key,
+    activateThen(inner),
+    'desk-stroke',
+    stroke.value,
   ]
 }
 
@@ -163,15 +236,28 @@ export function deskOpenUrlArgv(agentId: string, home = automatonHome()): string
   return ['exec', '-e', `DISPLAY=:${display}`, BOX_NAME, 'sh', '-c', deskOpenUrlScript(agentId)]
 }
 
-function paintPath(agentId: string, home: string, src: string): string | null {
-  paintStamp += 1
-  const paint = join(desktopDir(agentId, home), `paint-${paintStamp % 2}.png`)
+/** GPUI caches decoded images by src path; a reused paint file stays visually stale. */
+function paintPath(agentId: string, home: string, src: string): string {
+  paintSeq += 1
+  const desk = desktopDir(agentId, home)
+  const paint = join(desk, `paint-${paintPid}-${paintSeq}.png`)
   try {
     copyFileSync(src, paint)
-    return paint
   } catch {
     return src
   }
+  const kept = paintsByDesk.get(desk) ?? []
+  kept.push(paint)
+  const stale = kept.length > 2 ? kept.shift() : undefined
+  paintsByDesk.set(desk, kept)
+  if (stale && stale !== paint) {
+    try {
+      unlinkSync(stale)
+    } catch {
+      /* leftover paint must not fail capture */
+    }
+  }
+  return paint
 }
 
 function captureScript(agentId: string): string {
@@ -252,9 +338,20 @@ export function keyDesk(
   home = automatonHome(),
   seams: DeskSeams = {},
 ): boolean {
+  return sendDeskStroke(agentId, { via: 'key', value: key }, home, seams)
+}
+
+export function sendDeskStroke(
+  agentId: string,
+  stroke: DeskStroke,
+  home = automatonHome(),
+  seams: DeskSeams = {},
+): boolean {
   if (!boxStatus(home, seams.box).running) return false
   const env = { DISPLAY: `:${mouthScreen(agentId, home).display}` }
-  const argv = ['sh', '-c', activateThen('xdotool key --clearmodifiers "$1"'), 'desk-key', key]
+  const inner =
+    stroke.via === 'type' ? 'xdotool type --clearmodifiers -- "$1"' : 'xdotool key --clearmodifiers "$1"'
+  const argv = ['sh', '-c', activateThen(inner), 'desk-stroke', stroke.value]
   if (seams.box?.docker) return boxExec(argv, env, seams.box).status === 0
   return boxSpawn(argv, env, seams.box)
 }

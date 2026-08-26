@@ -168,11 +168,13 @@ function runGit(args: string[], cwd: string, env: NodeJS.ProcessEnv): void {
 }
 
 export function analyzePrompt(job: JobHandle): string {
-  const owner = job.ownerAgentId
   return [
-    `You are a Puppetmaster analysis worker for Automaton ${owner}.`,
+    `You are a Puppetmaster analysis worker for the owner seat ${job.ownerAgentId}.`,
+    'The worker cwd is a git checkout on this Mac. That tree is the subject.',
+    'Do not ask for a repo path, slug, or boundary. Open files in this checkout and report from them.',
+    'Automaton is the staff app, not the default subject. Do not cite Automaton files (plane.json, AUTOMATON_MODEL, seat.py) unless this checkout is Automaton.',
     'Do not edit files. Do not print job ids.',
-    'Produce one FINDING with a short claim the owner can speak aloud.',
+    'Produce one FINDING with a short claim the owner can speak aloud, grounded in files you opened.',
     `Request: ${job.goal}`,
   ].join(' ')
 }

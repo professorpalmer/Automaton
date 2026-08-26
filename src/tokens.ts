@@ -87,6 +87,7 @@ export const T = {
     viewH: 158,
     stageMinH: 420,
     pollMs: 750,
+    hit: '#FFFFFF03',
   },
   inspector: {
     width: 280,
@@ -149,6 +150,7 @@ export const T = {
     max: 640,
     clockGapMs: 15 * 60 * 1000,
     thinkMs: 400,
+    copyFlashMs: 1200,
   },
   stroke: {
     none: 0,

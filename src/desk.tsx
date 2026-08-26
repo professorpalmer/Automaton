@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react'
 import { useGpuix } from '@gpuix/react'
 import { BOX_DISPLAY_H, BOX_DISPLAY_W } from './runtime/computer'
 import { ensureBrowser } from './runtime/chrome'
-import { captureDesk, captureDeskAsync, clickDesk, keyDesk, mapViewToDisplay, wheelDesk, xdoKey } from './runtime/desk'
+import { captureDesk, captureDeskAsync, clickDesk, resolveDeskHit, sendDeskStroke, wheelDesk, deskStroke } from './runtime/desk'
 import { desktopPreview } from './runtime/desktop'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
@@ -15,24 +15,39 @@ function quitChord(event: {
   return Boolean(event.modifiers?.cmd) && !event.modifiers?.shift && !event.modifiers?.alt && (key === 'q' || key === 'w')
 }
 
+type DeskBlit = { path: string; id: number }
+
 function useDeskFrame(agentId: string, live: boolean) {
   const preview = desktopPreview(agentId)
-  const [screen, setScreen] = useState<string | null>(preview.screen)
-  const pressed = useRef(false)
+  const seq = useRef(0)
+  const agentRef = useRef(agentId)
+  const [frames, setFrames] = useState<DeskBlit[]>(() =>
+    preview.screen ? [{ path: preview.screen, id: seq.current++ }] : [],
+  )
   const inflight = useRef(false)
+  const applyCapture = (path: string | null) => {
+    if (!path) return
+    const id = seq.current++
+    setFrames((prev) => [...prev, { path, id }].slice(-2))
+  }
   const recapture = () => {
-    if (pressed.current || inflight.current) return
+    if (inflight.current) return
     if (runningTests()) {
-      setScreen(captureDesk(agentId))
+      applyCapture(captureDesk(agentId))
       return
     }
     inflight.current = true
     captureDeskAsync(agentId, (path) => {
       inflight.current = false
-      if (path) setScreen(path)
+      applyCapture(path)
     })
   }
   useEffect(() => {
+    if (agentRef.current !== agentId) {
+      agentRef.current = agentId
+      const screen = desktopPreview(agentId).screen
+      setFrames(screen ? [{ path: screen, id: seq.current++ }] : [])
+    }
     recapture()
   }, [agentId])
   useEffect(() => {
@@ -40,7 +55,7 @@ function useDeskFrame(agentId: string, live: boolean) {
     const tick = setInterval(() => recapture(), T.desk.pollMs)
     return () => clearInterval(tick)
   }, [agentId, live])
-  return { screen, recapture, pressed }
+  return { frames, recapture }
 }
 
 export function DeskStage({
@@ -59,7 +74,7 @@ export function DeskStage({
   const { renderer } = useGpuix()
   const viewRef = useRef<{ id: number } | null>(null)
   const armed = useRef(false)
-  const { screen, recapture, pressed } = useDeskFrame(agentId, true)
+  const { frames, recapture } = useDeskFrame(agentId, true)
   useEffect(() => {
     if (runningTests()) return
     void ensureBrowser(agentId)
@@ -68,8 +83,8 @@ export function DeskStage({
     const id = viewRef.current?.id
     if (typeof id !== 'number' || typeof event.x !== 'number' || typeof event.y !== 'number') return null
     const box = renderer.getElementBounds?.(id)
-    if (!box || box.length < 4) return null
-    return mapViewToDisplay(
+    if (!box || box.length < 4 || box[2] <= 0 || box[3] <= 0) return null
+    return resolveDeskHit(
       { x: box[0], y: box[1], width: box[2], height: box[3] },
       { x: event.x, y: event.y },
     )
@@ -87,7 +102,6 @@ export function DeskStage({
     recapture()
   }
   const onDeskMouseDown = (event: { x?: number; y?: number; button?: number; isRightClick?: boolean }) => {
-    pressed.current = true
     armed.current = true
     sendClick(event)
   }
@@ -100,7 +114,6 @@ export function DeskStage({
   }
   const onDeskMouseUp = () => {
     armed.current = false
-    pressed.current = false
     recapture()
   }
   const onDeskKey = (event: {
@@ -109,8 +122,8 @@ export function DeskStage({
     modifiers?: { shift?: boolean; ctrl?: boolean; alt?: boolean; cmd?: boolean }
   }) => {
     if (quitChord(event)) return
-    const key = xdoKey(event)
-    if (key) keyDesk(agentId, key)
+    const stroke = deskStroke(event)
+    if (stroke) sendDeskStroke(agentId, stroke)
   }
   const onDeskScroll = (event: { deltaY?: number }) => {
     const dy = event.deltaY ?? 0
@@ -180,10 +193,6 @@ export function DeskStage({
         </div>
       </div>
       <div
-        ref={viewRef}
-        testId="desk-stage-view"
-        tabIndex={0}
-        autoFocus
         style={{
           position: 'relative',
           flexGrow: 1,
@@ -191,29 +200,37 @@ export function DeskStage({
           backgroundColor: T.raised,
           borderRadius: T.radius.sm,
           overflow: 'hidden',
-          cursor: 'crosshair',
-          pointerEvents: 'auto',
-          userSelect: 'none',
         }}
-        onMouseDown={onDeskMouseDown}
-        onMouseUp={onDeskMouseUp}
-        onMouseLeave={onDeskMouseUp}
-        onClick={onDeskClick}
-        onKeyDown={onDeskKey}
-        onScroll={onDeskScroll}
       >
-        {screen ? (
-          <img
-            src={screen}
-            objectFit="contain"
-            alt=""
-            style={{ width: '100%', height: '100%', pointerEvents: 'none' }}
-          />
+        {frames.length > 0 ? (
+          /* Older underneath, newer above. The prior decode stays visible while the unique-src layer remounts. */
+          frames.map((blit) => (
+            <img
+              key={blit.id}
+              testId={`desk-stage-blit-${blit.id}`}
+              src={blit.path}
+              objectFit="contain"
+              alt=""
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                right: 0,
+                bottom: 0,
+                width: '100%',
+                height: '100%',
+                pointerEvents: 'none',
+              }}
+            />
+          ))
         ) : (
           <div
             style={{
-              width: '100%',
-              height: '100%',
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              right: 0,
+              bottom: 0,
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -225,6 +242,29 @@ export function DeskStage({
             Starting the screen
           </div>
         )}
+        <div
+          ref={viewRef}
+          testId="desk-stage-view"
+          tabIndex={0}
+          autoFocus
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: T.desk.hit,
+            cursor: 'crosshair',
+            pointerEvents: 'auto',
+            userSelect: 'none',
+          }}
+          onMouseDown={onDeskMouseDown}
+          onMouseUp={onDeskMouseUp}
+          onMouseLeave={onDeskMouseUp}
+          onClick={onDeskClick}
+          onKeyDown={onDeskKey}
+          onScroll={onDeskScroll}
+        />
       </div>
     </div>
   )

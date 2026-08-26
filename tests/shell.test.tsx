@@ -8,6 +8,7 @@ import { App, Feed, JobStrip } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
 import { Inspector, inspectorChord, pasteChord, quitChord } from '../src/inspector'
+import { copiedInTests } from '../src/runtime/clipboard'
 import { createAgent } from '../src/runtime/factory'
 import { readSkin, writeSkin } from '../src/runtime/skin'
 import { openStaffStore } from '../src/runtime/store'
@@ -136,6 +137,13 @@ function longFeed(agentId: string, count: number, prefix = 'line'): FeedItem[] {
   return items
 }
 
+function nodeTexts(node: TreeNode | null, acc: string[] = []): string[] {
+  if (!node) return acc
+  if (typeof node.text === 'string' && node.text.length > 0) acc.push(node.text)
+  for (const child of node.children ?? []) nodeTexts(child, acc)
+  return acc
+}
+
 function feedOffset(renderer: ReturnType<typeof createTestRoot>['renderer']) {
   const tree = asTree(JSON.parse(renderer.getAutomationTree()))
   const feed = findTestId(tree, 'feed')
@@ -154,6 +162,7 @@ describe('sister blob presentation', () => {
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).not.toMatch(/selected \? T.overlayStrong : T.clear/)
     expect(app).toMatch(/pointerEvents: 'auto'/)
+    expect(app).not.toMatch(/String\(row\.unread\)/)
   })
 
   test('selected lifts, idle is still, and thinking eyes are mouth-busy only', () => {
@@ -317,6 +326,31 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'settings-icon')).toBeTruthy()
   })
 
+  test('rail has no unread count on worker mouths', () => {
+    resetIdsForTests()
+    writeSkin({ railWidth: T.layout.sidebarWidth })
+    const store = testStore()
+    const sister = createAgent({ name: 'Kernel' })
+    const agents = [...DEFAULT_AGENTS, sister.agent]
+    const threads = emptyThreads(agents)
+    threads[sister.agent.id] = { ...threads[sister.agent.id], unread: 4 }
+    store.save({
+      agents,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const row = findTestId(tree, `agent-${sister.agent.id}`)
+    expect(row).toBeTruthy()
+    expect(nodeTexts(row)).not.toContain('4')
+    expect(renderer.getPaintedText().join(' ')).toContain('Kernel')
+  })
+
   test('dragging the rail handle writes a wider skin', () => {
     const store = testStore()
     writeSkin({ railWidth: T.layout.sidebarWidth })
@@ -467,6 +501,28 @@ native('staff shell (GPUI native)', () => {
     const label = row?.children?.[0]
     expect(label?.children).toHaveLength(1)
     expect(label?.children?.[0]?.text).toBe('Kernel · analyze · read-only UI verification')
+  })
+
+  test('job strip surfaces a keepalive lastNote', () => {
+    const job: JobHandle = {
+      id: 'live-job',
+      ownerAgentId: 'kernel',
+      goal: 'install curl on the computer',
+      status: 'running',
+      kind: 'box-shell',
+      lastNote: 'Still installing curl.',
+      updatedAt: 1,
+    }
+    const { render, renderer } = createTestRoot()
+    render(<JobStrip jobs={[job]} agents={staffWithSisters()} onStop={() => {}} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const strip = findTestId(tree, 'job-strip')
+    const row = strip?.children?.[0]
+    const label = row?.children?.[0]
+    expect(label?.children?.[0]?.text).toBe(
+      'Kernel · shell · install curl on the computer · Still installing curl.',
+    )
   })
 
   test('Staff feed keeps Sent to and hides the sister line', () => {
@@ -916,6 +972,36 @@ native('staff shell (GPUI native)', () => {
     expect(mine.x + mine.width).toBeLessThanOrEqual(stage.x + stage.width - T.feed.gutter)
     expect(theirs.x).toBeGreaterThanOrEqual(T.layout.sidebarMin)
     expect(theirs.y).toBeGreaterThanOrEqual(mine.y + mine.height + T.feed.turn)
+  })
+
+  test('right-click on a bubble copies its text and flashes Copied', () => {
+    const at = Date.parse('2026-08-25T23:42:00')
+    const store = testStore()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = {
+      ...threads.staff,
+      items: [
+        { kind: 'msg', id: 'u1', from: 'user', agentId: 'staff', text: 'hello from the right', at },
+        { kind: 'msg', id: 'a1', from: 'agent', agentId: 'staff', text: 'the line worth sharing', at: at + 30_000 },
+      ],
+    }
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    rightClickTestId(renderer, 'bubble-theirs')
+    renderer.flush()
+    expect(copiedInTests()).toBe('the line worth sharing')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'copied-mark')).toBeTruthy()
+    clickTestId(renderer, 'bubble-theirs')
+    renderer.flush()
+    expect(copiedInTests()).toBe('the line worth sharing')
   })
 
   test('agent transcript uses native markdown and fenced code paint', () => {

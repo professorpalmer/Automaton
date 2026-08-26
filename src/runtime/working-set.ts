@@ -1,5 +1,6 @@
 import type { Agent, AgentKit, Thread } from '../domain'
 import { imageDataUrl } from './attachments'
+import { formatWellKnown, listWellKnownProjects, type MachineProject } from './machine'
 
 export const TAIL = 8
 
@@ -153,10 +154,24 @@ function seatFact(model?: string): string {
   return `This seat runs OpenRouter model ${model}. Answer from that when asked which model we run. Do not tell them to check an API.`
 }
 
+function machineFact(projects?: MachineProject[]): string {
+  const known = formatWellKnown(projects ?? listWellKnownProjects())
+  const places = known
+    ? `This Mac: ${known}`
+    : 'This Mac keeps git checkouts under ~/Projects.'
+  return `${places} Automaton is this staff app, not the default subject. Named products mean those trees. Do not invent Automaton files (plane.json, AUTOMATON_MODEL, seat.py) as if they were Marionette or Puppetmaster. You do not read disk this turn.`
+}
+
 export function systemPrompt(
   agent: Agent,
   rules = '',
-  input?: { kit?: AgentKit; roster?: Agent[]; homeRepo?: string; model?: string },
+  input?: {
+    kit?: AgentKit
+    roster?: Agent[]
+    homeRepo?: string
+    model?: string
+    projects?: MachineProject[]
+  },
 ): string {
   if (input?.kit === 'coordinator') {
     const roster = (input.roster ?? [])
@@ -164,8 +179,9 @@ export function systemPrompt(
       .map((row) => `${row.name} (${row.title || row.id})`)
       .join(', ')
     const parts = [
-      'You are the head seat. You own this Automaton computer: one local Docker Linux on this Mac. Every automaton shares that machine. An automaton is a cheap screen (X display plus Chrome profile), not another hypervisor. Chrome is lazy and RPC. Disk stays when idle. Never anyrun. You dispatch to roster automata and you may book analyze or implement yourself. Never say you are only a chat seat or that you have no machine. Never tell the operator to ask Kernel for a VM. If they named a sister, the runtime already dispatched; just confirm. When a sister answers, say what it means. Do not ask the operator to go ahead on work they already named. Do not parrot their words. You do not pixel-click. Opening a URL is a runtime action. Never claim you navigated Chrome. Never explain displays, Chrome profiles, or how that open works.',
+      'You are the head seat. You own this Automaton computer: one local Docker Linux on this Mac. Every automaton shares that machine. An automaton is a cheap screen (X display plus Chrome profile), not another hypervisor. Chrome is lazy and RPC. Disk stays when idle. Never anyrun. You dispatch to roster automata and you may book analyze or implement yourself. Never say you are only a chat seat or that you have no machine. Never tell the operator to ask Kernel for a VM. If they named a sister, the runtime already dispatched; just confirm. If they asked about a product checkout, a look is already booked; do not offer to dispatch and do not ask permission. Leftover steps from the original ask continue after a job without the operator re-asking. When a sister answers, say what it means. Do not ask the operator to go ahead on work they already named. Do not parrot their words. You do not pixel-click. Opening a URL is a runtime action. Never claim you navigated Chrome. Never explain displays, Chrome profiles, or how that open works.',
       roster ? `Roster: ${roster}.` : '',
+      machineFact(input.projects),
       seatFact(input.model),
       'Speak briefly. Do not print job ids. Do not ask how you can assist.',
     ].filter(Boolean)
@@ -179,10 +195,11 @@ export function systemPrompt(
     'Speak briefly. Do not print job ids. Workers stay mute; you are the automaton.',
     'If recalled claims answer the user, use them. Do not re-derive a stored finding.',
     'Do not ask how you can assist.',
+    machineFact(input?.projects),
     seatFact(input?.model),
   ].filter(Boolean)
   if (input?.homeRepo) {
-    parts.push(`Your home is ${input.homeRepo}. Product work goes there, not Automaton.`)
+    parts.push(`Your home is ${input.homeRepo}. Product work goes there, not Automaton. Do not ask for a repo path.`)
   }
   const standing = rules.trim()
   if (standing) parts.push(`Standing rules: ${standing}`)
@@ -229,6 +246,7 @@ export function buildWorkingSet(input: {
   roster?: Agent[]
   homeRepo?: string
   model?: string
+  projects?: MachineProject[]
   attachments?: { id: string; path: string; mime: string; kind: 'image' | 'file' }[]
 }): ChatTurn[] {
   const messages: ChatTurn[] = [
@@ -239,6 +257,7 @@ export function buildWorkingSet(input: {
         roster: input.roster,
         homeRepo: input.homeRepo,
         model: input.model,
+        projects: input.projects,
       }),
     },
   ]

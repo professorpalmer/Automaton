@@ -75,6 +75,13 @@ function mouseDownTestId(renderer: ReturnType<typeof createTestRoot>['renderer']
   )
 }
 
+function blitIdentities(node: TreeNode | null): string[] {
+  if (!node) return []
+  const id = node.testId ?? node.customProps?.testId
+  const here = id?.startsWith('desk-stage-blit-') ? [id] : []
+  return here.concat((node.children ?? []).flatMap((child) => blitIdentities(child)))
+}
+
 native('take-control blit hits', () => {
   test('gpuix img has no painted hit bounds', () => {
     const { render, renderer } = createTestRoot()
@@ -147,6 +154,8 @@ native('take-control blit hits', () => {
     expect(el?.events.has('click')).toBe(true)
     expect(el?.events.has('mouseDown')).toBe(true)
     expect(el?.events.has('keyDown')).toBe(true)
+    const box = renderer.getElementBounds(view!.id as number)
+    expect((box?.[2] ?? 0) * (box?.[3] ?? 0)).toBeGreaterThan(0)
     clickTestId(renderer, 'desk-stage-view')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'desk-release')).toBeTruthy()
@@ -200,6 +209,36 @@ native('take-control blit hits', () => {
     mouseDownTestId(renderer, 'desk-release')
     renderer.flush()
     expect(released).toBe(1)
+  })
+
+  test('a mouseDown without mouseUp keeps two blits in old-to-new order when the paint path repeats', () => {
+    const home = join(tmpdir(), `automaton-desk-blit-${Date.now()}-${Math.random()}`)
+    mkdirSync(join(home, 'desktops', 'staff'), { recursive: true })
+    copyFileSync(PNG, screenPath('staff', home))
+    process.env.AUTOMATON_HOME = home
+    const paint = screenPath('staff', home)
+    const spy = spyOn(deskRuntime, 'captureDesk').mockImplementation(() => paint)
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ width: 960, height: 720, backgroundColor: T.canvas }}>
+        <DeskStage agentId="staff" name="Chief of Staff" left={0} onRelease={() => {}} />
+      </div>,
+    )
+    renderer.flush()
+    const before = blitIdentities(asTree(JSON.parse(renderer.getAutomationTree())))
+    expect(before.length).toBeGreaterThanOrEqual(1)
+    const bounds = boundsFor(renderer, 'desk-stage-view')
+    const x = Math.floor(bounds.x + Math.min(40, bounds.width / 2))
+    const y = Math.floor(bounds.y + bounds.height / 2)
+    renderer.nativeSimulateMouseDown(x, y)
+    renderer.flush()
+    const after = blitIdentities(asTree(JSON.parse(renderer.getAutomationTree())))
+    spy.mockRestore()
+    expect(after).toHaveLength(2)
+    expect(after[0]).not.toBe(after[1])
+    const older = Number(after[0].slice('desk-stage-blit-'.length))
+    const newer = Number(after[1].slice('desk-stage-blit-'.length))
+    expect(older).toBeLessThan(newer)
   })
 
   test('a click fallback still forwards once when mouseDown did not arm', () => {

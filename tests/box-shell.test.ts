@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { boxShellArgv, boxShellSpoken } from '../src/runtime/box-shell'
+import { boxShellArgv, boxShellSpoken, runBoxShell } from '../src/runtime/box-shell'
 
 describe('box shell verb', () => {
   test('PATH check is command -v; apt install is root docker exec argv', () => {
@@ -28,5 +28,32 @@ describe('box shell verb', () => {
       ok: true,
       spoken: 'Installed curl on the computer.',
     })
+  })
+
+  test('runBoxShell is async and uses docker exec without blocking on a sync helper', async () => {
+    const seen: string[][] = []
+    const pending = runBoxShell(
+      {
+        id: 'job_which',
+        ownerAgentId: 'staff',
+        goal: 'is claude on PATH',
+        status: 'running',
+        kind: 'box-shell',
+      },
+      {
+        docker: (args) => {
+          seen.push(args)
+          if (args[0] === 'inspect') return { status: 0, text: 'true\n' }
+          if (args[0] === 'exec') return { status: 0, text: '/usr/bin/claude\n' }
+          return { status: 1, text: '' }
+        },
+      },
+    )
+    expect(pending).toBeInstanceOf(Promise)
+    await expect(pending).resolves.toEqual({
+      ok: true,
+      spoken: 'claude is on the computer at /usr/bin/claude.',
+    })
+    expect(seen.some((args) => args[0] === 'exec')).toBe(true)
   })
 })

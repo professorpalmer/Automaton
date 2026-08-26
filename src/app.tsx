@@ -25,6 +25,7 @@ import {
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
 import { watchPasteHotkey } from './runtime/paste-hotkey'
 import { clockDuration, runningTests } from './runtime/test-env'
+import { copyTextToClipboard } from './runtime/clipboard'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey } from './runtime/keys'
@@ -57,6 +58,7 @@ import {
   dropPendingPath,
   failJob,
   failMouth,
+  noteJobStatus,
   patchLiveAgent,
   queuePaths,
   runningJobs,
@@ -199,6 +201,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           onAttached: (pmJobId) => {
             pmIdentity = pmJobId
             setSession((current) => attachPmJob(current, job.id, pmJobId))
+          },
+          onStatus: (spoken) => {
+            setSession((current) => noteJobStatus(current, job.id, spoken))
           },
           onComplete: (spoken) => {
             if (job.kind !== 'box-shell') {
@@ -825,36 +830,13 @@ function Rail({
                 width: '100%',
               }}
             >
-            <div style={{ position: 'relative', flexShrink: 0 }}>
             <SisterBlob
               agent={agent}
               selected={selected}
-              unread={row?.unread ?? 0}
+              unread={0}
               mouthBusy={isMouthBusy(row?.mouth ?? 'idle')}
               index={index}
             />
-            {row?.unread ? (
-              <motion.div
-                initial={{ opacity: 0, width: 0, height: T.size.badge }}
-                animate={{ opacity: 1, width: T.size.badge, height: T.size.badge }}
-                transition={{ duration: clockDuration(T.motion.unread), ease: 'easeOut' }}
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: 0,
-                  minWidth: T.size.badge,
-                  paddingLeft: T.space.inset,
-                  paddingRight: T.space.inset,
-                  borderRadius: T.radius.badge,
-                  backgroundColor: T.inverse,
-                  color: T.onInverse,
-                  fontSize: T.type.xs,
-                }}
-              >
-                {String(row.unread)}
-              </motion.div>
-            ) : null}
-            </div>
             {compact ? null : (
               <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
                 <div
@@ -1217,6 +1199,15 @@ export function Feed({
   const { renderer } = useGpuix()
   const thinking = feedThinking(mouth, items)
   const pin = feedTailKey(items, dockPad, thinking)
+  const [copiedId, setCopiedId] = useState<string | null>(null)
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const copyBubble = (id: string, text: string) => {
+    if (!copyTextToClipboard(text)) return
+    setCopiedId(id)
+    if (copyTimer.current) clearTimeout(copyTimer.current)
+    if (runningTests()) return
+    copyTimer.current = setTimeout(() => setCopiedId(null), T.feed.copyFlashMs)
+  }
   useLayoutEffect(() => {
     pinFeedTail(renderer, ref.current, items, thinking)
   }, [pin, items, renderer, thinking])
@@ -1336,12 +1327,28 @@ export function Feed({
                 minHeight: T.line.md,
                 color: T.text,
               }}
+              onMouseDown={(event) => {
+                if (event.isRightClick || event.button === 2) copyBubble(item.id, item.text)
+              }}
             >
               {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
             </motion.div>
             {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
             </div>
+            ) : null}
+            {copiedId === item.id ? (
+              <div
+                testId="copied-mark"
+                style={{
+                  fontSize: T.type.xs,
+                  color: T.tertiary,
+                  paddingLeft: mine ? 0 : T.space.md,
+                  alignSelf: mine ? 'flex-end' : 'flex-start',
+                }}
+              >
+                Copied
+              </div>
             ) : null}
             {fromStore ? (
               <div
@@ -1397,7 +1404,9 @@ export function JobStrip({
     >
       {jobs.map((job) => {
         const owner = agents.find((agent) => agent.id === job.ownerAgentId)
-        const label = `${owner?.name ?? 'Agent'} · ${jobKindLabel(job.kind)} · ${job.goal}`
+        const label = [owner?.name ?? 'Agent', jobKindLabel(job.kind), job.goal, job.lastNote]
+          .filter(Boolean)
+          .join(' · ')
         return (
           <div
             key={job.id}

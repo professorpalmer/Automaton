@@ -13,8 +13,21 @@ import {
   jobKindFor,
   jobKindForKit,
   lastSpoken,
-  looksLikeJob,
-  looksLikeBoxShell,
+    looksLikeJob,
+    looksLikeBoxShell,
+    looksLikeCodebaseAsk,
+    looksLikeFileAsk,
+    looksLikeJobStatusAsk,
+    looksLikeSourceAsk,
+    keepAliveStatus,
+    isWhitelistedRunningStatus,
+    runningStatusNote,
+    STILL_RUNNING,
+  nextMandateJob,
+  firstAskStep,
+  remainingAsk,
+  splitAskSteps,
+  parseLocalHomes,
   parseBoxShellIntent,
   jobKindLabel,
   mentionedAgentIds,
@@ -110,6 +123,31 @@ describe('mouth vs job', () => {
     expect(jobKindForKit('code', 'check the ledger replay in Automaton staff.')).toBe('analyze')
     expect(jobKindForKit('coordinator', 'check the ledger replay in Automaton staff.')).toBeNull()
     expect(jobKindForKit('coordinator', 'is claude on PATH')).toBe('box-shell')
+    expect(
+      jobKindForKit(
+        'coordinator',
+        'what script does puppetmaster have its model routing logic contained in?',
+      ),
+    ).toBe('analyze')
+    expect(
+      jobKindForKit('coordinator', 'what about Marionette, what is the on-boarding like?'),
+    ).toBe('analyze')
+    expect(jobKindForKit('coordinator', 'can you show me some excerpts')).toBeNull()
+    expect(
+      jobKindForKit(
+        'coordinator',
+        'can you show me some excerpts',
+        'what script does puppetmaster have its model routing logic contained in?',
+      ),
+    ).toBe('analyze')
+    expect(looksLikeCodebaseAsk('Hello, what is your name on this seat?')).toBe(false)
+    expect(looksLikeCodebaseAsk("What is Dugout's stack made up of?")).toBe(true)
+    expect(looksLikeCodebaseAsk('Look at the repo and find the router logic')).toBe(false)
+    expect(looksLikeCodebaseAsk('Look at the repo and find the router logic', [], true)).toBe(true)
+    expect(jobKindForKit('coordinator', "What is Dugout's stack made up of?")).toBe('analyze')
+    expect(jobKindForKit('coordinator', 'Look at the repo and find the router logic')).toBeNull()
+    expect(jobKindForKit('code', 'Look at the repo and find the router logic')).toBe('analyze')
+    expect(looksLikeSourceAsk('can you show me some excerpts')).toBe(true)
     expect(jobKindForKit('code', 'install curl on the computer')).toBe('box-shell')
     expect(jobKindForKit('blank', 'is claude on PATH')).toBeNull()
     expect(looksLikeBoxShell('is claude on PATH')).toBe(true)
@@ -121,6 +159,62 @@ describe('mouth vs job', () => {
     expect(jobKindLabel('box-shell')).toBe('shell')
   })
 
+  test('leftover then/and steps book the next job kind', () => {
+    const installThenPath = 'install curl on the computer then check if python is on PATH'
+    expect(splitAskSteps(installThenPath)).toEqual([
+      'install curl on the computer',
+      'check if python is on PATH',
+    ])
+    expect(splitAskSteps('Look at the repo and find the router logic')).toEqual([
+      'Look at the repo and find the router logic',
+    ])
+    expect(splitAskSteps('install curl on the computer and check if python is on PATH')).toHaveLength(
+      2,
+    )
+    expect(firstAskStep(installThenPath)).toBe('install curl on the computer')
+    expect(remainingAsk(installThenPath, 'install curl on the computer')).toBe(
+      'check if python is on PATH',
+    )
+    expect(remainingAsk(installThenPath, 'check if python is on PATH')).toBe('')
+    expect(
+      nextMandateJob('coordinator', installThenPath, {
+        kind: 'box-shell',
+        goal: 'install curl on the computer',
+      }),
+    ).toEqual({ kind: 'box-shell', text: 'check if python is on PATH' })
+    expect(
+      nextMandateJob(
+        'code',
+        'look at marionette then implement the router patch in that checkout',
+        { kind: 'analyze', goal: 'look at marionette' },
+      ),
+    ).toEqual({ kind: 'implement', text: 'implement the router patch in that checkout' })
+    expect(
+      nextMandateJob('code', 'install curl on the computer', {
+        kind: 'box-shell',
+        goal: 'install curl on the computer',
+      }),
+    ).toBeNull()
+  })
+
+  test('status asks are not new jobs; keepalive copy stays whitelisted', () => {
+    expect(looksLikeJobStatusAsk('how did it go?')).toBe(true)
+    expect(looksLikeJobStatusAsk("how's it going")).toBe(true)
+    expect(looksLikeJobStatusAsk('what did you find')).toBe(true)
+    expect(looksLikeJobStatusAsk('Look up why Send stays Send in Automaton staff.')).toBe(false)
+    expect(looksLikeJobStatusAsk('Kernel, the ledger replay breaks on the composer path.')).toBe(false)
+    expect(isWhitelistedRunningStatus(STILL_RUNNING)).toBe(true)
+    expect(isWhitelistedRunningStatus('Still installing curl.')).toBe(true)
+    expect(isWhitelistedRunningStatus('Done.')).toBe(false)
+    expect(keepAliveStatus({ kind: 'analyze', goal: 'look up the ledger' })).toBe(STILL_RUNNING)
+    expect(keepAliveStatus({ kind: 'box-shell', goal: 'install curl on the computer' })).toBe(
+      'Still installing curl.',
+    )
+    expect(
+      runningStatusNote({ kind: 'analyze', goal: 'look up the ledger', lastNote: 'Done.' }),
+    ).toBe(STILL_RUNNING)
+  })
+
   test('threads are per agent', () => {
     resetIdsForTests()
     expect(DEFAULT_AGENTS.map((agent) => agent.id)).toEqual(['staff'])
@@ -130,7 +224,7 @@ describe('mouth vs job', () => {
     expect(Object.keys(emptyThreads(staffWithSisters())).sort()).toEqual(['kernel', 'research', 'staff'])
   })
 
-  test('head-seat dispatch is ask/tell/have/ping/see-if or @mention, not a vocative name', () => {
+  test('head-seat dispatch is ask/tell/have/ping/see-if/check Name or @mention, not a vocative name', () => {
     const roster = staffWithSisters()
     const puppetmaster = {
       id: 'agent_pm',
@@ -149,6 +243,9 @@ describe('mouth vs job', () => {
     expect(isPing('Can you ping Puppetmaster, do we have any PRs or open issues?')).toBe(false)
     expect(isPing('Can you see if Puppetmaster has any open issues or PRs for us?')).toBe(false)
     expect(isPing('hey ping Puppetmaster and check for open PRs', withPm)).toBe(false)
+    expect(dispatchTargets('hey ping Puppetmaster and check for open PRs', withPm, 'staff')).toEqual([
+      'agent_pm',
+    ])
     expect(isPing('ping Puppetmaster', withPm)).toBe(true)
     expect(isPing('is Puppetmaster online', withPm)).toBe(true)
     expect(dispatchWork('hey ping Puppetmaster and check for open PRs', withPm)).toEqual({
@@ -156,6 +253,10 @@ describe('mouth vs job', () => {
       note: 'Check for open PRs',
     })
     expect(dispatchWork('ping Puppetmaster', withPm).note).toBe('The operator asked if you are around.')
+    expect(
+      dispatchWork('Ask Kernel to install curl on the computer then check if python is on PATH', roster)
+        .note,
+    ).toMatch(/then .*python/i)
     expect(dispatchTargets('@Kernel @Research look this up', roster, 'staff')).toEqual([
       'kernel',
       'research',
@@ -173,6 +274,19 @@ describe('mouth vs job', () => {
       dispatchTargets('Can you see if Puppetmaster has any open issues or PRs for us?', withPm, 'staff'),
     ).toEqual(['agent_pm'])
     expect(dispatchTargets('Can you ping pupetmaster?', withPm, 'staff')).toEqual(['agent_pm'])
+    expect(
+      dispatchTargets(
+        'Check Marionette and Puppetmaster each for open PRs or issues, please.',
+        [
+          ...withPm,
+          { id: 'agent_mn', name: 'Marionette', title: '', description: '', color: '#777777', hidden: false },
+        ],
+        'staff',
+      ),
+    ).toEqual(['agent_mn', 'agent_pm'])
+    expect(
+      dispatchTargets('Have Research look up why Kernel Send stays Send.', roster, 'staff'),
+    ).toEqual(['research'])
   })
 
   test('create-automaton lines yield factory names', () => {
@@ -185,6 +299,33 @@ describe('mouth vs job', () => {
       createAgentNames('post the new bot at https://github.com/example/Puppetmaster'),
     ).toEqual(['Puppetmaster'])
     expect(createAgentNames('post the new bot at the Puppetmaster repo')).toEqual(['Puppetmaster'])
+    expect(
+      createAgentNames(
+        'create a new bot, find the local dugout repo, attach it to the bot, and name the bot Dugout.',
+      ),
+    ).toEqual(['Dugout'])
+    expect(createAgentNames('make a new automaton and name it Scout')).toEqual(['Scout'])
+  })
+
+  test('local repo mentions bind a machine checkout home onto the named bot', () => {
+    const roster = [
+      ...DEFAULT_AGENTS,
+      { id: 'agent_d', name: 'Dugout', title: '', description: '', color: '#777777', hidden: false },
+    ]
+    const text =
+      'create a new bot, find the local dugout repo, attach it to the bot, and name the bot Dugout.'
+    expect(parseLocalHomes(text)).toEqual([{ slug: 'dugout', url: '' }])
+    expect(bindHomes(text, roster)).toEqual([{ agentId: 'agent_d', slug: 'dugout', url: '' }])
+    expect(parseLocalHomes('check Marionette for open PRs')).toEqual([])
+  })
+
+  test('a concrete file plus a reveal verb is an analyze look, not a bare mouth turn', () => {
+    expect(looksLikeFileAsk('Surface its agents.md and relay it to me')).toBe(true)
+    expect(looksLikeFileAsk('show me src/domain.ts')).toBe(true)
+    expect(looksLikeFileAsk('agents.md changed recently')).toBe(false)
+    expect(looksLikeFileAsk('surface the onboarding flow')).toBe(false)
+    expect(jobKindForKit('code', 'Surface its agents.md and relay it to me')).toBe('analyze')
+    expect(jobKindForKit('lookup', 'read docs/staff.md and summarize')).toBe('analyze')
   })
 
   test('rename lines pair a roster mouth to a new name', () => {
