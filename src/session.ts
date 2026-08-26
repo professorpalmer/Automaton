@@ -38,6 +38,17 @@ function setThread(session: Session, id: AgentId, patch: Partial<Thread>): Sessi
   }
 }
 
+/** Remount cannot finish a live mouth turn. Jobs keep `working`. */
+export function idleOrphanMouths(session: Session): Session {
+  let next = session
+  for (const id of Object.keys(session.threads)) {
+    const mouth = session.threads[id]?.mouth
+    if (!mouth || mouth === 'idle' || mouth === 'working') continue
+    next = setThread(next, id, { mouth: 'idle' })
+  }
+  return next
+}
+
 function append(session: Session, agentId: AgentId, item: FeedItem, focused: AgentId): Session {
   const current = thread(session, agentId)
   const unread = agentId === focused ? 0 : current.unread + 1

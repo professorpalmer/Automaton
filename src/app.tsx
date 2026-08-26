@@ -57,6 +57,12 @@ const TRAFFIC =
     ? T.layout.trafficLightClearance
     : T.space.sm
 
+const HIT = {
+  cursor: 'pointer' as const,
+  pointerEvents: 'auto' as const,
+  userSelect: 'none' as const,
+}
+
 function emptySeed(): Session {
   return {
     agents: DEFAULT_AGENTS,
@@ -343,7 +349,9 @@ function Rail({
       style={{
         display: 'flex',
         flexDirection: 'column',
+        width: T.layout.sidebarWidth,
         height: '100%',
+        overflow: 'hidden',
         backgroundColor: T.sidebar,
         borderRightWidth: T.stroke.hairline,
         borderRightColor: T.sidebarBorder,
@@ -383,11 +391,10 @@ function Rail({
               marginRight: T.space.sm,
               marginBottom: T.space.xxs,
               borderRadius: T.radius.sm,
-              cursor: 'pointer',
-              backgroundColor: selected ? T.overlayStrong : T.clear,
-              hover: { backgroundColor: selected ? T.overlayStrong : T.overlay },
-              active: { backgroundColor: selected ? T.overlayStrong : T.overlay },
-              userSelect: 'none',
+              ...HIT,
+              backgroundColor: selected ? T.raised : T.sidebar,
+              hover: { backgroundColor: T.raised },
+              active: { backgroundColor: T.raised },
             }}
             onClick={() => onSelect(agent.id)}
             onMouseDown={(event) => {
@@ -444,9 +451,9 @@ function Rail({
           marginRight: T.space.sm,
           marginBottom: T.space.xxs,
           borderRadius: T.radius.sm,
-          cursor: 'pointer',
-          hover: { backgroundColor: T.overlay },
-          userSelect: 'none',
+          ...HIT,
+          backgroundColor: T.sidebar,
+          hover: { backgroundColor: T.raised },
         }}
         onClick={onCreate}
       >
@@ -466,9 +473,9 @@ function Rail({
           marginRight: T.space.sm,
           marginBottom: T.space.md,
           borderRadius: T.radius.sm,
-          cursor: 'pointer',
-          hover: { backgroundColor: T.overlay },
-          userSelect: 'none',
+          ...HIT,
+          backgroundColor: T.sidebar,
+          hover: { backgroundColor: T.raised },
         }}
         onClick={onSettings}
       >
@@ -498,9 +505,9 @@ function Titlebar({
         paddingRight: T.space.lg,
         borderBottomWidth: T.stroke.hairline,
         borderBottomColor: T.border,
-        userSelect: 'none',
+        backgroundColor: T.canvas,
+        ...HIT,
         flexShrink: 0,
-        cursor: 'pointer',
       }}
       onClick={onInspect}
     >
@@ -685,11 +692,10 @@ export function JobStrip({
                 paddingTop: T.space.xs,
                 paddingBottom: T.space.xs,
                 borderRadius: T.radius.sm,
-                backgroundColor: T.overlay,
+                backgroundColor: T.raised,
                 fontSize: T.type.xs,
                 color: T.text,
-                cursor: 'pointer',
-                userSelect: 'none',
+                ...HIT,
               }}
               onClick={() => onStop(job.id)}
             >
@@ -766,11 +772,10 @@ function ConfirmCard({
             paddingTop: T.space.xs,
             paddingBottom: T.space.xs,
             borderRadius: T.radius.sm,
-            backgroundColor: T.overlay,
+            backgroundColor: T.raised,
             color: T.text,
             fontSize: T.type.sm,
-            cursor: 'pointer',
-            userSelect: 'none',
+            ...HIT,
           }}
           onClick={onDismiss}
         >
@@ -860,8 +865,10 @@ function Composer({
                     paddingTop: T.space.control,
                     paddingBottom: T.space.control,
                     borderRadius: T.radius.sm,
+                    backgroundColor: T.raised,
                     color: T.secondary,
                     fontSize: T.type.xs,
+                    pointerEvents: 'auto',
                     cursor: locked ? 'default' : 'pointer',
                     userSelect: 'none',
                   }}
@@ -889,7 +896,7 @@ function Composer({
             fontSize: T.type.md,
             lineHeight: T.line.md,
             color: T.text,
-            backgroundColor: T.clear,
+            backgroundColor: T.composer,
             borderWidth: T.stroke.none,
             paddingLeft: T.space.md,
             paddingRight: T.space.md,
@@ -918,11 +925,10 @@ function Composer({
               paddingTop: T.space.control,
               paddingBottom: T.space.control,
               borderRadius: T.radius.sm,
-              backgroundColor: T.overlay,
+              backgroundColor: T.raised,
               color: T.text,
               fontSize: T.type.sm,
-              cursor: 'pointer',
-              userSelect: 'none',
+              ...HIT,
             }}
             onClick={onAttach}
           >
@@ -936,11 +942,11 @@ function Composer({
               paddingTop: T.space.control,
               paddingBottom: T.space.control,
               borderRadius: T.radius.sm,
-              backgroundColor: ready ? T.inverse : T.overlay,
+              backgroundColor: ready ? T.inverse : T.raised,
               color: ready ? T.onInverse : T.tertiary,
               fontSize: T.type.sm,
+              ...HIT,
               cursor: ready ? 'pointer' : 'default',
-              userSelect: 'none',
             }}
             onClick={() => {
               if (ready) onSend()

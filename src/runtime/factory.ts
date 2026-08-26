@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import type { Agent } from '../domain'
 import { nextId } from '../domain'
 import type { Session } from '../session'
-import { addLiveAgent } from '../session'
+import { addLiveAgent, idleOrphanMouths } from '../session'
 import { MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
 import { T } from '../tokens'
 import { deal, markForId, seedOverride } from './deal'
@@ -122,5 +122,5 @@ export function hydrateSession(session: Session, home = automatonHome()): Sessio
       next = addLiveAgent(next, live, false)
     }
   }
-  return next
+  return idleOrphanMouths(next)
 }

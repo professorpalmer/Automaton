@@ -94,6 +94,9 @@ describe('sister blob presentation', () => {
     expect(src).not.toMatch(/backgroundColor/)
     expect(src).not.toMatch(/tickMs|splitCycle|cycleLayers/)
     expect(src).toMatch(/pointerEvents:\s*'none'/)
+    const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    expect(app).not.toMatch(/selected \? T.overlayStrong : T.clear/)
+    expect(app).toMatch(/pointerEvents: 'auto'/)
   })
 
   test('selected lifts, idle is still, and chew is mouth-busy only', () => {

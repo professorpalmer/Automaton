@@ -189,10 +189,11 @@ export function Inspector({
               paddingTop: T.space.xxs,
               paddingBottom: T.space.xxs,
               borderRadius: T.radius.sm,
-              backgroundColor: T.overlay,
+              backgroundColor: T.raised,
               fontSize: T.type.xs,
               color: T.text,
               cursor: 'pointer',
+              pointerEvents: 'auto',
               userSelect: 'none',
             }}
             onClick={() => {
@@ -226,10 +227,11 @@ export function Inspector({
                     paddingTop: T.space.xxs,
                     paddingBottom: T.space.xxs,
                     borderRadius: T.radius.sm,
-                    backgroundColor: selected ? T.inverse : T.overlay,
+                    backgroundColor: selected ? T.inverse : T.raised,
                     color: selected ? T.onInverse : T.text,
                     fontSize: T.type.xs,
                     cursor: 'pointer',
+                    pointerEvents: 'auto',
                     userSelect: 'none',
                   }}
                   onClick={() => onPatch?.({ kit: item })}
@@ -361,10 +363,11 @@ export function PaneHeader({
           paddingTop: T.space.xs,
           paddingBottom: T.space.xs,
           borderRadius: T.radius.sm,
-          backgroundColor: T.overlay,
+          backgroundColor: T.raised,
           fontSize: T.type.sm,
           color: T.text,
           cursor: 'pointer',
+          pointerEvents: 'auto',
           userSelect: 'none',
         }}
         onClick={onClose}

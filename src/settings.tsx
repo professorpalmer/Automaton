@@ -129,10 +129,11 @@ export function Settings({
                 paddingTop: T.space.xs,
                 paddingBottom: T.space.xs,
                 borderRadius: T.radius.sm,
-                backgroundColor: T.overlay,
+                backgroundColor: T.raised,
                 fontSize: T.type.sm,
                 color: T.text,
                 cursor: 'pointer',
+                pointerEvents: 'auto',
                 userSelect: 'none',
               }}
               onClick={saveKey}

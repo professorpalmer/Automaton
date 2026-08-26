@@ -11,6 +11,7 @@ import {
   dropLiveAgent,
   dropPendingPath,
   failJob,
+  idleOrphanMouths,
   queuePaths,
   send,
   setActive,
@@ -186,5 +187,16 @@ describe('teammate session', () => {
     expect(s.threads.staff.pendingPaths).toEqual(['/tmp/b.png'])
     s = dropPendingPath(s, '/tmp/missing')
     expect(s.threads.staff.pendingPaths).toEqual(['/tmp/b.png'])
+  })
+
+  test('hydrate idles orphan mouth turns and keeps a flying job working', () => {
+    let s = send(fresh(), 'Hello, what is your name?')
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = setActive(s, 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    expect(s.threads.kernel.mouth).toBe('working')
+    s = idleOrphanMouths(s)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.kernel.mouth).toBe('working')
   })
 })
