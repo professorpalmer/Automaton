@@ -1,0 +1,24 @@
+{
+  "name": "automaton",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "description": "Durable staff over Puppetmaster. React authored, GPUI rendered. Not Electron.",
+  "scripts": {
+    "dev": "bun --hot src/main.tsx",
+    "start": "bun src/main.tsx",
+    "test": "bun test",
+    "doctor": "bun scripts/doctor.ts",
+    "probe:kernel": "bun scripts/probe-kernel.ts",
+    "probe:mouth": "bun scripts/probe-mouth.ts"
+  },
+  "dependencies": {
+    "@gpuix/react": "^0.4.0",
+    "react": "^19.2.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "typescript": "^5.3.0"
+  }
+}
