@@ -33,7 +33,7 @@ focused mouth.
 `--hot` remounts can leave a zombie window. If clicks miss, quit leftover
 Automaton windows and run `bun run app` (or `bun src/main.tsx`).
 
-`bun test` is the suite. CI runs that job only. `bun run doctor` checks
+`bun test` is the suite. CI runs that job on macOS. `bun run doctor` checks
 Puppetmaster. `bun scripts/probe-kernel.ts` launches a read-only analyze
 job. Never run an implement worker against this checkout; implement work
 uses a sandbox.
