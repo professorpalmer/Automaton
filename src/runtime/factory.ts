@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { nextId, type Agent, type HomeBind } from '../domain'
 import type { Session } from '../session'
-import { addLiveAgent, idleOrphanMouths } from '../session'
+import { addLiveAgent, idleOrphanMouths, normalizeSession } from '../session'
 import { MARK_BAKE_REV, MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
 import { T } from '../tokens'
 import { deal, markForId, seedOverride } from './deal'
@@ -144,15 +144,17 @@ export function hydrateSession(session: Session, home = automatonHome()): Sessio
   ensureSeedProfiles(home)
   const onDisk = new Set(listProfileIds(home))
   onDisk.add('staff')
-  const agents = session.agents.filter((agent) => onDisk.has(agent.id))
+  const normalized = normalizeSession(session)
+  const agents = normalized.agents.filter((agent) => onDisk.has(agent.id))
   const threads = Object.fromEntries(
-    Object.entries(session.threads).filter(([id]) => onDisk.has(id)),
+    Object.entries(normalized.threads).filter(([id]) => onDisk.has(id)),
   )
-  const activeAgentId = agents.some((agent) => agent.id === session.activeAgentId)
-    ? session.activeAgentId
+  const activeAgentId = agents.some((agent) => agent.id === normalized.activeAgentId)
+    ? normalized.activeAgentId
     : 'staff'
-  const jobs = session.jobs.filter((job) => onDisk.has(job.ownerAgentId))
-  let next: Session = { ...session, agents, threads, jobs, activeAgentId }
+  const jobs = normalized.jobs.filter((job) => onDisk.has(job.ownerAgentId))
+  const goals = (normalized.goals ?? []).filter((goal) => onDisk.has(goal.ownerAgentId))
+  let next: Session = { ...normalized, agents, threads, jobs, goals, activeAgentId }
   for (const id of listProfileIds(home)) {
     const profile = readProfile(id, home)
     if (!profile) continue

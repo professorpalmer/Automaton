@@ -37,6 +37,58 @@ describe('staff sqlite store', () => {
     expect(claimed[0]?.jobId).toBe('job_roundtrip')
   })
 
+  test('GoalRun and job associations survive reload; old snapshots hydrate empty goals', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-goals-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'install curl on the computer then check if python is on PATH')
+    expect(session.goals).toHaveLength(1)
+    expect(session.jobs[0]?.goalId).toBe(session.goals?.[0]?.id)
+    store.save(session)
+    const loaded = openStaffStore(path).load()
+    expect(loaded?.goals).toHaveLength(1)
+    expect(loaded?.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['box-shell', 'box-shell'])
+    expect(loaded?.jobs[0]?.goalId).toBe(loaded?.goals?.[0]?.id)
+    expect(loaded?.jobs[0]?.criterionId).toBe(loaded?.goals?.[0]?.criteria[0]?.id)
+    expect(loaded?.threads.staff).not.toHaveProperty('mandate')
+
+    const legacy = join(tmpdir(), `automaton-store-legacy-goals-${Date.now()}.sqlite`)
+    const db = new Database(legacy)
+    db.exec(
+      `CREATE TABLE snapshot (id INTEGER PRIMARY KEY CHECK (id = 1), session_json TEXT NOT NULL, id_seq INTEGER NOT NULL)`,
+    )
+    db.run('INSERT INTO snapshot (id, session_json, id_seq) VALUES (1, ?, 3)', [
+      JSON.stringify({
+        agents: DEFAULT_AGENTS,
+        activeAgentId: 'staff',
+        threads: {
+          staff: {
+            agentId: 'staff',
+            items: [],
+            draft: '',
+            pendingPaths: [],
+            mouth: 'idle',
+            unread: 0,
+            mandate: { text: 'stale leftover', steps: 2 },
+          },
+        },
+        jobs: [],
+        pendingFanout: null,
+      }),
+    ])
+    db.close()
+    const old = openStaffStore(legacy).load()
+    expect(old?.goals).toEqual([])
+    expect(old?.threads.staff).not.toHaveProperty('mandate')
+  })
+
   test('legacy claims migrate and round-trip with identity', () => {
     const path = join(tmpdir(), `automaton-store-migrate-${Date.now()}.sqlite`)
     const db = new Database(path)

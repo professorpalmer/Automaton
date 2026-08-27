@@ -39,9 +39,12 @@ Invariants:
 
 - Running a job is not mouth busy. Composer stays Send.
 - Fan-out to 3+ automata needs confirmation. Dismiss means no send.
-- Completion continues leftover steps from the original ask.
-- A GitHub issue or pull URL is work: absorb, then leftover land/ship
-  when the ask names them. Binding a home is not the job.
+- Completion continues leftover steps from the original ask. Staff owns
+  that GoalRun; workers do not schedule leftover.
+- A GitHub issue or pull URL is work. A pull plus validate starts
+  analyze; absorb-only stays implement-first. Explicit merge/release
+  wording is authority and does not wait for a confirm card. Binding a
+  home is not the job.
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.

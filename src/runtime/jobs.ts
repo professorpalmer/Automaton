@@ -1,10 +1,10 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { keepAliveStatus, type JobHandle } from '../domain'
+import { WAITING_CHECKS, keepAliveStatus, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { type BoxSeams } from './box'
 import { runBoxShell } from './box-shell'
-import { runPromote, runShip, type LandSeams } from './land'
+import { runPromote, runShip, type HostResult, type LandSeams } from './land'
 import { listMachineProjects, matchMachineProject } from './machine'
 import { readProfile } from './profile'
 import {
@@ -34,6 +34,7 @@ export type DispatchHooks = {
   onStatus?: (spoken: string) => void
   onComplete: (spoken: string) => void
   onFail: (spoken: string) => void
+  onWaitingExternal?: (spoken: string) => void
 }
 
 export type AnalyzeReuseHit = {
@@ -44,6 +45,7 @@ export type AnalyzeReuseHit = {
 export const WATCH_UNAVAILABLE_GRACE = 3
 export const STATUS_FIRST_DELAY_MS = 1500
 export const STATUS_THROTTLE_MS = 15_000
+export const EXTERNAL_WAIT_MS = 30_000
 const WATCH_POLL_MS = 1500
 
 export type DispatchSeams = {
@@ -59,12 +61,9 @@ export type DispatchSeams = {
     job: JobHandle,
   ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
   land?: LandSeams
-  promote?: (
-    job: JobHandle,
-  ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
-  ship?: (
-    job: JobHandle,
-  ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
+  promote?: (job: JobHandle) => HostResult | Promise<HostResult>
+  ship?: (job: JobHandle) => HostResult | Promise<HostResult>
+  externalWaitMs?: number
 }
 
 type Inflight = {
@@ -168,10 +167,7 @@ export async function ensureDispatched(
         job.kind === 'promote'
           ? (seams.promote ?? ((item) => runPromote(item, knownJobs, land)))
           : (seams.ship ?? ((item) => runShip(item, knownJobs, land)))
-      const result = await awaitWithStatus(Promise.resolve(run(job)), row, job, hooks, seams)
-      if (row.abandoned) return
-      if (result.ok) hooks.onComplete(result.spoken)
-      else hooks.onFail(result.spoken)
+      await runHostLand(job, row, hooks, seams, run)
       return
     }
     if (job.kind === 'analyze') {
@@ -284,6 +280,37 @@ function emitKeepAlive(job: JobHandle, hooks: DispatchHooks): void {
   const note = keepAliveStatus(job)
   if (!note || note === 'Done.') return
   hooks.onStatus?.(note)
+}
+
+async function runHostLand(
+  job: JobHandle,
+  row: Inflight,
+  hooks: DispatchHooks,
+  seams: DispatchSeams,
+  run: (item: JobHandle) => HostResult | Promise<HostResult>,
+): Promise<void> {
+  const pause = seams.sleep ?? sleep
+  const waitMs = seams.externalWaitMs ?? EXTERNAL_WAIT_MS
+  let notedWait = false
+  let current = job
+  for (;;) {
+    const result = await awaitWithStatus(Promise.resolve(run(current)), row, current, hooks, seams)
+    if (row.abandoned) return
+    if (result.waitingExternal) {
+      hooks.onWaitingExternal?.(result.spoken)
+      if (!notedWait) {
+        hooks.onStatus?.(WAITING_CHECKS)
+        notedWait = true
+      }
+      current = { ...current, lastNote: WAITING_CHECKS }
+      await pause(waitMs)
+      if (row.abandoned) return
+      continue
+    }
+    if (result.ok) hooks.onComplete(result.spoken)
+    else hooks.onFail(result.spoken)
+    return
+  }
 }
 
 async function awaitWithStatus<T>(

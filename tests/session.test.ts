@@ -2,8 +2,9 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { emptyThreads, MANDATE_MAX_STEPS, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import { writeProfile } from '../src/runtime/profile'
+import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
   attachPmJob,
@@ -22,6 +23,9 @@ import {
   setActive,
   setDraft,
   stopJob,
+  waitJobExternal,
+  dispatchableJobs,
+  runningJobs,
   type Session,
 } from '../src/session'
 
@@ -751,7 +755,9 @@ describe('teammate session', () => {
     expect(s.jobs[0]?.kind).toBe('box-shell')
     expect(s.jobs[0]?.goal.toLowerCase()).toContain('curl')
     expect(s.jobs[0]?.goal.toLowerCase()).not.toContain('python')
-    expect(s.threads.staff.mandate?.text).toContain('python')
+    expect(s.goals).toHaveLength(1)
+    expect(s.goals?.[0]?.coordinatorId).toBe('staff')
+    expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['box-shell', 'box-shell'])
     const firstId = s.jobs[0].id
     s = completeJob(s, firstId, 'curl is installed.')
     expect(s.jobs).toHaveLength(2)
@@ -766,7 +772,28 @@ describe('teammate session', () => {
     s = completeJob(s, s.jobs[1].id, 'python is on PATH.')
     expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(0)
     expect(s.threads.staff.mouth).toBe('idle')
-    expect(s.threads.staff.mandate).toBeUndefined()
+    expect(s.goals?.[0]?.status).toBe('complete')
+  })
+
+  test('repeating a finished two-step GoalRun still books the second criterion', () => {
+    const ask = 'install curl on the computer then check if python is on PATH'
+    let s = send(fresh(), ask)
+    s = completeJob(s, s.jobs[0].id, 'curl is installed.')
+    s = completeJob(s, s.jobs[1].id, 'python is on PATH.')
+    expect(s.goals?.[0]?.status).toBe('complete')
+    const firstGoalId = s.goals?.[0]?.id
+    s = send(s, ask)
+    expect(s.goals).toHaveLength(2)
+    expect(s.goals?.[1]?.id).not.toBe(firstGoalId)
+    expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(1)
+    s = completeJob(s, s.jobs[2].id, 'curl is installed.')
+    expect(s.jobs).toHaveLength(4)
+    expect(s.jobs[3]?.kind).toBe('box-shell')
+    expect(s.jobs[3]?.status).toBe('running')
+    expect(s.jobs[3]?.goal.toLowerCase()).toContain('python')
+    expect(s.goals?.[1]?.status).toBe('running')
+    expect(s.goals?.[1]?.criteria[1]?.status).toBe('running')
+    expect(s.goals?.[1]?.criteria.some((row) => row.status === 'skipped')).toBe(false)
   })
 
   test('analyze then implement leftover books implement on the same owner', () => {
@@ -781,10 +808,10 @@ describe('teammate session', () => {
     expect(s.threads.kernel.mouth).toBe('working')
     s = completeJob(s, s.jobs[1].id, 'The patch landed.')
     expect(s.threads.kernel.mouth).toBe('idle')
-    expect(s.threads.kernel.mandate).toBeUndefined()
+    expect(s.goals?.[0]?.status).toBe('complete')
   })
 
-  test('Staff assess waits until the sister mandate is closed', () => {
+  test('Staff assess waits until the sister GoalRun is closed', () => {
     let s = send(fresh(), 'Ask Kernel to install curl on the computer then check if python is on PATH')
     expect(s.jobs).toHaveLength(1)
     expect(s.jobs[0]?.ownerAgentId).toBe('kernel')
@@ -803,38 +830,21 @@ describe('teammate session', () => {
     expect(pending[0]?.userText).toContain('Do not ask permission')
   })
 
-  test('Stop closes the mandate and does not book leftover', () => {
+  test('Stop cancels the GoalRun and does not book leftover', () => {
     let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
     s = stopJob(s, s.jobs[0].id)
     expect(s.jobs[0]?.status).toBe('failed')
     expect(s.jobs).toHaveLength(1)
-    expect(s.threads.staff.mandate).toBeUndefined()
+    expect(s.goals?.[0]?.status).toBe('cancelled')
     expect(s.threads.staff.mouth).toBe('idle')
   })
 
-  test('failed first step still books a different leftover step', () => {
+  test('failed first step does not book leftover', () => {
     let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
     s = failJob(s, s.jobs[0].id, "Didn't land.")
-    expect(s.jobs).toHaveLength(2)
-    expect(s.jobs[1]?.kind).toBe('box-shell')
-    expect(s.jobs[1]?.goal.toLowerCase()).toContain('python')
-    expect(s.threads.staff.mouth).toBe('working')
-  })
-
-  test('mandate cap stops leftover dispatch', () => {
-    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
-    const mandate = s.threads.staff.mandate
-    expect(mandate).toBeTruthy()
-    s = {
-      ...s,
-      threads: {
-        ...s.threads,
-        staff: { ...s.threads.staff, mandate: { ...mandate!, steps: MANDATE_MAX_STEPS } },
-      },
-    }
-    s = completeJob(s, s.jobs[0].id, 'curl is installed.')
     expect(s.jobs).toHaveLength(1)
-    expect(s.threads.staff.mandate).toBeUndefined()
+    expect(s.jobs[0]?.status).toBe('failed')
+    expect(s.goals?.[0]?.status).toBe('failed')
     expect(s.threads.staff.mouth).toBe('idle')
   })
 
@@ -891,7 +901,11 @@ describe('teammate session', () => {
       expect(s.jobs[0]?.goal).toContain('issues/223')
       expect(s.threads.agent_m.mouth).toBe('working')
       expect(s.threads.staff.mouth).toBe('idle')
-      expect(s.threads.agent_m.mandate?.text).toContain('issues/223')
+      expect(s.goals).toHaveLength(1)
+      expect(s.goals?.[0]?.coordinatorId).toBe('staff')
+      expect(s.goals?.[0]?.ownerAgentId).toBe('agent_m')
+      expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['implement', 'promote', 'ship'])
+      expect(s.threads.agent_m).not.toHaveProperty('mandate')
       expect(
         s.threads.staff.items.some(
           (item) =>
@@ -914,12 +928,441 @@ describe('teammate session', () => {
       expect(s.jobs[2]?.goal).toBe('ship a new release')
       s = completeJob(s, s.jobs[2].id, 'Shipped v0.9.360.')
       expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(0)
-      expect(s.threads.agent_m.mandate).toBeUndefined()
+      expect(s.goals?.[0]?.status).toBe('complete')
       expect(s.threads.agent_m.mouth).toBe('idle')
+      expect(s.threads.staff.mouth).toBe('answer')
     } finally {
       if (prev === undefined) delete process.env.AUTOMATON_HOME
       else process.env.AUTOMATON_HOME = prev
       rmSync(home, { recursive: true, force: true })
     }
+  })
+
+  test('exact PR sentence creates a Staff GoalRun and books analyze on Marionette', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-pr-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'blob',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-26T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    const ask =
+      'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?'
+    try {
+      let s = send(
+        {
+          agents: [...staffWithSisters(), marionette],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), marionette]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        ask,
+      )
+      expect(s.jobs).toHaveLength(1)
+      expect(s.jobs[0]?.kind).toBe('analyze')
+      expect(s.jobs[0]?.ownerAgentId).toBe('agent_m')
+      expect(s.jobs[0]?.goalId).toBe(s.goals?.[0]?.id)
+      expect(s.goals).toHaveLength(1)
+      expect(s.goals?.[0]?.coordinatorId).toBe('staff')
+      expect(s.goals?.[0]?.ownerAgentId).toBe('agent_m')
+      expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual([
+        'analyze',
+        'implement',
+        'promote',
+        'ship',
+      ])
+      expect(s.threads.agent_m).not.toHaveProperty('mandate')
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(pendingMouthTurns(s)).toEqual([])
+      s = completeJob(s, s.jobs[0].id, 'dest checks are green.')
+      expect(s.jobs).toHaveLength(2)
+      expect(s.jobs[1]?.kind).toBe('implement')
+      expect(s.jobs[1]?.evidence?.some((row) => row.includes('green'))).toBe(true)
+      expect(s.threads.staff.mouth).toBe('idle')
+      s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs[2]?.kind).toBe('promote')
+      expect(s.threads.staff.mouth).toBe('idle')
+      s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
+      expect(s.jobs[3]?.kind).toBe('ship')
+      s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
+      expect(s.goals?.[0]?.status).toBe('complete')
+      expect(s.threads.staff.mouth).toBe('answer')
+      expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(0)
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('failed absorb does not book merge and Staff speaks one blocker', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-fail-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'blob',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-26T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    const ask =
+      'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?'
+    try {
+      let s = send(
+        {
+          agents: [...staffWithSisters(), marionette],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), marionette]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        ask,
+      )
+      s = completeJob(s, s.jobs[0].id, 'two checks red on dest.')
+      expect(s.jobs[1]?.kind).toBe('implement')
+      s = failJob(s, s.jobs[1].id, "Didn't land.")
+      expect(s.jobs).toHaveLength(2)
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(s.goals?.[0]?.status).toBe('failed')
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(
+        s.threads.staff.items.some(
+          (item) =>
+            item.kind === 'msg' &&
+            item.from === 'agent' &&
+            item.text.includes('blocked') &&
+            item.text.includes("Didn't land."),
+        ),
+      ).toBe(true)
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('waiting_external promote then complete books ship without a Staff blocker', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-wait-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'blob',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-26T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    const ask =
+      'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?'
+    try {
+      let s = send(
+        {
+          agents: [...staffWithSisters(), marionette],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), marionette]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        ask,
+      )
+      s = completeJob(s, s.jobs[0].id, 'dest checks are green.')
+      s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs[2]?.kind).toBe('promote')
+      const staffBefore = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
+      s = waitJobExternal(s, s.jobs[2].id)
+      expect(s.goals?.[0]?.status).toBe('waiting_external')
+      expect(s.jobs[2]?.status).toBe('running')
+      expect(s.jobs.some((row) => row.kind === 'ship')).toBe(false)
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(
+        s.threads.staff.items.some(
+          (item) => item.kind === 'msg' && item.from === 'agent' && /blocked|\?/.test(item.text),
+        ),
+      ).toBe(false)
+      expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(
+        staffBefore.length,
+      )
+      const failed = failJob(s, s.jobs[2].id, "Couldn't merge dest into main.")
+      expect(failed.goals?.[0]?.status).toBe('failed')
+      s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
+      expect(s.goals?.[0]?.status).toBe('running')
+      expect(s.jobs[3]?.kind).toBe('ship')
+      s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
+      expect(s.goals?.[0]?.status).toBe('complete')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('tag and shipping prose do not book a ship job', () => {
+    let tag = setActive(fresh(), 'kernel')
+    tag = send(tag, 'look at the tag in package.json')
+    expect(tag.jobs.some((job) => job.kind === 'ship')).toBe(false)
+    let shipping = setActive(fresh(), 'kernel')
+    shipping = send(shipping, 'the feature is shipping next week')
+    expect(shipping.jobs.some((job) => job.kind === 'ship')).toBe(false)
+    expect(shipping.jobs).toHaveLength(0)
+  })
+
+  test('a pull URL plus ship a new release books implement, promote, then ship', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-ship-url-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'blob',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-26T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    try {
+      let s = send(
+        {
+          agents: [...staffWithSisters(), marionette],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), marionette]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        'https://github.com/professorpalmer/marionette/pull/12 ship a new release',
+      )
+      expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['implement', 'promote', 'ship'])
+      expect(s.jobs[0]?.kind).toBe('implement')
+      s = completeJob(s, s.jobs[0].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs[1]?.kind).toBe('promote')
+      s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
+      expect(s.jobs[2]?.kind).toBe('ship')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('dispatchableJobs serializes host land per owner and leaves other work flying', () => {
+    const s: Session = {
+      ...fresh(),
+      jobs: [
+        {
+          id: 'job_host_a',
+          ownerAgentId: 'kernel',
+          goal: 'merge dest to main',
+          status: 'running',
+          kind: 'promote',
+        },
+        {
+          id: 'job_host_b',
+          ownerAgentId: 'kernel',
+          goal: 'ship a new release',
+          status: 'running',
+          kind: 'ship',
+        },
+        {
+          id: 'job_look',
+          ownerAgentId: 'kernel',
+          goal: 'look up the ledger',
+          status: 'running',
+          kind: 'analyze',
+        },
+        {
+          id: 'job_impl',
+          ownerAgentId: 'research',
+          goal: 'absorb the patch',
+          status: 'running',
+          kind: 'implement',
+        },
+        {
+          id: 'job_host_c',
+          ownerAgentId: 'agent_m',
+          goal: 'merge dest to main',
+          status: 'running',
+          kind: 'promote',
+        },
+      ],
+    }
+    expect(runningJobs(s).map((job) => job.id)).toEqual([
+      'job_host_a',
+      'job_host_b',
+      'job_look',
+      'job_impl',
+      'job_host_c',
+    ])
+    expect(dispatchableJobs(s).map((job) => job.id)).toEqual([
+      'job_host_a',
+      'job_look',
+      'job_impl',
+      'job_host_c',
+    ])
+    const after = {
+      ...s,
+      jobs: s.jobs.map((job) =>
+        job.id === 'job_host_a' ? { ...job, status: 'complete' as const } : job,
+      ),
+    }
+    expect(runningJobs(after).map((job) => job.id)).toEqual([
+      'job_host_b',
+      'job_look',
+      'job_impl',
+      'job_host_c',
+    ])
+    expect(dispatchableJobs(after).map((job) => job.id)).toEqual([
+      'job_host_b',
+      'job_look',
+      'job_impl',
+      'job_host_c',
+    ])
+  })
+
+  test('concurrent GoalRuns do not replace each other', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    expect(s.goals).toHaveLength(1)
+    const firstId = s.goals?.[0]?.id
+    s = send(s, 'is claude on PATH')
+    expect(s.goals).toHaveLength(2)
+    expect(s.goals?.map((row) => row.id)).toContain(firstId)
+    expect(s.goals?.[1]?.id).not.toBe(firstId)
+    expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(2)
+  })
+
+  test('jobs without goalId complete without advancing a GoalRun after reload', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    const firstId = s.goals?.[0]?.id
+    const attachedId = s.jobs[0]?.id
+    expect(firstId).toBeTruthy()
+    expect(attachedId).toBeTruthy()
+    s = send(s, 'is claude on PATH')
+    const secondId = s.goals?.[1]?.id
+    expect(secondId).toBeTruthy()
+    s = {
+      ...s,
+      jobs: [
+        ...s.jobs,
+        {
+          id: 'job_orphan',
+          ownerAgentId: 'staff',
+          goal: 'install curl on the computer',
+          status: 'running',
+          kind: 'box-shell',
+        },
+      ],
+    }
+    const path = join(tmpdir(), `automaton-session-orphan-${Date.now()}.sqlite`)
+    openStaffStore(path).save(s)
+    const loaded = openStaffStore(path).load()
+    expect(loaded).toBeTruthy()
+    s = loaded!
+    expect(s.jobs.find((job) => job.id === 'job_orphan')?.goalId).toBeUndefined()
+    s = completeJob(s, 'job_orphan', 'curl is installed.')
+    expect(s.jobs.find((job) => job.id === 'job_orphan')?.status).toBe('complete')
+    expect(s.goals?.find((row) => row.id === firstId)?.status).toBe('running')
+    expect(s.goals?.find((row) => row.id === firstId)?.criteria[0]?.status).toBe('running')
+    expect(s.goals?.find((row) => row.id === firstId)?.receipts).toEqual([])
+    expect(s.goals?.find((row) => row.id === secondId)?.status).toBe('running')
+    expect(s.goals?.find((row) => row.id === secondId)?.criteria[0]?.status).toBe('running')
+    expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(2)
+    s = completeJob(s, attachedId!, 'curl is installed.')
+    expect(s.goals?.find((row) => row.id === firstId)?.criteria[0]?.status).toBe('met')
+    expect(s.jobs.some((job) => job.goalId === firstId && job.goal.toLowerCase().includes('python'))).toBe(true)
+    expect(s.goals?.find((row) => row.id === secondId)?.criteria[0]?.status).toBe('running')
+    expect(s.jobs.some((job) => job.goalId === secondId && job.status === 'running')).toBe(true)
   })
 })

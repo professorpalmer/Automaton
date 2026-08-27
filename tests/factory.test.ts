@@ -95,6 +95,54 @@ describe('agent factory', () => {
     expect(next.threads.kernel).toBeUndefined()
     expect(next.threads.staff).toBeTruthy()
     expect(next.jobs).toEqual([])
+    expect(next.goals).toEqual([])
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('hydrate keeps GoalRuns whose owner is still on disk', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const created = createAgent({ home, name: 'Marionette', kit: 'code' })
+    const next = hydrateSession(
+      {
+        agents: [...DEFAULT_AGENTS, created.agent],
+        activeAgentId: 'staff',
+        threads: emptyThreads([...DEFAULT_AGENTS, created.agent]),
+        jobs: [
+          {
+            id: 'job_goal',
+            ownerAgentId: created.agent.id,
+            goal: 'validate https://github.com/professorpalmer/marionette/pull/12',
+            status: 'running',
+            kind: 'analyze',
+            goalId: 'goal_1',
+            criterionId: 'crit_1',
+            pmJobId: 'job_pm_reattach',
+          },
+        ],
+        goals: [
+          {
+            id: 'goal_1',
+            text: 'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?',
+            coordinatorId: 'staff',
+            ownerAgentId: created.agent.id,
+            criteria: [
+              { id: 'crit_1', label: 'validate', kind: 'analyze', work: 'validate https://github.com/professorpalmer/marionette/pull/12', status: 'running' },
+              { id: 'crit_2', label: 'absorb', kind: 'implement', work: 'absorb https://github.com/professorpalmer/marionette/pull/12', status: 'pending' },
+            ],
+            receipts: [],
+            status: 'running',
+            activeCriterionId: 'crit_1',
+          },
+        ],
+        pendingFanout: null,
+      },
+      home,
+    )
+    expect(next.goals).toHaveLength(1)
+    expect(next.goals?.[0]?.id).toBe('goal_1')
+    expect(next.jobs[0]?.goalId).toBe('goal_1')
+    expect(next.jobs[0]?.pmJobId).toBe('job_pm_reattach')
     rmSync(home, { recursive: true, force: true })
   })
 

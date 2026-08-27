@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { automatonHome } from './keys'
 import { peekIdSeq, restoreIdSeq, type AgentId } from '../domain'
-import type { Session } from '../session'
+import { normalizeSession, type Session } from '../session'
 import type { Attachment, AttachmentInput } from './attachments'
 import {
   asArtifactKind,
@@ -278,7 +278,7 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
         | null
       if (!row) return null
       restoreIdSeq(row.id_seq)
-      return JSON.parse(row.session_json) as Session
+      return normalizeSession(JSON.parse(row.session_json) as Session)
     },
     remember(input) {
       const cleaned = input.text.trim()

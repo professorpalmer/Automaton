@@ -13,7 +13,8 @@ That directory is not the git checkout.
 | `agents/` | Per-automaton `profile.json` (kit, home repo, mark) |
 | `marks/` | Baked blob frames |
 
-The domain snapshot is JSON in SQLite (`src/runtime/store.ts`). Claims are
+The domain snapshot is JSON in SQLite (`src/runtime/store.ts`). Staff-owned
+GoalRuns live on that snapshot (`goals`, default `[]` on old JSON). Claims are
 query-first: a later mouth turn may speak a stored finding instead of
 paying for inference. Receipts record hit/miss and token totals when the
 provider sent them. Unknown cost is not stored as zero.
