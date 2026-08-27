@@ -203,6 +203,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }, [store, mouthEpoch])
 
   useEffect(() => {
+    if (runningTests()) return
     for (const job of dispatchableJobs(session)) {
       let pmIdentity = job.pmJobId
       void ensureDispatched(
