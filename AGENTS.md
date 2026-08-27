@@ -43,8 +43,9 @@ Invariants:
   that GoalRun; workers do not schedule leftover.
 - A GitHub issue or pull URL is work. A pull plus validate starts
   analyze; absorb-only stays implement-first. Explicit merge/release
-  wording is authority and does not wait for a confirm card. Binding a
-  home is not the job.
+  wording compiles the GoalRun. Do not run git/gh until the native
+  widget is answered; cancel settles the goal. Binding a home is not
+  the job.
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
