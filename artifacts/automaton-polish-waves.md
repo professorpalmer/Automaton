@@ -1,6 +1,6 @@
 # Automaton polish waves
 
-Wave 4 (this branch): in-chat widgets + secret-request. Stop here.
+Wave 5 (this branch): skill import + progressive disclosure. Stop here.
 
 Chief of Staff is the only seeded mouth. `dropUnclaimedSeedSisters` stays. Do not seed Kernel or Research. Users spin up more automata via the Chief / factory (`addLiveAgent` / New agent). GPU tweens stay size / pos / opacity / radius. No glass window. Do not touch `pm.ts`, blob bake, I2/J2, Puppetmaster, or Marionette.
 
@@ -22,7 +22,7 @@ Send stays live while a mouth turn is in flight. Queued user text does **not** a
 
 `shouldQueueSteer(mouth, computerBusy)` parks mid-turn Send. `composerEnterBusy` is false so Send stays Send. Drain after `completeMouth` / `failMouth` / idle job batch / Stop. Thread `computerBusy` is the Wave 3 attach point.
 
-## 3. Worker computer-use + who-is-driving
+## 3. Worker computer-use + who-is-driving — DONE
 
 Parked spec: `artifacts/automaton-computer-use-11.md`.
 
@@ -36,7 +36,7 @@ Who-is-driving:
 
 Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Box tools go through existing `boxExec` + Chromium debug port.
 
-## 4. In-chat widgets + secret-request (slice M) — THIS BRANCH
+## 4. In-chat widgets + secret-request (slice M) — DONE
 
 Merge / promote is a **widget**, not an auto-book. Secret-request is a card, not a spoken password. Widgets are native GPUIX cards in the transcript, not agent HTML.
 
@@ -47,11 +47,15 @@ Merge / promote is a **widget**, not an auto-book. Secret-request is a card, not
 
 Do not add job ids to spoken lines unless the user asked.
 
-## 5. Skill import
+## 5. Skill import + progressive disclosure — THIS BRANCH
 
-Markdown-only. Disabled by default. Skip scripts. Pin URL + hash. Name regex is the path gate. Progressive disclosure in inspector / Staff.
+Markdown-only. Disabled by default. Skip scripts. Pin URL + hash. Name regex is the path gate.
 
-Today: `src/runtime/skills.ts` lists local `SKILL.md`. Import is the missing slice.
+- Fetch `SKILL.md` (GitHub blob/tree rewritten to raw). Zip archives yield markdown and skip `scripts/` with an explicit note. Script source is never written.
+- Imported skills land disabled until the inspector toggle (or Staff) enables them. Local `SKILL.md` stays enabled.
+- Folder name is `/^[a-z0-9]+(?:-[a-z0-9]+)*$/` — the only path under the skills dir.
+- Mouth catalog is name+description, budgeted (~15 skills / 4kB). Full body loads on match, pin, or `@name`. `disable-model-invocation` stays off the catalog; inspector pin / `@mention` is the slash-only path.
+- Do not dump every `SKILL.md` into every turn. Do not auto-fire imported skills. No skill recorder.
 
 ## 6. Unattended ≠ Auto + cache-stable compaction
 

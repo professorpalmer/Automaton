@@ -12,7 +12,7 @@ import { captureDesk } from './runtime/desk'
 import { desktopPreview } from './runtime/desktop'
 import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
-import { listSkills } from './runtime/skills'
+import { importSkillFromUrl, listSkills, setSkillEnabled } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
 import { CHAT_THEME, T } from './tokens'
 
@@ -221,7 +221,10 @@ export function Inspector({
     setScreen(still.screen)
     setFrame((n) => n + 1)
   }, [agent.id])
-  const library = listSkills()
+  const [library, setLibrary] = useState(listSkills)
+  const [importUrl, setImportUrl] = useState('')
+  const [importNote, setImportNote] = useState('')
+  const bumpLibrary = () => setLibrary(listSkills())
   const markShapes = uniqueChoices(profile?.avatarShape ?? '', DEAL_SHAPES)
   const markHues = uniqueChoices(profile?.avatarColor ?? '', DEAL_HUES)
   return (
@@ -529,11 +532,79 @@ export function Inspector({
       {profile ? (
         <Section title="Skills">
           <div testId="inspector-skills" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
+            <textarea
+              testId="skill-import-url"
+              value={importUrl}
+              placeholder="SKILL.md URL"
+              minRows={1}
+              maxRows={2}
+              theme={CHAT_THEME}
+              style={{
+                width: '100%',
+                fontSize: T.type.sm,
+                lineHeight: T.line.sm,
+                color: T.text,
+                backgroundColor: T.composer,
+                borderWidth: T.stroke.hairline,
+                borderColor: T.border,
+                borderRadius: T.radius.sm,
+                paddingLeft: T.space.sm,
+                paddingRight: T.space.sm,
+                paddingTop: T.space.xs,
+                paddingBottom: T.space.xs,
+              }}
+              onScroll={passWheel}
+              onChange={(event) => setImportUrl(event.value ?? '')}
+            />
+            <div
+              testId="skill-import"
+              style={{
+                alignSelf: 'flex-start',
+                paddingLeft: T.space.sm,
+                paddingRight: T.space.sm,
+                paddingTop: T.space.xxs,
+                paddingBottom: T.space.xxs,
+                borderRadius: T.radius.sm,
+                backgroundColor: T.raised,
+                fontSize: T.type.xs,
+                color: T.text,
+                ...HIT,
+              }}
+              onClick={() => {
+                const url = importUrl.trim()
+                if (!url) return
+                void importSkillFromUrl(url)
+                  .then((result) => {
+                    setImportNote(result.note)
+                    setImportUrl('')
+                    bumpLibrary()
+                  })
+                  .catch((error) => {
+                    setImportNote(error instanceof Error ? error.message : 'import failed')
+                  })
+              }}
+              onScroll={passWheel}
+            >
+              Import
+            </div>
+            {importNote ? (
+              <div testId="skill-import-note" style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                {importNote}
+              </div>
+            ) : null}
             {library.length === 0 && profile.skillIds.length === 0 ? (
               <div style={{ fontSize: T.type.sm, color: T.tertiary }}>No skills pinned</div>
             ) : null}
             {library.map((skill) => {
               const pinned = profile.skillIds.includes(skill.id)
+              const disabled = skill.origin === 'imported' && !skill.enabled
+              const label = disabled
+                ? `${skill.name} (disabled)`
+                : pinned
+                  ? `${skill.name} (pinned)`
+                  : skill.scriptsSkipped
+                    ? `${skill.name} (scripts skipped)`
+                    : skill.name
               return (
                 <div
                   key={skill.id}
@@ -544,16 +615,21 @@ export function Inspector({
                     cursor: 'pointer',
                     userSelect: 'none',
                   }}
-                  onClick={() =>
+                  onClick={() => {
+                    if (disabled) {
+                      setSkillEnabled(skill.id, true)
+                      bumpLibrary()
+                      return
+                    }
                     onPatch?.({
                       skillIds: pinned
                         ? profile.skillIds.filter((id) => id !== skill.id)
                         : [...profile.skillIds, skill.id],
                     })
-                  }
+                  }}
                   onScroll={passWheel}
                 >
-                  {pinned ? `${skill.name} (pinned)` : skill.name}
+                  {label}
                 </div>
               )
             })}
