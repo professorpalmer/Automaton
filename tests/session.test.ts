@@ -15,7 +15,9 @@ import {
   dropPendingPath,
   failJob,
   failMouth,
+  hasUserMessage,
   idleOrphanMouths,
+  maybeIntro,
   noteJobStatus,
   pendingMouthTurns,
   queuePaths,
@@ -31,6 +33,7 @@ import {
   runningJobs,
   type Session,
 } from '../src/session'
+import { composerEnterBusy, isMouthBusy } from '../src/domain'
 
 function fresh(): Session {
   resetIdsForTests()
@@ -1451,3 +1454,102 @@ describe('teammate session', () => {
     expect(s.threads.staff.mouth).toBe('idle')
   })
 })
+
+describe('first-open greeting', () => {
+  test('maybeIntro fires once, sticks after complete, and Send stays Send', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    expect(isMouthBusy('intro')).toBe(true)
+    expect(composerEnterBusy('intro')).toBe(false)
+    expect(pendingMouthTurns(s)[0]?.mode).toBe('intro')
+    expect(pendingMouthTurns(s)[0]?.agentId).toBe('staff')
+    s = completeMouth(s, 'staff', 'Chief of Staff. I coordinate this computer.')
+    expect(s.threads.staff.mouth).toBe('idle')
+    const greetings = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
+    expect(greetings).toHaveLength(1)
+    if (greetings[0]?.kind === 'msg') {
+      expect(greetings[0].text).toContain('Chief of Staff')
+    }
+    const replay = maybeIntro(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(replay.threads.staff.items).toHaveLength(1)
+    expect(replay.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(replay)).toEqual([])
+  })
+
+  test('setActive and focused factory create start intro; unfocused create waits', () => {
+    let s = setActive(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    s = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    const bot = {
+      id: 'agent_1',
+      name: 'New automaton',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    s = addLiveAgent(s, bot, false, null)
+    expect(s.activeAgentId).toBe('staff')
+    expect(s.threads.agent_1.mouth).toBe('idle')
+    expect(s.threads.agent_1.items).toHaveLength(0)
+    s = addLiveAgent(s, { ...bot, id: 'agent_2', name: 'Scout' }, true, null)
+    expect(s.activeAgentId).toBe('agent_2')
+    expect(s.threads.agent_2.mouth).toBe('intro')
+    expect(s.threads.agent_2.unread).toBe(0)
+    s = completeMouth(s, 'agent_2', 'Scout.')
+    expect(s.threads.agent_2.unread).toBe(0)
+    s = setActive(s, 'agent_1', null)
+    expect(s.threads.agent_1.mouth).toBe('intro')
+  })
+
+  test('user send first skips intro forever even if the transcript is later empty', () => {
+    let s = send(fresh(), 'hello staff')
+    expect(hasUserMessage(s, 'staff')).toBe(true)
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = maybeIntro(s, 'staff', null)
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = completeMouth(s, 'staff', 'Hello.')
+    s = setThreadEmpty(s, 'staff')
+    s = maybeIntro(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items).toHaveLength(0)
+  })
+
+  test('user send during intro wins and does not leave a second greeting', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    s = send(s, 'skip the hello')
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = completeMouth(s, 'staff', 'should not land as intro')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(1)
+    const after = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    expect(after).toBe(s)
+  })
+
+  test('click away and back does not start a second intro once played', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    s = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    s = setActive(s, 'kernel')
+    s = setActive(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(1)
+  })
+
+  test('remount idles an in-flight intro without speaking', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    s = idleOrphanMouths(s)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items).toHaveLength(0)
+  })
+})
+
+function setThreadEmpty(session: Session, agentId: string): Session {
+  return {
+    ...session,
+    threads: {
+      ...session.threads,
+      [agentId]: { ...session.threads[agentId]!, items: [], mouth: 'idle', unread: 0 },
+    },
+  }
+}
+

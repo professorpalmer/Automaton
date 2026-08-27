@@ -3,6 +3,8 @@ import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, SISTER_AGENTS, staffWit
 import {
   buildWorkingSet,
   claimTaskKey,
+  INTRO_CUE,
+  introFallback,
   queryFirst,
   TAIL,
 } from '../src/runtime/working-set.ts'
@@ -228,5 +230,26 @@ describe('mouth working set', () => {
     expect(prompt).toContain('Your home is example/Puppetmaster.')
     expect(prompt).toContain('Do not ask for a repo path')
     expect(prompt).toContain('not Automaton')
+  })
+
+  test('intro working set is system plus a hidden first-open cue', () => {
+    resetIdsForTests()
+    const staff = DEFAULT_AGENTS[0]
+    const messages = buildWorkingSet({
+      agent: staff,
+      thread: emptyThreads(DEFAULT_AGENTS).staff,
+      claims: [{ ownerAgentId: 'staff', text: 'should not appear' }],
+      kit: 'coordinator',
+      roster: DEFAULT_AGENTS,
+      intro: true,
+      projects: [],
+    })
+    expect(messages).toHaveLength(2)
+    expect(messages[0]?.role).toBe('system')
+    expect(messages[1]?.role).toBe('user')
+    expect(messages[1]?.content).toContain(INTRO_CUE)
+    expect(messages[1]?.content).toContain('make more automata')
+    expect(JSON.stringify(messages)).not.toContain('should not appear')
+    expect(introFallback(staff)).toBe('Chief of Staff. Coordinator.')
   })
 })

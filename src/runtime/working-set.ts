@@ -162,6 +162,21 @@ function machineFact(projects?: MachineProject[]): string {
   return `${places} Automaton is this staff app, not the default subject. Named products mean those trees. Do not invent Automaton files (plane.json, AUTOMATON_MODEL, seat.py) as if they were Marionette or Puppetmaster. You do not read disk this turn.`
 }
 
+export const INTRO_CUE =
+  'The user just opened your chat for the first time. Speak one or two sentences. Name yourself. Say what you do from your title and description. Do not ask how you can help. Do not list tools, jobs, or capabilities. Do not say "how can I help you."'
+
+export function introUserCue(agent: Agent): string {
+  if (agent.id === 'staff') {
+    return `${INTRO_CUE} Mention that you are how they make more automata.`
+  }
+  return INTRO_CUE
+}
+
+export function introFallback(agent: Agent): string {
+  const title = agent.title.trim()
+  return title ? `${agent.name}. ${title}.` : `${agent.name}.`
+}
+
 export function systemPrompt(
   agent: Agent,
   rules = '',
@@ -248,19 +263,22 @@ export function buildWorkingSet(input: {
   model?: string
   projects?: MachineProject[]
   attachments?: { id: string; path: string; mime: string; kind: 'image' | 'file' }[]
+  intro?: boolean
 }): ChatTurn[] {
-  const messages: ChatTurn[] = [
-    {
-      role: 'system',
-      content: systemPrompt(input.agent, input.rules, {
-        kit: input.kit,
-        roster: input.roster,
-        homeRepo: input.homeRepo,
-        model: input.model,
-        projects: input.projects,
-      }),
-    },
-  ]
+  const system = {
+    role: 'system' as const,
+    content: systemPrompt(input.agent, input.rules, {
+      kit: input.kit,
+      roster: input.roster,
+      homeRepo: input.homeRepo,
+      model: input.model,
+      projects: input.projects,
+    }),
+  }
+  if (input.intro) {
+    return [system, { role: 'user', content: introUserCue(input.agent) }]
+  }
+  const messages: ChatTurn[] = [system]
   if (input.claims.length > 0) {
     messages.push({
       role: 'system',

@@ -5,6 +5,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   ensureSeedProfiles,
   kitForAgent,
+  markIntroPlayedAt,
   parseProfile,
   readProfile,
   writeProfile,
@@ -26,8 +27,27 @@ describe('agent profiles', () => {
     expect(staff?.avatarShape).toBe('blob')
     expect(readProfile('kernel', home)).toBeNull()
     expect(readProfile('research', home)).toBeNull()
+    expect(staff?.introPlayedAt ?? null).toBeNull()
     expect(kitForAgent('kernel', home)).toBe('code')
     expect(kitForAgent('research', home)).toBe('lookup')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('a fresh profile is Chief-only and introPlayedAt sticks once', () => {
+    const home = tmpHome()
+    ensureSeedProfiles(home)
+    expect(readProfile('staff', home)?.name).toBe('Chief of Staff')
+    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('research', home)).toBeNull()
+    expect(readProfile('staff', home)?.introPlayedAt ?? null).toBeNull()
+    markIntroPlayedAt('staff', home, '2026-08-27T06:01:00.000Z')
+    expect(readProfile('staff', home)?.introPlayedAt).toBe('2026-08-27T06:01:00.000Z')
+    markIntroPlayedAt('staff', home, '2026-08-27T09:00:00.000Z')
+    expect(readProfile('staff', home)?.introPlayedAt).toBe('2026-08-27T06:01:00.000Z')
+    ensureSeedProfiles(home)
+    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('research', home)).toBeNull()
+    expect(readProfile('staff', home)?.introPlayedAt).toBe('2026-08-27T06:01:00.000Z')
     rmSync(home, { recursive: true, force: true })
   })
 

@@ -102,6 +102,7 @@ export function createAgent(input?: {
     createdAt: new Date().toISOString(),
     homeRepo: '',
     homePath: '',
+    introPlayedAt: null,
   }
   writeProfile(profile, home)
   ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)
