@@ -6,16 +6,30 @@ import { captureDesk, captureDeskAsync, clickDesk, resolveDeskHit, sendDeskStrok
 import { desktopPreview } from './runtime/desktop'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
-
-function quitChord(event: {
-  key?: string
-  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
-}): boolean {
-  const key = event.key?.toLowerCase()
-  return Boolean(event.modifiers?.cmd) && !event.modifiers?.shift && !event.modifiers?.alt && (key === 'q' || key === 'w')
-}
+import { quitChord } from './inspector'
+import { quitAutomaton } from './runtime/quit'
 
 type DeskBlit = { path: string; id: number }
+
+export function applyDeskKey(
+  event: {
+    key?: string
+    keyChar?: string
+    modifiers?: { shift?: boolean; ctrl?: boolean; alt?: boolean; cmd?: boolean }
+  },
+  agentId: string,
+  seams?: {
+    quit?: () => void
+    send?: typeof sendDeskStroke
+  },
+): void {
+  if (quitChord(event)) {
+    (seams?.quit ?? quitAutomaton)()
+    return
+  }
+  const stroke = deskStroke(event)
+  if (stroke) (seams?.send ?? sendDeskStroke)(agentId, stroke)
+}
 
 function useDeskFrame(agentId: string, live: boolean) {
   const preview = desktopPreview(agentId)
@@ -121,9 +135,7 @@ export function DeskStage({
     keyChar?: string
     modifiers?: { shift?: boolean; ctrl?: boolean; alt?: boolean; cmd?: boolean }
   }) => {
-    if (quitChord(event)) return
-    const stroke = deskStroke(event)
-    if (stroke) sendDeskStroke(agentId, stroke)
+    applyDeskKey(event, agentId)
   }
   const onDeskScroll = (event: { deltaY?: number }) => {
     const dy = event.deltaY ?? 0

@@ -3,15 +3,28 @@ import { runningTests } from './test-env'
 
 const HID = 1
 const KEY_V = 9
+const KEY_Q = 12
+const KEY_W = 13
 const KEY_LCMD = 55
 const KEY_RCMD = 54
+const KEY_SHIFT = 56
+const KEY_RSHIFT = 60
+const KEY_OPT = 58
+const KEY_ROPT = 61
 
-export type PasteHotkeySeams = {
+export type HidHotkeySeams = {
   intervalMs?: number
-  cmdV?: () => boolean
   frontmost?: () => boolean
   setInterval?: typeof setInterval
   clearInterval?: typeof clearInterval
+}
+
+export type PasteHotkeySeams = HidHotkeySeams & {
+  cmdV?: () => boolean
+}
+
+export type QuitHotkeySeams = HidHotkeySeams & {
+  cmdQuit?: () => boolean
 }
 
 type KeyState = (state: number, key: number) => boolean
@@ -38,11 +51,22 @@ function loadHid(): KeyState | null {
   return hidState
 }
 
+function cmdHeld(read: KeyState): boolean {
+  return Boolean(read(HID, KEY_LCMD) || read(HID, KEY_RCMD))
+}
+
 export function cmdVDown(read = loadHid()): boolean {
   if (!read) return false
-  const v = read(HID, KEY_V)
-  const cmd = read(HID, KEY_LCMD) || read(HID, KEY_RCMD)
-  return Boolean(v && cmd)
+  return Boolean(read(HID, KEY_V) && cmdHeld(read))
+}
+
+/** Cmd+Q / Cmd+W. Shift or Option means not quit. */
+export function cmdQuitDown(read = loadHid()): boolean {
+  if (!read) return false
+  if (!cmdHeld(read)) return false
+  if (read(HID, KEY_SHIFT) || read(HID, KEY_RSHIFT)) return false
+  if (read(HID, KEY_OPT) || read(HID, KEY_ROPT)) return false
+  return Boolean(read(HID, KEY_Q) || read(HID, KEY_W))
 }
 
 function runOsascript(script: string): string {
@@ -59,16 +83,14 @@ export function isFrontmost(pid = process.pid, query = runOsascript): boolean {
   return Number.isInteger(front) && front === pid
 }
 
-/** Cmd+V while this process is frontmost. GPUI textarea swallows the React key. */
-export function watchPasteHotkey(onPaste: () => void, seams?: PasteHotkeySeams): () => void {
+function watchChord(isDown: () => boolean, onFire: () => void, seams?: HidHotkeySeams): () => void {
   if (runningTests() && !seams) return () => {}
-  const cmdV = seams?.cmdV ?? cmdVDown
   const frontmost = seams?.frontmost ?? isFrontmost
   const start = seams?.setInterval ?? setInterval
   const stop = seams?.clearInterval ?? clearInterval
   let armed = false
   const timer = start(() => {
-    const down = cmdV()
+    const down = isDown()
     if (!down) {
       armed = false
       return
@@ -76,7 +98,17 @@ export function watchPasteHotkey(onPaste: () => void, seams?: PasteHotkeySeams):
     if (armed) return
     armed = true
     if (!frontmost()) return
-    onPaste()
+    onFire()
   }, seams?.intervalMs ?? 50)
   return () => stop(timer)
+}
+
+/** Cmd+V while this process is frontmost. GPUI textarea swallows the React key. */
+export function watchPasteHotkey(onPaste: () => void, seams?: PasteHotkeySeams): () => void {
+  return watchChord(seams?.cmdV ?? cmdVDown, onPaste, seams)
+}
+
+/** Cmd+Q / Cmd+W. Same swallow as paste; desk focus also ate the React chord. */
+export function watchQuitHotkey(onQuit: () => void, seams?: QuitHotkeySeams): () => void {
+  return watchChord(seams?.cmdQuit ?? cmdQuitDown, onQuit, seams)
 }

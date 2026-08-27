@@ -8,7 +8,7 @@ computer; each automaton is a screen on that box, not a VM.
 
 - [Staff surface](docs/staff.md) — rail, composer, factory, inspector
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
-- [Jobs](docs/jobs.md) — analyze, implement, and box-shell
+- [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 

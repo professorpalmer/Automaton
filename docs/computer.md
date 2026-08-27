@@ -76,8 +76,9 @@ key .` is not an X keysym and is dropped.
 PATH and apt asks are a `box-shell` job (`docker exec`), not implement on
 this Mac. Do not stdio a PTY into the VM for computer-use.
 
-Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Host
-Chrome is a fallback when the box is down, not a second computer.
+Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Chrome
+runs on the box. A down box is no screen, not a headless Google Chrome on
+this Mac. `AUTOMATON_CHROME_HOST=1` is an explicit opt-in for tests.
 
 Live capture proof (needs Docker):
 

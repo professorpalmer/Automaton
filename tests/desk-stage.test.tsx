@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { describe, expect, spyOn, test } from 'bun:test'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
-import { DeskStage } from '../src/desk'
+import { DeskStage, applyDeskKey } from '../src/desk'
 import * as deskRuntime from '../src/runtime/desk'
+import { mapViewToDisplay } from '../src/runtime/desk'
 import { mapViewToDisplay } from '../src/runtime/desk'
 import { screenPath } from '../src/runtime/desktop'
 import { T } from '../src/tokens'
@@ -265,5 +266,32 @@ native('take-control blit hits', () => {
     renderer.flush()
     spy.mockRestore()
     expect(clicks).toHaveLength(1)
+  })
+})
+
+describe('desk quit chord', () => {
+  test('Cmd+Q quits instead of sending a box key', () => {
+    const sent: unknown[] = []
+    let quits = 0
+    applyDeskKey({ key: 'q', modifiers: { cmd: true } }, 'staff', {
+      quit: () => {
+        quits += 1
+      },
+      send: (_id, stroke) => {
+        sent.push(stroke)
+        return true
+      },
+    })
+    applyDeskKey({ key: 'a', modifiers: { cmd: true } }, 'staff', {
+      quit: () => {
+        quits += 1
+      },
+      send: (_id, stroke) => {
+        sent.push(stroke)
+        return true
+      },
+    })
+    expect(quits).toBe(1)
+    expect(sent).toEqual([{ via: 'key', value: 'ctrl+a' }])
   })
 })

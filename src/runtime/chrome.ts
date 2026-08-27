@@ -1,8 +1,9 @@
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { boxExec, boxStatus, type BoxSeams } from './box'
+import { runningTests } from './test-env'
 import { boxChromeAlive, boxChromeWindowReady, ensureScreen, fitBoxChrome, stopBoxChrome } from './screen'
 import {
   BOX_CHROME,
@@ -43,7 +44,9 @@ const CANDIDATES = [
 export function chromeBinary(seams?: ChromeSeams): string | null {
   if (seams && 'binary' in seams) return seams.binary ?? null
   if (process.env.AUTOMATON_CHROME_DISABLE === '1') return null
-  if (process.env.BUN_TEST && !process.env.AUTOMATON_CHROME?.trim()) return null
+  // bun test sets NODE_ENV=test, not BUN_TEST. A BUN_TEST-only gate spawned
+  // detached Mac Chrome from shell tests (Take control → ensureBrowser).
+  if (runningTests() && !process.env.AUTOMATON_CHROME?.trim()) return null
   const override = process.env.AUTOMATON_CHROME?.trim()
   if (override) return existsSync(override) ? override : null
   for (const path of CANDIDATES) {
@@ -52,16 +55,56 @@ export function chromeBinary(seams?: ChromeSeams): string | null {
   return null
 }
 
-export function chromeAvailable(seams?: ChromeSeams): boolean {
-  if (chromeBinary(seams) !== null) return true
-  if (seams && 'binary' in seams) return false
-  return boxStatus(automatonHome(), seams?.box).running
+export function chromeAvailable(seams?: ChromeSeams, home = automatonHome()): boolean {
+  return chromeMode(seams, home) !== 'none'
 }
 
 export function chromeMode(seams?: ChromeSeams, home = automatonHome()): 'box' | 'host' | 'none' {
   if (seams && 'binary' in seams) return seams.binary ? 'host' : 'none'
   if (boxStatus(home, seams?.box).running) return 'box'
-  return chromeBinary(seams) ? 'host' : 'none'
+  if (process.env.AUTOMATON_CHROME_HOST === '1' && chromeBinary(seams)) return 'host'
+  return 'none'
+}
+
+/** Host Google Chrome / helpers whose profile is an Automaton desktop dir. */
+export function isAutomatonHostChromeCmd(cmd: string): boolean {
+  return /--user-data-dir=\S*(?:automaton-shell-|[/\\]desktops[/\\][^/\\\s]+[/\\]browser)/.test(cmd)
+}
+
+export function listAutomatonHostChromePids(psText: string): number[] {
+  const seen = new Set<number>()
+  for (const line of psText.split('\n')) {
+    if (!isAutomatonHostChromeCmd(line)) continue
+    const pid = Number(line.trim().split(/\s+/)[0])
+    if (Number.isInteger(pid) && pid > 1) seen.add(pid)
+  }
+  return [...seen]
+}
+
+function defaultPs(): string {
+  const result = spawnSync('ps', ['-axo', 'pid=,command='], {
+    encoding: 'utf8',
+    timeout: 8000,
+  })
+  return result.stdout ?? ''
+}
+
+/** SIGTERM then SIGKILL leaked Automaton host Chrome. Not the user's profile. */
+export function sweepHostChrome(seams?: { ps?: () => string; kill?: (pid: number) => void }): number {
+  const text = seams?.ps?.() ?? defaultPs()
+  const pids = listAutomatonHostChromePids(text)
+  const kill = seams?.kill ?? defaultKill
+  for (const pid of pids) kill(pid)
+  if (!seams?.kill) {
+    for (const pid of pids) {
+      try {
+        process.kill(pid, 'SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+  return pids.length
 }
 
 export function chromeLaunch(input: {
@@ -166,9 +209,8 @@ function defaultKill(pid: number): void {
 }
 
 function defaultSpawn(bin: string, argv: string[]): { pid: number } {
-  const child = spawn(bin, argv, { detached: true, stdio: 'ignore' })
+  const child = spawn(bin, argv, { stdio: 'ignore' })
   if (!child.pid) throw new Error('chrome spawn failed')
-  child.unref()
   return { pid: child.pid }
 }
 

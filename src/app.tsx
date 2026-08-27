@@ -23,7 +23,7 @@ import {
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
-import { watchPasteHotkey } from './runtime/paste-hotkey'
+import { watchPasteHotkey, watchQuitHotkey } from './runtime/paste-hotkey'
 import { clockDuration, runningTests } from './runtime/test-env'
 import { copyTextToClipboard } from './runtime/clipboard'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
@@ -44,6 +44,7 @@ import {
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser } from './runtime/chrome'
+import { quitAutomaton } from './runtime/quit'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
@@ -206,7 +207,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             setSession((current) => noteJobStatus(current, job.id, spoken))
           },
           onComplete: (spoken) => {
-            if (job.kind !== 'box-shell') {
+            if (job.kind !== 'box-shell' && job.kind !== 'promote' && job.kind !== 'ship') {
               store.remember({
                 ownerAgentId: job.ownerAgentId,
                 text: spoken,
@@ -311,7 +312,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
 
   useEffect(() => {
     if (runningTests()) return
-    return watchPasteHotkey(() => enqueueClipboardRef.current())
+    const stopPaste = watchPasteHotkey(() => enqueueClipboardRef.current())
+    const stopQuit = watchQuitHotkey(() => quitAutomaton())
+    return () => {
+      stopPaste()
+      stopQuit()
+    }
   }, [])
 
   const onCreateAgent = () => {
@@ -358,7 +364,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       onKeyDown={(event) => {
         if (inspectorChord(event)) toggleInspector()
         if (pasteChord(event)) enqueueClipboard()
-        if (quitChord(event) && !runningTests()) process.exit(0)
+        if (quitChord(event)) quitAutomaton()
       }}
     >
       <motion.div
@@ -499,7 +505,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     const agentId = session.deskHandoff?.agentId
                     setSession((current) => confirmDeskHandoff(current))
                     setDeskControl(true)
-                    if (agentId) void ensureBrowser(agentId)
+                    if (agentId && !runningTests()) void ensureBrowser(agentId)
                   }}
                   onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
                 />
@@ -529,7 +535,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onTakeControl={() => {
                   setDeskControl((on) => {
                     const next = !on
-                    if (next) void ensureBrowser(active.id)
+                    if (next && !runningTests()) void ensureBrowser(active.id)
                     return next
                   })
                 }}
@@ -1643,7 +1649,7 @@ function Composer({
           }}
           onKeyDown={(event) => {
             if (pasteChord(event)) onPaste()
-            if (quitChord(event) && !runningTests()) process.exit(0)
+            if (quitChord(event)) quitAutomaton()
           }}
         />
         <div

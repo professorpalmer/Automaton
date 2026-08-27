@@ -23,7 +23,7 @@ export type Agent = {
 
 export type JobStatus = 'running' | 'complete' | 'failed'
 
-export type JobKind = 'analyze' | 'implement' | 'box-shell'
+export type JobKind = 'analyze' | 'implement' | 'box-shell' | 'promote' | 'ship'
 
 export type DeskHandoff = {
   agentId: AgentId
@@ -143,9 +143,61 @@ export function thinkingDots(step: number): string {
 export function looksLikeJob(text: string): boolean {
   const lower = text.toLowerCase()
   return (
-    /\b(fix|implement|patch|refactor|build|wire|break(?:s|ing)?)\b/.test(lower) &&
+    /\b(fix|implement|patch|refactor|build|wire|break(?:s|ing)?|absorb)\b/.test(lower) &&
     lower.length > 24
   )
+}
+
+export type GithubIssue = {
+  owner: string
+  repo: string
+  number: number
+  kind: 'issue' | 'pull'
+  url: string
+}
+
+/** Numbered GitHub issue or pull URL. A repo root URL is a home bind, not work. */
+export function parseGithubIssue(text: string): GithubIssue | null {
+  const pattern =
+    /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(issues|pull|pulls)\/(\d+)/i
+  const match = pattern.exec(text)
+  if (!match) return null
+  const owner = match[1]
+  const repo = match[2].replace(/\.git$/i, '')
+  const number = Number(match[4])
+  if (!owner || !repo || !Number.isFinite(number) || number < 1) return null
+  const kind = match[3] === 'issues' ? 'issue' : 'pull'
+  return {
+    owner,
+    repo,
+    number,
+    kind,
+    url: `https://github.com/${owner}/${repo}/${kind === 'issue' ? 'issues' : 'pull'}/${number}`,
+  }
+}
+
+export function looksLikeIssueWork(text: string): boolean {
+  return parseGithubIssue(text) != null
+}
+
+export function looksLikeFinishLine(text: string): boolean {
+  return /\b(finish line|take it to the finish|absorb|land (?:it|this))\b/i.test(text)
+}
+
+export function looksLikePromote(text: string): boolean {
+  const lower = text.toLowerCase()
+  return (
+    lower.includes('merge dest to main') ||
+    lower.includes('from dest to main') ||
+    lower.includes('dev into main') ||
+    (lower.includes('dev') && lower.includes('main') && lower.includes('equal')) ||
+    lower.includes('branches are equal') ||
+    /\bpromote\b/.test(lower)
+  )
+}
+
+export function looksLikeShip(text: string): boolean {
+  return /\b(ship|new release|cut a release|tag a release)\b/i.test(text)
 }
 
 export function looksLikeLookup(text: string): boolean {
@@ -266,6 +318,7 @@ export function parseBoxShellIntent(text: string): BoxShellIntent | null {
 
 export function jobKindLabel(kind: JobKind): string {
   if (kind === 'box-shell') return 'shell'
+  if (kind === 'promote') return 'land'
   return kind
 }
 
@@ -287,11 +340,14 @@ export function looksLikeJobStatusAsk(text: string): boolean {
 export function isWhitelistedRunningStatus(text: string): boolean {
   const trimmed = text.trim()
   if (trimmed === STILL_RUNNING) return true
+  if (trimmed === 'Still landing.' || trimmed === 'Still shipping.') return true
   return /^Still installing [A-Za-z][A-Za-z0-9._+-]{0,63}\.$/.test(trimmed)
 }
 
 /** Nonterminal copy the runtime may emit. Never sanitizeSpeak — that can become Done. */
 export function keepAliveStatus(job: Pick<JobHandle, 'kind' | 'goal'>): string {
+  if (job.kind === 'promote') return 'Still landing.'
+  if (job.kind === 'ship') return 'Still shipping.'
   if (job.kind === 'box-shell') {
     const intent = parseBoxShellIntent(job.goal)
     if (intent?.kind === 'install') return `Still installing ${intent.name}.`
@@ -339,8 +395,15 @@ export function jobKindForKit(
   if (looksLikeBoxShell(text)) return 'box-shell'
   const implicit = kit !== 'coordinator'
   if (kit === 'lookup') {
-    return looksLikeJob(text) || wantsLook(text, prior, productNames, implicit) ? 'analyze' : null
+    return looksLikeJob(text) ||
+      looksLikeIssueWork(text) ||
+      wantsLook(text, prior, productNames, implicit)
+      ? 'analyze'
+      : null
   }
+  if (looksLikeIssueWork(text)) return 'implement'
+  if (looksLikePromote(text)) return 'promote'
+  if (looksLikeShip(text)) return 'ship'
   if (looksLikeJob(text)) return 'implement'
   if (kit === 'coordinator') {
     return coordinatorLook(text, prior, productNames) ? 'analyze' : null
@@ -357,6 +420,13 @@ export function foldAsk(text: string): string {
 export function splitAskSteps(text: string): string[] {
   const trimmed = text.trim()
   if (!trimmed) return []
+  const issue = parseGithubIssue(trimmed)
+  if (issue) {
+    const steps = [`absorb ${issue.url}`]
+    if (looksLikePromote(trimmed) || looksLikeFinishLine(trimmed)) steps.push('merge dest to main')
+    if (looksLikeShip(trimmed)) steps.push('ship a new release')
+    return steps
+  }
   const parts = trimmed.split(
     /\s+(?:and\s+)?then\s+|\s+and\s+(?=check|install|which|implement|fix|patch|look)\b|;+\s*/i,
   )
@@ -525,7 +595,16 @@ function stripAddressing(text: string, agents: Agent[]): string {
 }
 
 function remainderIsWork(text: string): boolean {
-  if (looksLikeBoxShell(text) || looksLikeJob(text) || looksLikeRepoAsk(text) || looksLikeInspect(text)) {
+  if (
+    looksLikeBoxShell(text) ||
+    looksLikeJob(text) ||
+    looksLikeIssueWork(text) ||
+    looksLikePromote(text) ||
+    looksLikeShip(text) ||
+    looksLikeFinishLine(text) ||
+    looksLikeRepoAsk(text) ||
+    looksLikeInspect(text)
+  ) {
     return true
   }
   if (looksLikeCodebaseAsk(text) || looksLikeSourceAsk(text)) return true
@@ -877,6 +956,15 @@ function namedInOrder(text: string, agents: Agent[]): Agent[] {
     ordered.push(hit.agent)
   }
   return ordered
+}
+
+/** Issue URL with no ask/tell cue still goes to the bound product mouth. */
+export function issueWorkTargets(text: string, agents: Agent[], focused?: AgentId): AgentId[] {
+  const named = dispatchTargets(text, agents, focused)
+  if (named.length > 0) return named
+  return bindHomes(text, agents)
+    .map((row) => row.agentId)
+    .filter((id) => !focused || id !== focused)
 }
 
 export function bindHomes(text: string, agents: Agent[]): HomeBind[] {
