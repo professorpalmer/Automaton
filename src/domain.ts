@@ -9,6 +9,7 @@ export type MouthState =
   | 'ack'
   | 'working'
   | 'must_deliver'
+  | 'intro'
 
 export type AgentId = string
 
@@ -189,12 +190,18 @@ export function visibleAgents(agents: Agent[]): Agent[] {
   return agents.filter((agent) => !agent.hidden)
 }
 
-/** Mouth is busy only while this agent is in a pilot turn. A PM job is not busy. */
+/** Mouth is busy only while this agent is in a pilot turn. A PM job is not busy. Intro chews. */
 export function isMouthBusy(mouth: MouthState): boolean {
-  return mouth === 'must_first' || mouth === 'answer' || mouth === 'ack' || mouth === 'must_deliver'
+  return (
+    mouth === 'must_first' ||
+    mouth === 'answer' ||
+    mouth === 'ack' ||
+    mouth === 'must_deliver' ||
+    mouth === 'intro'
+  )
 }
 
-/** Composer Send stays Send while a job flies. */
+/** Composer Send stays Send while a job flies. Intro does not steal Enter. */
 export function composerEnterBusy(mouth: MouthState): boolean {
   return mouth === 'must_first' || mouth === 'answer'
 }

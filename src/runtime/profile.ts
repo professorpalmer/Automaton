@@ -20,6 +20,7 @@ export type AgentProfile = {
   createdAt: string
   homeRepo: string
   homePath: string
+  introPlayedAt?: string | null
 }
 
 const KITS: AgentKit[] = ['coordinator', 'code', 'lookup', 'blank']
@@ -68,6 +69,8 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
     createdAt: typeof row.createdAt === 'string' ? row.createdAt : new Date().toISOString(),
     homeRepo: typeof row.homeRepo === 'string' ? row.homeRepo.trim() : '',
     homePath: typeof row.homePath === 'string' ? row.homePath.trim() : '',
+    introPlayedAt:
+      typeof row.introPlayedAt === 'string' && row.introPlayedAt.trim() ? row.introPlayedAt : null,
   }
 }
 
@@ -128,6 +131,7 @@ export function seedProfile(id: 'staff' | 'kernel' | 'research'): AgentProfile {
     createdAt: '1970-01-01T00:00:00.000Z',
     homeRepo: '',
     homePath: '',
+    introPlayedAt: null,
   }
 }
 
@@ -137,6 +141,17 @@ export function dropUnclaimedSeedSisters(home = automatonHome()): void {
     if (!existing || existing.namedBy === 'user') continue
     deleteProfile(id, home)
   }
+}
+
+/** Persist once. Later deletes of the transcript do not replay the greeting. */
+export function markIntroPlayedAt(
+  id: string,
+  home = automatonHome(),
+  at = new Date().toISOString(),
+): void {
+  const existing = readProfile(id, home)
+  if (!existing || existing.introPlayedAt) return
+  writeProfile({ ...existing, introPlayedAt: at }, home)
 }
 
 export function ensureSeedProfiles(home = automatonHome()): void {

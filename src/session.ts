@@ -122,9 +122,11 @@ function append(session: Session, agentId: AgentId, item: FeedItem, focused: Age
   return setThread(session, agentId, { items: [...current.items, item], unread })
 }
 
-export function setActive(session: Session, agentId: AgentId): Session {
+export function setActive(session: Session, agentId: AgentId, introPlayedAt?: string | null): Session {
   if (!session.threads[agentId]) return session
-  return setThread({ ...session, activeAgentId: agentId }, agentId, { unread: 0 })
+  const next = setThread({ ...session, activeAgentId: agentId }, agentId, { unread: 0 })
+  if (introPlayedAt === undefined) return next
+  return maybeIntro(next, agentId, introPlayedAt)
 }
 
 export function setDraft(session: Session, text: string): Session {
@@ -168,7 +170,12 @@ export function confirmDeskHandoff(session: Session): Session {
   return { ...session, deskHandoff: null }
 }
 
-export function addLiveAgent(session: Session, agent: Agent, focus = true): Session {
+export function addLiveAgent(
+  session: Session,
+  agent: Agent,
+  focus = true,
+  introPlayedAt?: string | null,
+): Session {
   const agents = session.agents.some((row) => row.id === agent.id)
     ? session.agents.map((row) => (row.id === agent.id ? agent : row))
     : [...session.agents, agent]
@@ -176,7 +183,9 @@ export function addLiveAgent(session: Session, agent: Agent, focus = true): Sess
     ? session.threads
     : { ...session.threads, ...emptyThreads([agent]) }
   const steal = focus || !session.activeAgentId || !session.threads[session.activeAgentId]
-  return { ...session, agents, threads, activeAgentId: steal ? agent.id : session.activeAgentId }
+  const next = { ...session, agents, threads, activeAgentId: steal ? agent.id : session.activeAgentId }
+  if (!steal || introPlayedAt === undefined) return next
+  return maybeIntro(next, agent.id, introPlayedAt)
 }
 
 export function dropLiveAgent(session: Session, agentId: AgentId): Session {
@@ -553,11 +562,35 @@ function ackLine(name: string): string {
   return 'Telling them.'
 }
 
+export function hasUserMessage(session: Session, agentId: AgentId): boolean {
+  const row = session.threads[agentId]
+  if (!row) return false
+  return row.items.some((item) => item.kind === 'msg' && item.from === 'user')
+}
+
+export function introTurnId(agentId: AgentId): string {
+  return `intro:${agentId}`
+}
+
+/** First-open mouth. Not must_first. Send stays Send. */
+export function maybeIntro(session: Session, agentId: AgentId, introPlayedAt: string | null): Session {
+  if (!session.threads[agentId]) return session
+  if (introPlayedAt) return session
+  const row = thread(session, agentId)
+  if (hasUserMessage(session, agentId)) return session
+  if (row.mouth !== 'idle') return session
+  return wakeMouth(session, agentId, 'intro')
+}
+
 export function pendingMouthTurns(
   session: Session,
-): { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] {
-  const pending: { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] = []
+): { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' | 'intro' }[] {
+  const pending: { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' | 'intro' }[] = []
   for (const row of Object.values(session.threads)) {
+    if (row.mouth === 'intro') {
+      pending.push({ agentId: row.agentId, userText: '', itemId: introTurnId(row.agentId), mode: 'intro' })
+      continue
+    }
     if (row.mouth !== 'answer') continue
     const last = row.items.at(-1)
     if (last?.kind === 'msg' && last.from === 'user') {
@@ -578,8 +611,14 @@ export function pendingMouthTurns(
 }
 
 export function completeMouth(session: Session, agentId: AgentId, spoken: string): Session {
-  if (thread(session, agentId).mouth !== 'answer') return session
+  const row = thread(session, agentId)
   const focused = session.activeAgentId
+  if (row.mouth === 'intro') {
+    const line = sanitizeSpeak(spoken).trim()
+    let next = line ? speak(session, agentId, line, focused) : session
+    return wakeMouth(next, agentId, 'idle')
+  }
+  if (row.mouth !== 'answer') return session
   const from = inboundCoordinatorId(session, agentId)
   let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, agentId, 'idle')

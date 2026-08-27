@@ -4,6 +4,7 @@ import { motion, useGpuix } from '@gpuix/react'
 import {
   DEFAULT_AGENTS,
   bindHomes,
+  composerEnterBusy,
   createAgentNames,
   emptyThreads,
   isMouthBusy,
@@ -32,7 +33,7 @@ import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey } from './runtime/keys'
 import { ensureMouth } from './runtime/mouth'
-import { kitForAgent, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
+import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
 import {
@@ -53,6 +54,8 @@ import {
   attachPmJob,
   completeJob,
   completeMouth,
+  hasUserMessage,
+  maybeIntro,
   confirmDeskHandoff,
   confirmFanout,
   dismissDeskHandoff,
@@ -107,13 +110,28 @@ function emptySeed(): Session {
   }
 }
 
+function persistIntroIfUserSpoke(session: Session): void {
+  for (const id of Object.keys(session.threads)) {
+    if (hasUserMessage(session, id)) markIntroPlayedAt(id)
+  }
+}
+
+function playIntro(session: Session, agentId: string): Session {
+  const played = readProfile(agentId)?.introPlayedAt ?? null
+  if (hasUserMessage(session, agentId) && !played) markIntroPlayedAt(agentId)
+  return maybeIntro(session, agentId, played)
+}
+
 export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const store = useMemo(() => {
     if (providedStore) return providedStore
     adoptMarionetteOpenRouterKey()
     return openStaffStore()
   }, [providedStore])
-  const [session, setSession] = useState<Session>(() => hydrateSession(store.load() ?? emptySeed()))
+  const [session, setSession] = useState<Session>(() => {
+    const seeded = hydrateSession(store.load() ?? emptySeed())
+    return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
+  })
   const [pane, setPane] = useState<Pane>('none')
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
@@ -194,7 +212,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   useEffect(() => {
     void ensureMouth(session, store, {
       onComplete: (agentId, spoken) => {
-        setSession((current) => completeMouth(current, agentId, spoken))
+        setSession((current) => {
+          if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
+          return completeMouth(current, agentId, spoken)
+        })
       },
       onFail: (agentId, spoken) => {
         setSession((current) => failMouth(current, agentId, spoken))
@@ -291,6 +312,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         .reverse()
         .find((item) => item.kind === 'msg' && item.from === 'user')
       if (last?.kind === 'msg') store.bindAttachments(ids, last.id)
+      persistIntroIfUserSpoke(next)
       return next
     })
   }
@@ -339,7 +361,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const onCreateAgent = () => {
     setRailMenu(null)
     const created = createAgent()
-    setSession((current) => addLiveAgent(current, created.agent, true))
+    setSession((current) =>
+      addLiveAgent(
+        current,
+        created.agent,
+        true,
+        runningTests() ? undefined : created.profile.introPlayedAt ?? null,
+      ),
+    )
     setPane('inspector')
   }
 
@@ -403,7 +432,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               return
             }
             setRailMenu(null)
-            setSession((current) => setActive(current, id))
+            setSession((current) => (runningTests() ? setActive(current, id) : playIntro(setActive(current, id), id)))
             setPane((current) => (current === 'settings' ? 'none' : current))
           }}
           onCreate={onCreateAgent}
@@ -541,7 +570,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               <Composer
                 value={thread?.draft ?? ''}
                 pendingPaths={thread?.pendingPaths ?? []}
-                locked={!thread || isMouthBusy(thread.mouth)}
+                locked={!thread || composerEnterBusy(thread.mouth)}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
