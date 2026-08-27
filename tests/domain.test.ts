@@ -47,6 +47,10 @@ import {
   renameAgents,
   resetIdsForTests,
   assessAsk,
+  asGoalBlockerSource,
+  boundGoalEvidence,
+  hydrateGoalBlocker,
+  oldestWaitingUserGoal,
   returnBeat,
   staffWithSisters,
   visibleAgents,
@@ -547,5 +551,28 @@ describe('mouth vs job', () => {
     expect(deskOpenAck('https://github.com/login')).toBe('Opening github.com.')
     expect(deskHandoffInstruction('https://github.com/login')).toBe('Sign in to GitHub.')
     expect(deskHandoffInstruction('https://www.google.com/')).toBe('Sign in to your Google account.')
+  })
+
+  test('oldest waiting_user goal keeps the Staff blocker and bounds evidence', () => {
+    const first = {
+      id: 'goal_old',
+      text: 'land dest',
+      coordinatorId: 'staff',
+      ownerAgentId: 'staff',
+      criteria: [{ id: 'crit_1', label: 'merge', kind: 'promote' as const, work: 'merge dest to main', status: 'blocked' as const }],
+      receipts: [],
+      status: 'waiting_user' as const,
+      blocker: { reason: 'Need a product checkout to land dest.', criterionId: 'crit_1', jobId: 'job_1', at: 1 },
+    }
+    const later = { ...first, id: 'goal_new', blocker: { ...first.blocker, jobId: 'job_2', at: 2 } }
+    expect(oldestWaitingUserGoal([first, later])?.id).toBe('goal_old')
+    expect(oldestWaitingUserGoal([{ ...first, status: 'running', blocker: undefined }])).toBeUndefined()
+    expect(boundGoalEvidence('Need a product checkout to land dest.')).toBe('Need a product checkout to land dest.')
+    expect(boundGoalEvidence('HTTP 403 with OPENROUTER_KEY=sk-secret and ghp_abcdef1234')).not.toMatch(
+      /sk-secret|ghp_abcdef|OPENROUTER_KEY=/,
+    )
+    expect(asGoalBlockerSource(undefined)).toBe('staff')
+    expect(asGoalBlockerSource('host')).toBe('host')
+    expect(hydrateGoalBlocker(first.blocker)?.source).toBe('staff')
   })
 })

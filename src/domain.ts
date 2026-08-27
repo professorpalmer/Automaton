@@ -21,7 +21,7 @@ export type Agent = {
   hidden: boolean
 }
 
-export type JobStatus = 'running' | 'complete' | 'failed'
+export type JobStatus = 'running' | 'waiting' | 'complete' | 'failed'
 
 export type JobKind = 'analyze' | 'implement' | 'box-shell' | 'promote' | 'ship'
 
@@ -47,6 +47,11 @@ export type GoalStatus =
   | 'failed'
   | 'cancelled'
 
+/** Who parked a GoalRun. Ledger events may also be `user`. */
+export type GoalBlockerSource = 'staff' | 'job' | 'host'
+
+export type GoalEventSource = GoalBlockerSource | 'user'
+
 export type GoalCriterionStatus = 'pending' | 'running' | 'met' | 'blocked' | 'failed' | 'skipped'
 
 export type GoalCriterion = {
@@ -66,6 +71,24 @@ export type GoalReceipt = {
   at: number
 }
 
+/** Staff control state. Never a transcript or feed option card. */
+export type GoalBlocker = {
+  reason: string
+  criterionId: string
+  jobId?: string
+  at: number
+  source?: GoalBlockerSource
+}
+
+export function asGoalBlockerSource(value: unknown): GoalBlockerSource {
+  return value === 'job' || value === 'host' ? value : 'staff'
+}
+
+export function hydrateGoalBlocker(blocker: GoalBlocker | undefined): GoalBlocker | undefined {
+  if (!blocker) return undefined
+  return { ...blocker, source: asGoalBlockerSource(blocker.source) }
+}
+
 /** Staff-owned durable work. Multiple may coexist on a session. */
 export type GoalRun = {
   id: string
@@ -76,6 +99,7 @@ export type GoalRun = {
   receipts: GoalReceipt[]
   status: GoalStatus
   activeCriterionId?: string
+  blocker?: GoalBlocker
 }
 
 export type GoalCriterionDraft = {
@@ -584,6 +608,29 @@ export function everyCriterionMet(goal: GoalRun): boolean {
 
 export function sessionGoals(goals: GoalRun[] | undefined): GoalRun[] {
   return Array.isArray(goals) ? goals : []
+}
+
+/** Oldest waiting_user GoalRun that still has a Staff blocker. */
+export function oldestWaitingUserGoal(goals: GoalRun[] | undefined): GoalRun | undefined {
+  const goal = sessionGoals(goals).find((row) => row.status === 'waiting_user' && row.blocker)
+  if (!goal?.blocker) return undefined
+  return { ...goal, blocker: hydrateGoalBlocker(goal.blocker) }
+}
+
+const EVIDENCE_MAX = 280
+const SECRET_TOKEN = /\b(?:sk-|or-|ghp_|github_pat_|gho_)[A-Za-z0-9_-]+/g
+const SECRET_ASSIGN = /\b[A-Z0-9_]{2,}(?:KEY|TOKEN|SECRET|PASSWORD)\s*=\s*\S+/gi
+
+/** Bounded evidence for blockers and the goal ledger. Never keys or raw env. */
+export function boundGoalEvidence(text: string): string {
+  const cleaned = sanitizeSpeak(text)
+    .replace(SECRET_TOKEN, '')
+    .replace(SECRET_ASSIGN, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!cleaned) return 'Blocked.'
+  if (cleaned.length <= EVIDENCE_MAX) return cleaned
+  return cleaned.slice(0, EVIDENCE_MAX)
 }
 
 export function goalBlocker(name: string, spoken: string): string {

@@ -31,6 +31,11 @@ Send stays Send while a job is running. Mouth busy is only a
 live speak turn (`must_first` / `answer`). Fan-out to three or more named
 automata needs a confirm card; dismiss means no send. Opening a login URL
 puts a one-line auth card on the dock; Take control latches the stage.
+A `waiting_user` GoalRun is Staff control state: one compact blocker
+panel sits on the dock near the composer, not in the transcript and not
+as a feed option card. Retry assumes the operator repaired the condition
+and books a fresh job for that criterion after settling the parked job.
+Cancel goal settles the GoalRun without dispatch.
 
 Paste: screenshot flavors become attachments. Plain text (including copies
 that also carry a TIFF preview) lands in the draft.

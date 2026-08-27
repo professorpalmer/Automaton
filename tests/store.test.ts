@@ -2,9 +2,9 @@ import { Database } from 'bun:sqlite'
 import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { DEFAULT_AGENTS, emptyThreads, peekIdSeq, resetIdsForTests } from '../src/domain'
-import { openStaffStore, type TurnReceipt } from '../src/runtime/store.ts'
-import { send } from '../src/session'
+import { DEFAULT_AGENTS, emptyThreads, peekIdSeq, resetIdsForTests, type GoalReceipt } from '../src/domain'
+import { goalEventsFromSessions, openStaffStore, type TurnReceipt } from '../src/runtime/store.ts'
+import { cancelGoal, retryGoal, send, waitJobExternal, waitJobUser } from '../src/session'
 
 describe('staff sqlite store', () => {
   test('session survives reload and claims recall without a model', () => {
@@ -354,5 +354,235 @@ describe('staff sqlite store', () => {
       .query('PRAGMA table_info(claims)')
       .all() as { name: string }[]
     expect(cols.some((col) => col.name === 'path')).toBe(false)
+  })
+
+  test('goal events append once per fact and survive reopen without duplicates', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-goal-events-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'install curl on the computer then check if python is on PATH')
+    store.save(session)
+    store.save(session)
+    const opened = store.listGoalEvents(session.goals?.[0]?.id)
+    expect(opened.map((row) => row.kind)).toEqual(['opened', 'booked'])
+    expect(opened.map((row) => row.authority)).toEqual(['user_request', 'goal_policy'])
+    expect(opened[0]?.goalId).toBe(session.goals?.[0]?.id)
+    expect(opened[1]?.jobId).toBe(session.jobs[0]?.id)
+    expect(opened.every((row) => !/OPENROUTER|sk-|AUTOMATON_HOME/.test(row.reason))).toBe(true)
+
+    session = waitJobUser(session, session.jobs[0]!.id, 'Need a product checkout to land dest.', 'staff')
+    store.save(session)
+    store.save(session)
+    const waiting = store.listGoalEvents(session.goals?.[0]?.id)
+    expect(waiting.map((row) => row.kind)).toEqual(['opened', 'booked', 'waiting_user'])
+    expect(waiting[2]?.reason).toContain('Need a product checkout')
+    expect(waiting[2]?.source).toBe('staff')
+    expect(waiting[2]?.authority).toBe('goal_policy')
+    expect(waiting[2]?.jobId).toBe(session.jobs[0]?.id)
+
+    const blockedCriterionId = session.goals![0]!.blocker!.criterionId
+    const parkedJobId = session.jobs[0]!.id
+    const retried = retryGoal(session, session.goals![0]!.id)
+    const freshJob = retried.jobs[retried.jobs.length - 1]
+    expect(freshJob?.id).not.toBe(parkedJobId)
+    store.save(retried)
+    store.save(retried)
+    const afterRetry = store.listGoalEvents(retried.goals?.[0]?.id)
+    expect(afterRetry.map((row) => row.kind)).toEqual(['opened', 'booked', 'waiting_user', 'retry', 'booked'])
+    expect(afterRetry.filter((row) => row.kind === 'booked')).toHaveLength(2)
+    expect(afterRetry[3]?.kind).toBe('retry')
+    expect(afterRetry[3]?.source).toBe('user')
+    expect(afterRetry[3]?.authority).toBe('operator_action')
+    expect(afterRetry[3]?.jobId).toBe(freshJob?.id)
+    expect(afterRetry[4]?.kind).toBe('booked')
+    expect(afterRetry[4]?.source).toBe('staff')
+    expect(afterRetry[4]?.authority).toBe('goal_policy')
+    expect(afterRetry[4]?.jobId).toBe(freshJob?.id)
+
+    const external = waitJobExternal(retried, freshJob!.id)
+    store.save(external)
+    store.save(external)
+    const afterExternal = store.listGoalEvents(external.goals?.[0]?.id)
+    expect(afterExternal.map((row) => row.kind)).toEqual([
+      'opened',
+      'booked',
+      'waiting_user',
+      'retry',
+      'booked',
+      'waiting_external',
+    ])
+    expect(afterExternal[5]?.jobId).toBe(freshJob?.id)
+    expect(afterExternal[5]?.jobId).not.toBe(parkedJobId)
+    expect(afterExternal[5]?.source).toBe('host')
+    expect(afterExternal[5]?.authority).toBe('external_state')
+
+    const cancelled = cancelGoal(session, session.goals![0]!.id)
+    const cancelStore = openStaffStore(join(tmpdir(), `automaton-store-goal-cancel-${Date.now()}.sqlite`))
+    cancelStore.save(session)
+    cancelStore.save(cancelled)
+    cancelStore.save(cancelled)
+    const cancelEvents = cancelStore.listGoalEvents(cancelled.goals?.[0]?.id)
+    expect(cancelEvents.map((row) => row.kind)).toEqual([
+      'opened',
+      'booked',
+      'waiting_user',
+      'cancelled',
+    ])
+    expect(cancelEvents[3]?.criterionId).toBe(blockedCriterionId)
+    expect(cancelEvents[3]?.source).toBe('user')
+    expect(cancelEvents[3]?.authority).toBe('operator_action')
+
+    const reopened = openStaffStore(path)
+    expect(reopened.listGoalEvents(external.goals?.[0]?.id).map((row) => row.kind)).toEqual(
+      afterExternal.map((row) => row.kind),
+    )
+    reopened.save(external)
+    expect(reopened.listGoalEvents(external.goals?.[0]?.id)).toHaveLength(afterExternal.length)
+    expect(reopened.listGoalEvents('goal_missing')).toEqual([])
+  })
+
+  test('waiting_user ledger source follows blocker provenance', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-blocker-source-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'install curl on the computer')
+    const jobId = session.jobs[0]!.id
+    const hostWait = waitJobUser(session, jobId, 'HTTP 401 Unauthorized', 'host')
+    store.save(hostWait)
+    expect(store.listGoalEvents(hostWait.goals?.[0]?.id).at(-1)).toMatchObject({
+      kind: 'waiting_user',
+      source: 'host',
+      authority: 'external_state',
+      jobId,
+    })
+
+    const jobPath = join(tmpdir(), `automaton-store-blocker-job-${Date.now()}.sqlite`)
+    const jobStore = openStaffStore(jobPath)
+    const jobWait = waitJobUser(session, jobId, 'HTTP 401 Unauthorized', 'job')
+    jobStore.save(jobWait)
+    expect(jobStore.listGoalEvents(jobWait.goals?.[0]?.id).at(-1)).toMatchObject({
+      kind: 'waiting_user',
+      source: 'job',
+      authority: 'external_state',
+      jobId,
+    })
+  })
+
+  test('legacy goal_events migrate authority without dropping rows', () => {
+    const path = join(tmpdir(), `automaton-store-goal-authority-${Date.now()}.sqlite`)
+    const db = new Database(path)
+    db.exec(`
+      CREATE TABLE goal_events (
+        id TEXT PRIMARY KEY,
+        goal_id TEXT NOT NULL,
+        criterion_id TEXT,
+        job_id TEXT,
+        kind TEXT NOT NULL,
+        source TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        at INTEGER NOT NULL
+      );
+    `)
+    db.run(
+      `INSERT INTO goal_events (id, goal_id, criterion_id, job_id, kind, source, reason, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['opened:goal_legacy', 'goal_legacy', null, null, 'opened', 'staff', 'install curl', 1],
+    )
+    db.close()
+
+    const store = openStaffStore(path)
+    const events = store.listGoalEvents('goal_legacy')
+    expect(events).toHaveLength(1)
+    expect(events[0]?.kind).toBe('opened')
+    expect(events[0]?.source).toBe('staff')
+    expect(events[0]?.authority).toBe('user_request')
+    expect(events[0]?.reason).toBe('install curl')
+    const cols = new Database(path)
+      .query('PRAGMA table_info(goal_events)')
+      .all() as { name: string }[]
+    expect(cols.some((col) => col.name === 'authority')).toBe(true)
+
+    const raw = new Database(path)
+    raw.run(
+      `INSERT INTO goal_events (id, goal_id, criterion_id, job_id, kind, source, authority, reason, at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['opened:goal_bad', 'goal_bad', null, null, 'opened', 'staff', 'not-real', 'look this up', 2],
+    )
+    raw.close()
+    expect(store.listGoalEvents('goal_bad')[0]?.authority).toBe('user_request')
+  })
+
+  test('receipt and terminal events record worker_result or Staff policy', () => {
+    const goal = {
+      id: 'goal_1',
+      text: 'install curl on the computer',
+      coordinatorId: 'staff' as const,
+      ownerAgentId: 'staff' as const,
+      criteria: [
+        { id: 'crit_1', label: 'shell', kind: 'box-shell' as const, work: 'install curl', status: 'running' as const },
+      ],
+      receipts: [] as GoalReceipt[],
+      status: 'running' as const,
+      activeCriterionId: 'crit_1',
+    }
+    const prior = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+      goals: [goal],
+    }
+    const okEvents = goalEventsFromSessions(prior, {
+      ...prior,
+      goals: [
+        {
+          ...goal,
+          status: 'complete',
+          receipts: [{ id: 'rec_ok', criterionId: 'crit_1', jobId: 'job_1', spoken: 'curl is on PATH.', ok: true, at: 1 }],
+        },
+      ],
+    })
+    expect(okEvents.find((row) => row.kind === 'receipt_ok')).toMatchObject({
+      source: 'job',
+      authority: 'worker_result',
+    })
+    expect(okEvents.find((row) => row.kind === 'complete')).toMatchObject({
+      source: 'staff',
+      authority: 'goal_policy',
+    })
+
+    const failEvents = goalEventsFromSessions(prior, {
+      ...prior,
+      goals: [
+        {
+          ...goal,
+          status: 'failed',
+          receipts: [{ id: 'rec_fail', criterionId: 'crit_1', jobId: 'job_1', spoken: 'apt failed.', ok: false, at: 2 }],
+        },
+      ],
+    })
+    expect(failEvents.find((row) => row.kind === 'receipt_fail')).toMatchObject({
+      source: 'job',
+      authority: 'worker_result',
+    })
+    expect(failEvents.find((row) => row.kind === 'failed')).toMatchObject({
+      source: 'job',
+      authority: 'worker_result',
+    })
   })
 })

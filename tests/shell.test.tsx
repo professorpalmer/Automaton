@@ -665,6 +665,103 @@ native('staff shell (GPUI native)', () => {
     expect(statSync(shot).size).toBeGreaterThan(1000)
   })
 
+  test('goal blocker sits on the dock, not the transcript; Retry and Cancel work', () => {
+    resetIdsForTests()
+    mkdirSync('artifacts/shots', { recursive: true })
+    const blocked = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: {
+        ...emptyThreads(DEFAULT_AGENTS),
+        staff: {
+          ...emptyThreads(DEFAULT_AGENTS).staff,
+          items: [
+            { kind: 'msg' as const, id: 'u1', from: 'user' as const, agentId: 'staff', text: 'merge dest to main' },
+            { kind: 'msg' as const, id: 'a1', from: 'agent' as const, agentId: 'staff', text: 'On it.' },
+          ],
+        },
+      },
+      jobs: [
+        {
+          id: 'job_wait',
+          ownerAgentId: 'staff',
+          goal: 'look at the dest checkout',
+          status: 'waiting' as const,
+          kind: 'analyze' as const,
+          goalId: 'goal_1',
+          criterionId: 'crit_1',
+        },
+      ],
+      goals: [
+        {
+          id: 'goal_1',
+          text: 'look at the dest checkout',
+          coordinatorId: 'staff',
+          ownerAgentId: 'staff',
+          criteria: [
+            {
+              id: 'crit_1',
+              label: 'look',
+              kind: 'analyze' as const,
+              work: 'look at the dest checkout',
+              status: 'blocked' as const,
+            },
+          ],
+          receipts: [],
+          status: 'waiting_user' as const,
+          activeCriterionId: 'crit_1',
+          blocker: {
+            reason: 'Need a product checkout to land dest.',
+            criterionId: 'crit_1',
+            jobId: 'job_wait',
+            at: 1,
+          },
+        },
+      ],
+      pendingFanout: null,
+    }
+    const retryStore = testStore()
+    retryStore.save(blocked)
+    const { render, renderer, unmount } = createTestRoot()
+    render(<App store={retryStore} />)
+    renderer.flush()
+    const shot = 'artifacts/shots/shell-goal-blocker.png'
+    renderer.captureScreenshot(shot)
+    let tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'goal-blocker')).toBeTruthy()
+    expect(findTestId(tree, 'goal-blocker-retry')).toBeTruthy()
+    expect(findTestId(tree, 'goal-blocker-cancel')).toBeTruthy()
+    expect(containsTestId(findTestId(tree, 'feed'), 'goal-blocker')).toBe(false)
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer')).toBeTruthy()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('Waiting on you')
+    expect(painted).toContain('Need a product checkout to land dest.')
+    expect(painted).toContain('Retry')
+    expect(painted).toContain('Cancel goal')
+    expect(statSync(shot).size).toBeGreaterThan(1000)
+    clickTestId(renderer, 'goal-blocker-retry')
+    renderer.flush()
+    tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'goal-blocker')).toBeFalsy()
+    expect(findTestId(tree, 'job-strip')).toBeTruthy()
+    expect(findTestId(tree, 'composer')).toBeTruthy()
+    unmount()
+
+    const cancelStore = testStore()
+    cancelStore.save(blocked)
+    render(<App store={cancelStore} />)
+    renderer.flush()
+    clickTestId(renderer, 'goal-blocker-cancel')
+    renderer.flush()
+    const cancelled = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(cancelled, 'goal-blocker')).toBeFalsy()
+    expect(findTestId(cancelled, 'job-strip')).toBeFalsy()
+    expect(findTestId(cancelled, 'composer')).toBeTruthy()
+    expect(containsTestId(findTestId(cancelled, 'feed'), 'goal-blocker')).toBe(false)
+    unmount()
+  })
+
   test('desk handoff is a Take control card, not a spoken hint', () => {
     resetIdsForTests()
     const store = testStore()

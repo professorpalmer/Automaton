@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WAITING_CHECKS, type JobHandle } from '../src/domain'
-import { landCwd, runPromote, runShip } from '../src/runtime/land.ts'
+import { isDefinitiveAuthDenial, landCwd, runPromote, runShip } from '../src/runtime/land.ts'
 import { sandboxDir } from '../src/runtime/pm.ts'
 
 const SAME = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
@@ -81,7 +81,12 @@ describe('host land', () => {
       const missing = runPromote(job('promote', 'merge dest to main', { goalId: 'goal_c' }), known, {
         run: () => ({ status: 0, stdout: '', stderr: '' }),
       })
-      expect(missing).toEqual({ ok: false, spoken: 'Need a product checkout to land dest.' })
+      expect(missing).toEqual({
+        ok: false,
+        spoken: 'Need a product checkout to land dest.',
+        waitingUser: true,
+        source: 'staff',
+      })
     } finally {
       rmSync(rootA, { recursive: true, force: true })
       rmSync(rootB, { recursive: true, force: true })
@@ -446,7 +451,36 @@ describe('host land', () => {
     })
     expect(auth.ok).toBe(false)
     expect(auth.waitingExternal).toBeUndefined()
+    expect(auth.waitingUser).toBe(true)
+    expect(auth.source).toBe('host')
     expect(auth.spoken).toMatch(/403|accessible/i)
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test('host auth is concrete phrases only; permission denied stays failed', () => {
+    expect(isDefinitiveAuthDenial('HTTP 403: Resource not accessible by integration')).toBe(true)
+    expect(isDefinitiveAuthDenial('Unauthorized')).toBe(true)
+    expect(isDefinitiveAuthDenial('authentication failed')).toBe(true)
+    expect(isDefinitiveAuthDenial('bad credentials')).toBe(true)
+    expect(isDefinitiveAuthDenial('please run: gh auth login')).toBe(true)
+    expect(isDefinitiveAuthDenial('not logged in')).toBe(true)
+    expect(isDefinitiveAuthDenial('permission denied')).toBe(false)
+    expect(isDefinitiveAuthDenial('authentication')).toBe(false)
+    expect(isDefinitiveAuthDenial('authorization')).toBe(false)
+    const root = join(tmpdir(), `automaton-land-perm-${Date.now()}`)
+    mkdirSync(join(root, '.git'), { recursive: true })
+    const denied = runPromote(job('promote', 'merge dest to main'), [], {
+      cwd: root,
+      run: (args) => {
+        if (args[0] === 'git' && args[1] === 'push') {
+          return { status: 1, stdout: '', stderr: 'fatal: permission denied' }
+        }
+        return { status: 0, stdout: '', stderr: '' }
+      },
+    })
+    expect(denied.ok).toBe(false)
+    expect(denied.waitingUser).toBeUndefined()
+    expect(denied.spoken).toMatch(/permission denied/i)
     rmSync(root, { recursive: true, force: true })
   })
 
@@ -472,6 +506,18 @@ describe('host land', () => {
     expect(argv.some((row) => row[0] === 'gh' && row[1] === 'release' && row[2] === 'create')).toBe(true)
     expect(argv.some((row) => row.includes('--force'))).toBe(false)
     rmSync(root, { recursive: true, force: true })
+  })
+
+  test('ship without a checkout waits on the user', () => {
+    const result = runShip(job('ship', 'ship a new release'), [], {
+      run: () => ({ status: 0, stdout: '', stderr: '' }),
+    })
+    expect(result).toEqual({
+      ok: false,
+      spoken: 'Need a product checkout to ship.',
+      waitingUser: true,
+      source: 'staff',
+    })
   })
 
   test('ship fails closed without a version', () => {

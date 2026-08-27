@@ -16,8 +16,10 @@ import {
   feedThinking,
   thinkingDots,
   jobKindLabel,
+  oldestWaitingUserGoal,
   type Agent,
   type FeedItem,
+  type GoalRun,
   type JobHandle,
   type MouthState,
   visibleAgents,
@@ -68,7 +70,10 @@ import {
   setActive,
   setDraft,
   stopJob,
+  cancelGoal,
+  retryGoal,
   waitJobExternal,
+  waitJobUser,
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
@@ -148,6 +153,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const active = session.agents.find((agent) => agent.id === session.activeAgentId)
   const thread = session.threads[session.activeAgentId]
   const jobs = runningJobs(session)
+  const blocker = oldestWaitingUserGoal(session.goals)
   const metrics = store.metrics()
   const claims = store.listClaims()
   const profile = active ? readProfile(active.id) : null
@@ -197,6 +203,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }, [store, mouthEpoch])
 
   useEffect(() => {
+    if (runningTests()) return
     for (const job of dispatchableJobs(session)) {
       let pmIdentity = job.pmJobId
       void ensureDispatched(
@@ -232,6 +239,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           },
           onWaitingExternal: () => {
             setSession((current) => waitJobExternal(current, job.id))
+          },
+          onWaitingUser: (spoken, source) => {
+            setSession((current) => waitJobUser(current, job.id, spoken, source))
           },
         },
         session.jobs,
@@ -514,6 +524,18 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     if (agentId && !runningTests()) void ensureBrowser(agentId)
                   }}
                   onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
+                />
+              ) : null}
+              {blocker ? (
+                <GoalBlockerPanel
+                  goal={blocker}
+                  agents={session.agents}
+                  onRetry={() => setSession((current) => retryGoal(current, blocker.id))}
+                  onCancel={() => {
+                    const jobId = blocker.blocker?.jobId
+                    if (jobId) abandonJob(jobId)
+                    setSession((current) => cancelGoal(current, blocker.id))
+                  }}
                 />
               ) : null}
               <Composer
@@ -1450,6 +1472,80 @@ export function JobStrip({
           </div>
         )
       })}
+    </div>
+  )
+}
+
+function GoalBlockerPanel({
+  goal,
+  agents,
+  onRetry,
+  onCancel,
+}: {
+  goal: GoalRun
+  agents: Agent[]
+  onRetry: () => void
+  onCancel: () => void
+}) {
+  const criterion = goal.criteria.find((row) => row.id === goal.blocker?.criterionId)
+  const owner = agents.find((agent) => agent.id === goal.ownerAgentId)
+  const context = [owner?.name, criterion?.label, goal.text].filter(Boolean).join(' · ')
+  return (
+    <div
+      testId="goal-blocker"
+      style={{
+        marginLeft: T.space.xl,
+        marginRight: T.space.xl,
+        marginBottom: T.space.sm,
+        padding: T.space.md,
+        borderRadius: T.radius.md,
+        backgroundColor: T.raised,
+        borderWidth: T.stroke.hairline,
+        borderColor: T.border,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: T.space.sm,
+      }}
+    >
+      <div style={{ fontSize: T.type.xs, color: T.secondary }}>Waiting on you</div>
+      <div style={{ fontSize: T.type.sm, color: T.text }}>{context}</div>
+      <div style={{ fontSize: T.type.sm, color: T.secondary }}>{goal.blocker?.reason}</div>
+      <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
+        <div
+          testId="goal-blocker-retry"
+          style={{
+            paddingLeft: T.space.md,
+            paddingRight: T.space.md,
+            paddingTop: T.space.xs,
+            paddingBottom: T.space.xs,
+            borderRadius: T.radius.sm,
+            backgroundColor: T.inverse,
+            color: T.onInverse,
+            fontSize: T.type.sm,
+            ...HIT,
+          }}
+          onClick={onRetry}
+        >
+          Retry
+        </div>
+        <div
+          testId="goal-blocker-cancel"
+          style={{
+            paddingLeft: T.space.md,
+            paddingRight: T.space.md,
+            paddingTop: T.space.xs,
+            paddingBottom: T.space.xs,
+            borderRadius: T.radius.sm,
+            backgroundColor: T.raised,
+            color: T.text,
+            fontSize: T.type.sm,
+            ...HIT,
+          }}
+          onClick={onCancel}
+        >
+          Cancel goal
+        </div>
+      </div>
     </div>
   )
 }

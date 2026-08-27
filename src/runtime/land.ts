@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { join } from 'node:path'
-import { WAITING_CHECKS, type JobHandle } from '../domain'
+import { WAITING_CHECKS, type GoalBlockerSource, type JobHandle } from '../domain'
 import { sandboxDir } from './pm'
 
 export type LandRun = (argv: string[], cwd: string) => { status: number; stdout: string; stderr: string }
@@ -10,6 +10,8 @@ export type HostResult = {
   ok: boolean
   spoken: string
   waitingExternal?: boolean
+  waitingUser?: boolean
+  source?: GoalBlockerSource
 }
 
 export type LandSeams = {
@@ -85,12 +87,22 @@ function alreadyMerged(stderr: string, stdout: string): boolean {
   return /already merged|pull request is merged|not mergeable:\s*already/i.test(`${stderr}\n${stdout}`)
 }
 
+/** Concrete git/gh auth denial. Not a generic permission or authorization mention. */
+export function isDefinitiveAuthDenial(text: string): boolean {
+  return (
+    /\bUnauthorized\b/i.test(text) ||
+    /authentication failed/i.test(text) ||
+    /bad credentials/i.test(text) ||
+    /HTTP\s*40[13]\b/i.test(text) ||
+    /resource not accessible/i.test(text) ||
+    /gh auth login/i.test(text) ||
+    /not logged in/i.test(text)
+  )
+}
+
 function mergeBlocked(stderr: string, stdout: string): boolean {
   const text = `${stderr}\n${stdout}`
   if (/required reviews?|changes requested|review required/i.test(text)) return true
-  if (/unauthoriz|authentication|auth fail|http\s*40[13]|permission denied|resource not accessible/i.test(text)) {
-    return true
-  }
   if (/merge conflict|conflicting files|not mergeable:\s*(dirty|conflicts?)/i.test(text)) return true
   if (/protected branch|branch protection|\bpolicy\b/i.test(text)) return true
   if (
@@ -101,6 +113,16 @@ function mergeBlocked(stderr: string, stdout: string): boolean {
     return true
   }
   return false
+}
+
+function waitingUser(spoken: string, source: GoalBlockerSource = 'staff'): HostResult {
+  return { ok: false, spoken, waitingUser: true, source }
+}
+
+function failedOrAuth(stderr: string, stdout: string, fallback: string): HostResult {
+  const spoken = spokenFail(stderr || stdout, fallback)
+  if (isDefinitiveAuthDenial(`${stderr}\n${stdout}`)) return waitingUser(spoken, 'host')
+  return { ok: false, spoken }
 }
 
 function mergePending(stderr: string, stdout: string): boolean {
@@ -129,6 +151,9 @@ function afterMerge(
   seams: LandSeams,
   result: { status: number; stdout: string; stderr: string },
 ): HostResult {
+  if (isDefinitiveAuthDenial(`${result.stderr}\n${result.stdout}`)) {
+    return waitingUser(spokenFail(result.stderr || result.stdout, "Couldn't merge dest into main."), 'host')
+  }
   if (result.status !== 0 && !alreadyMerged(result.stderr, result.stdout) && mergeBlocked(result.stderr, result.stdout)) {
     return { ok: false, spoken: spokenFail(result.stderr || result.stdout, "Couldn't merge dest into main.") }
   }
@@ -168,12 +193,12 @@ export function runPromote(
   seams: LandSeams = {},
 ): HostResult {
   const cwd = landCwd(job, known, seams)
-  if (!cwd) return { ok: false, spoken: 'Need a product checkout to land dest.' }
+  if (!cwd) return waitingUser('Need a product checkout to land dest.', 'staff')
   const waiting = alreadyWaitingExternal(job)
   if (!waiting) {
     const push = exec(['git', 'push', '-u', 'origin', 'HEAD:dev'], cwd, seams)
     if (push.status !== 0) {
-      return { ok: false, spoken: spokenFail(push.stderr || push.stdout, "Couldn't push dest.") }
+      return failedOrAuth(push.stderr, push.stdout, "Couldn't push dest.")
     }
   }
   let number = currentDestPr(cwd, seams)
@@ -186,7 +211,7 @@ export function runPromote(
       seams,
     )
     if (opened.status !== 0 && !/already exists/i.test(`${opened.stderr}${opened.stdout}`)) {
-      return { ok: false, spoken: spokenFail(opened.stderr || opened.stdout, "Couldn't open dest into main.") }
+      return failedOrAuth(opened.stderr, opened.stdout, "Couldn't open dest into main.")
     }
     number = currentDestPr(cwd, seams)
     if (!number && remotesEqual(cwd, seams)) return { ok: true, spoken: 'dev and main are equal.' }
@@ -214,7 +239,7 @@ export function runShip(
   seams: LandSeams = {},
 ): HostResult {
   const cwd = landCwd(job, known, seams)
-  if (!cwd) return { ok: false, spoken: 'Need a product checkout to ship.' }
+  if (!cwd) return waitingUser('Need a product checkout to ship.', 'staff')
   const version = readVersion(cwd)
   if (!version) return { ok: false, spoken: 'Need a version on dest before tagging.' }
   const tag = version.startsWith('v') ? version : `v${version}`
@@ -230,7 +255,7 @@ export function runShip(
   const pushed = exec(['git', 'push', 'origin', tag], cwd, seams)
   if (pushed.status !== 0) {
     if (!/already exists/.test(`${pushed.stderr}${pushed.stdout}`)) {
-      return { ok: false, spoken: spokenFail(pushed.stderr || pushed.stdout, `Couldn't push ${tag}.`) }
+      return failedOrAuth(pushed.stderr, pushed.stdout, `Couldn't push ${tag}.`)
     }
     if (!remoteTagMatchesHead(cwd, tag, seams)) {
       return { ok: false, spoken: `Remote ${tag} points at a different commit.` }
@@ -244,7 +269,7 @@ export function runShip(
     const confirmed = exec(['gh', 'release', 'view', tag, '--json', 'tagName'], cwd, seams)
     if (confirmed.status === 0) return { ok: true, spoken: `Shipped ${tag}.` }
   }
-  return { ok: false, spoken: spokenFail(released.stderr || released.stdout, `Couldn't publish ${tag}.`) }
+  return failedOrAuth(released.stderr, released.stdout, `Couldn't publish ${tag}.`)
 }
 
 function tagMatchesHead(cwd: string, tag: string, seams: LandSeams): boolean {

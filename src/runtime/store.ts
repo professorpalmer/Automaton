@@ -2,7 +2,17 @@ import { Database } from 'bun:sqlite'
 import { mkdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { automatonHome } from './keys'
-import { peekIdSeq, restoreIdSeq, type AgentId } from '../domain'
+import {
+  asGoalBlockerSource,
+  boundGoalEvidence,
+  peekIdSeq,
+  restoreIdSeq,
+  sessionGoals,
+  type AgentId,
+  type GoalEventSource,
+  type GoalReceipt,
+  type GoalRun,
+} from '../domain'
 import { normalizeSession, type Session } from '../session'
 import type { Attachment, AttachmentInput } from './attachments'
 import {
@@ -67,10 +77,45 @@ export type LedgerMetrics = {
   costUnknown: number
 }
 
+export type GoalEventKind =
+  | 'opened'
+  | 'booked'
+  | 'waiting_external'
+  | 'waiting_user'
+  | 'receipt_ok'
+  | 'receipt_fail'
+  | 'retry'
+  | 'cancelled'
+  | 'complete'
+  | 'failed'
+
+/** Under what authority a GoalRun transition was recorded. Source stays actor/provenance. */
+export type GoalEventAuthority =
+  | 'user_request'
+  | 'goal_policy'
+  | 'worker_result'
+  | 'operator_action'
+  | 'external_state'
+
+export type { GoalEventSource }
+
+export type GoalEvent = {
+  id: string
+  goalId: string
+  criterionId?: string
+  jobId?: string
+  kind: GoalEventKind
+  source: GoalEventSource
+  authority: GoalEventAuthority
+  reason: string
+  at: number
+}
+
 export type StaffStore = {
   path: string
   save(session: Session): void
   load(): Session | null
+  listGoalEvents(goalId?: string, limit?: number): GoalEvent[]
   remember(input: RememberInput): void
   recall(query: string, limit?: number): Claim[]
   listClaims(): Claim[]
@@ -136,7 +181,33 @@ function ensureSchema(db: Database): void {
       kind TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS goal_events (
+      id TEXT PRIMARY KEY,
+      goal_id TEXT NOT NULL,
+      criterion_id TEXT,
+      job_id TEXT,
+      kind TEXT NOT NULL,
+      source TEXT NOT NULL,
+      authority TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS goal_events_goal_at ON goal_events (goal_id, at, id);
   `)
+  const eventCols = tableColumns(db, 'goal_events')
+  if (!eventCols.has('authority')) {
+    db.exec(`
+      ALTER TABLE goal_events ADD COLUMN authority TEXT NOT NULL DEFAULT 'goal_policy';
+      UPDATE goal_events SET authority = CASE
+        WHEN kind = 'opened' THEN 'user_request'
+        WHEN kind IN ('retry', 'cancelled') THEN 'operator_action'
+        WHEN kind IN ('receipt_ok', 'receipt_fail', 'failed') THEN 'worker_result'
+        WHEN kind = 'waiting_external' THEN 'external_state'
+        WHEN kind = 'waiting_user' AND source IN ('host', 'job') THEN 'external_state'
+        ELSE 'goal_policy'
+      END;
+    `)
+  }
   const cols = tableColumns(db, 'claims')
   if (!cols.has('source')) {
     db.exec(`ALTER TABLE claims ADD COLUMN source TEXT NOT NULL DEFAULT 'mouth'`)
@@ -229,6 +300,241 @@ function asAttachment(row: {
   }
 }
 
+type GoalEventRow = {
+  id: string
+  goal_id: string
+  criterion_id: string | null
+  job_id: string | null
+  kind: string
+  source: string
+  authority: string | null
+  reason: string
+  at: number
+}
+
+const GOAL_EVENT_KINDS = new Set<GoalEventKind>([
+  'opened',
+  'booked',
+  'waiting_external',
+  'waiting_user',
+  'receipt_ok',
+  'receipt_fail',
+  'retry',
+  'cancelled',
+  'complete',
+  'failed',
+])
+
+const GOAL_EVENT_SOURCES = new Set<GoalEventSource>(['staff', 'user', 'job', 'host'])
+
+const GOAL_EVENT_AUTHORITIES = new Set<GoalEventAuthority>([
+  'user_request',
+  'goal_policy',
+  'worker_result',
+  'operator_action',
+  'external_state',
+])
+
+function asGoalEventKind(value: string): GoalEventKind | null {
+  return GOAL_EVENT_KINDS.has(value as GoalEventKind) ? (value as GoalEventKind) : null
+}
+
+function asGoalEventSource(value: string): GoalEventSource {
+  return GOAL_EVENT_SOURCES.has(value as GoalEventSource) ? (value as GoalEventSource) : 'staff'
+}
+
+function authorityForEvent(kind: GoalEventKind, source: GoalEventSource): GoalEventAuthority {
+  if (kind === 'opened') return 'user_request'
+  if (kind === 'retry' || kind === 'cancelled') return 'operator_action'
+  if (kind === 'receipt_ok' || kind === 'receipt_fail' || kind === 'failed') return 'worker_result'
+  if (kind === 'waiting_external') return 'external_state'
+  if (kind === 'waiting_user') {
+    return source === 'host' || source === 'job' ? 'external_state' : 'goal_policy'
+  }
+  return 'goal_policy'
+}
+
+function asGoalEventAuthority(
+  value: string | null | undefined,
+  kind: GoalEventKind,
+  source: GoalEventSource,
+): GoalEventAuthority {
+  if (value && GOAL_EVENT_AUTHORITIES.has(value as GoalEventAuthority)) {
+    return value as GoalEventAuthority
+  }
+  return authorityForEvent(kind, source)
+}
+
+function asGoalEvent(row: GoalEventRow): GoalEvent | null {
+  const kind = asGoalEventKind(row.kind)
+  if (!kind) return null
+  const source = asGoalEventSource(row.source)
+  return {
+    id: row.id,
+    goalId: row.goal_id,
+    criterionId: row.criterion_id || undefined,
+    jobId: row.job_id || undefined,
+    kind,
+    source,
+    authority: asGoalEventAuthority(row.authority, kind, source),
+    reason: row.reason,
+    at: row.at,
+  }
+}
+
+function eventRow(
+  id: string,
+  goalId: string,
+  kind: GoalEventKind,
+  source: GoalEventSource,
+  reason: string,
+  at: number,
+  criterionId?: string,
+  jobId?: string,
+): GoalEvent {
+  return {
+    id,
+    goalId,
+    criterionId,
+    jobId,
+    kind,
+    source,
+    authority: authorityForEvent(kind, source),
+    reason: boundGoalEvidence(reason),
+    at,
+  }
+}
+
+function goalJob(session: Session, goalId: string, criterionId?: string) {
+  const matches = session.jobs.filter((job) => {
+    if (job.goalId !== goalId) return false
+    if (criterionId && job.criterionId !== criterionId) return false
+    return true
+  })
+  const running = matches.filter((job) => job.status === 'running')
+  if (running.length > 0) return running[running.length - 1]
+  const waiting = matches.filter((job) => job.status === 'waiting')
+  if (waiting.length > 0) return waiting[waiting.length - 1]
+  return matches[matches.length - 1]
+}
+
+function receiptEvents(prior: GoalRun | undefined, next: GoalRun): GoalEvent[] {
+  const seen = new Set((prior?.receipts ?? []).map((row) => row.id))
+  return next.receipts.flatMap((receipt: GoalReceipt) => {
+    if (seen.has(receipt.id)) return []
+    return [
+      eventRow(
+        `receipt:${receipt.id}`,
+        next.id,
+        receipt.ok ? 'receipt_ok' : 'receipt_fail',
+        'job',
+        receipt.spoken,
+        receipt.at,
+        receipt.criterionId,
+        receipt.jobId,
+      ),
+    ]
+  })
+}
+
+/** Newly observed GoalRun facts. Deterministic ids keep repeated saves idempotent. */
+export function goalEventsFromSessions(prior: Session | null, next: Session): GoalEvent[] {
+  const beforeGoals = new Map(sessionGoals(prior?.goals).map((goal) => [goal.id, goal]))
+  const beforeJobs = new Map((prior?.jobs ?? []).map((job) => [job.id, job]))
+  const events: GoalEvent[] = []
+  let stamp = Date.now()
+  const at = () => {
+    stamp += 1
+    return stamp
+  }
+
+  for (const goal of sessionGoals(next.goals)) {
+    const before = beforeGoals.get(goal.id)
+    if (!before) {
+      events.push(eventRow(`opened:${goal.id}`, goal.id, 'opened', 'staff', goal.text, at()))
+    }
+    const fresh = next.jobs.filter((job) => job.goalId === goal.id && !beforeJobs.has(job.id))
+    const replacement = fresh.find((job) => job.status === 'running')
+    if (before?.status === 'waiting_user' && replacement) {
+      events.push(
+        eventRow(
+          `retry:${replacement.id}`,
+          goal.id,
+          'retry',
+          'user',
+          replacement.goal,
+          at(),
+          replacement.criterionId,
+          replacement.id,
+        ),
+      )
+    }
+    for (const job of fresh) {
+      events.push(
+        eventRow(`booked:${job.id}`, goal.id, 'booked', 'staff', job.goal, at(), job.criterionId, job.id),
+      )
+    }
+    if (goal.status === 'waiting_external' && before?.status !== 'waiting_external') {
+      const job = goalJob(next, goal.id, goal.activeCriterionId)
+      events.push(
+        eventRow(
+          `waiting_external:${goal.id}:${job?.id ?? goal.activeCriterionId ?? 'goal'}`,
+          goal.id,
+          'waiting_external',
+          'host',
+          'Waiting for required checks.',
+          at(),
+          goal.activeCriterionId,
+          job?.id,
+        ),
+      )
+    }
+    if (goal.status === 'waiting_user' && goal.blocker) {
+      const blockerId = `waiting_user:${goal.id}:${goal.blocker.jobId ?? goal.blocker.criterionId}`
+      const same =
+        before?.status === 'waiting_user' &&
+        before.blocker &&
+        `waiting_user:${before.id}:${before.blocker.jobId ?? before.blocker.criterionId}` === blockerId
+      if (!same) {
+        events.push(
+          eventRow(
+            blockerId,
+            goal.id,
+            'waiting_user',
+            asGoalBlockerSource(goal.blocker.source),
+            goal.blocker.reason,
+            goal.blocker.at,
+            goal.blocker.criterionId,
+            goal.blocker.jobId,
+          ),
+        )
+      }
+    }
+    events.push(...receiptEvents(before, goal))
+    if (goal.status === 'cancelled' && before?.status !== 'cancelled') {
+      events.push(
+        eventRow(
+          `cancelled:${goal.id}`,
+          goal.id,
+          'cancelled',
+          'user',
+          goal.text,
+          at(),
+          before.blocker?.criterionId ?? before.activeCriterionId,
+          before.blocker?.jobId,
+        ),
+      )
+    }
+    if (goal.status === 'complete' && before?.status !== 'complete') {
+      events.push(eventRow(`complete:${goal.id}`, goal.id, 'complete', 'staff', goal.text, at()))
+    }
+    if (goal.status === 'failed' && before?.status !== 'failed') {
+      events.push(eventRow(`failed:${goal.id}`, goal.id, 'failed', 'job', goal.text, at()))
+    }
+  }
+  return events
+}
+
 function asReceipt(row: ReceiptRow): TurnReceipt {
   return {
     userItemId: row.user_item_id,
@@ -267,10 +573,35 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
   return {
     path,
     save(session) {
-      db.run(
-        'INSERT OR REPLACE INTO snapshot (id, session_json, id_seq) VALUES (1, ?, ?)',
-        [JSON.stringify(session), peekIdSeq()],
-      )
+      const persist = db.transaction((next: Session) => {
+        const row = db.query('SELECT session_json FROM snapshot WHERE id = 1').get() as
+          | { session_json: string }
+          | null
+        const prior = row ? normalizeSession(JSON.parse(row.session_json) as Session) : null
+        for (const event of goalEventsFromSessions(prior, next)) {
+          db.run(
+            `INSERT OR IGNORE INTO goal_events (
+              id, goal_id, criterion_id, job_id, kind, source, authority, reason, at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              event.id,
+              event.goalId,
+              event.criterionId ?? null,
+              event.jobId ?? null,
+              event.kind,
+              event.source,
+              event.authority,
+              event.reason,
+              event.at,
+            ],
+          )
+        }
+        db.run('INSERT OR REPLACE INTO snapshot (id, session_json, id_seq) VALUES (1, ?, ?)', [
+          JSON.stringify(next),
+          peekIdSeq(),
+        ])
+      })
+      persist(session)
     },
     load() {
       const row = db.query('SELECT session_json, id_seq FROM snapshot WHERE id = 1').get() as
@@ -279,6 +610,28 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
       if (!row) return null
       restoreIdSeq(row.id_seq)
       return normalizeSession(JSON.parse(row.session_json) as Session)
+    },
+    listGoalEvents(goalId, limit = 100) {
+      const cap = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 100
+      const rows = (
+        goalId
+          ? (db
+              .query(
+                `SELECT id, goal_id, criterion_id, job_id, kind, source, authority, reason, at
+                 FROM goal_events WHERE goal_id = ? ORDER BY rowid ASC LIMIT ?`,
+              )
+              .all(goalId, cap) as GoalEventRow[])
+          : (db
+              .query(
+                `SELECT id, goal_id, criterion_id, job_id, kind, source, authority, reason, at
+                 FROM goal_events ORDER BY rowid ASC LIMIT ?`,
+              )
+              .all(cap) as GoalEventRow[])
+      )
+      return rows.flatMap((row) => {
+        const event = asGoalEvent(row)
+        return event ? [event] : []
+      })
     },
     remember(input) {
       const cleaned = input.text.trim()

@@ -12,11 +12,12 @@ import {
   isReusableAnalyzePrior,
   normalizeGoal,
   resetJobsForTests,
+  resolveBoundProductCwd,
   resolveJobCwd,
 } from '../src/runtime/jobs.ts'
 import { listMachineProjects } from '../src/runtime/machine.ts'
 import { writeProfile } from '../src/runtime/profile'
-import type { StatusSnap } from '../src/runtime/pm.ts'
+import { PRODUCT_ROOT, type StatusSnap } from '../src/runtime/pm.ts'
 
 const GOAL = 'Look up why Send stays Send in Automaton staff.'
 const FINDING = 'Send stays Send while a Kernel job flies.'
@@ -46,12 +47,14 @@ function hooks() {
   const complete: string[] = []
   const fail: string[] = []
   const waiting: string[] = []
+  const waitingUser: string[] = []
   return {
     attached,
     status,
     complete,
     fail,
     waiting,
+    waitingUser,
     onAttached: (pmJobId: string) => {
       attached.push(pmJobId)
     },
@@ -66,6 +69,9 @@ function hooks() {
     },
     onWaitingExternal: (spoken: string) => {
       waiting.push(spoken)
+    },
+    onWaitingUser: (spoken: string) => {
+      waitingUser.push(spoken)
     },
   }
 }
@@ -508,6 +514,37 @@ describe('bound product home', () => {
     rmSync(root, { recursive: true, force: true })
     rmSync(agents, { recursive: true, force: true })
   })
+
+  test('resolveBoundProductCwd stays empty when nothing is bound', () => {
+    const empty = join(tmpdir(), `automaton-unbound-${Date.now()}`)
+    mkdirSync(empty, { recursive: true })
+    expect(
+      resolveBoundProductCwd(
+        job({
+          id: 'job_unbound',
+          ownerAgentId: 'agent_none',
+          kind: 'promote',
+          goal: 'merge dest to main',
+        }),
+        empty,
+        [],
+      ),
+    ).toBeUndefined()
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_unbound_fallback',
+          ownerAgentId: 'agent_none',
+          kind: 'analyze',
+          goal: 'look at the dest checkout',
+        }),
+        PRODUCT_ROOT,
+        empty,
+        [],
+      ),
+    ).toBe(PRODUCT_ROOT)
+    rmSync(empty, { recursive: true, force: true })
+  })
 })
 
 describe('box-shell dispatch', () => {
@@ -637,6 +674,123 @@ describe('land and ship dispatch', () => {
     expect(h.fail).toEqual(['Need a version on dest before tagging.'])
   })
 
+  test('waiting jobs are not dispatched', async () => {
+    const seen: string[] = []
+    const h = hooks()
+    await ensureDispatched(job({ id: 'job_parked', status: 'waiting' }), h, [], {
+      spawn: async (argv) => {
+        seen.push(argv.join(' '))
+        throw new Error('pm must not start')
+      },
+    })
+    expect(seen).toEqual([])
+    expect(h.complete).toEqual([])
+    expect(h.fail).toEqual([])
+    expect(h.waitingUser).toEqual([])
+  })
+
+  test('missing checkout and host auth wait on the user; ordinary fail stays failed', async () => {
+    const missing = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_land_bind',
+        ownerAgentId: 'agent_m',
+        kind: 'promote',
+        goal: 'merge dest to main',
+      }),
+      missing,
+      [],
+      {
+        spawn: async () => {
+          throw new Error('pm must not start')
+        },
+        promote: () => ({
+          ok: false,
+          spoken: 'Need a product checkout to land dest.',
+          waitingUser: true,
+        }),
+      },
+    )
+    expect(missing.waitingUser).toEqual(['Need a product checkout to land dest.'])
+    expect(missing.fail).toEqual([])
+    expect(missing.complete).toEqual([])
+
+    const auth = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_land_auth',
+        ownerAgentId: 'agent_m',
+        kind: 'promote',
+        goal: 'merge dest to main',
+      }),
+      auth,
+      [],
+      {
+        spawn: async () => {
+          throw new Error('pm must not start')
+        },
+        promote: () => ({
+          ok: false,
+          spoken: 'HTTP 403: Resource not accessible by integration',
+          waitingUser: true,
+        }),
+      },
+    )
+    expect(auth.waitingUser).toEqual(['HTTP 403: Resource not accessible by integration'])
+    expect(auth.fail).toEqual([])
+
+    const failed = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_land_conflict',
+        ownerAgentId: 'agent_m',
+        kind: 'promote',
+        goal: 'merge dest to main',
+      }),
+      failed,
+      [],
+      {
+        spawn: async () => {
+          throw new Error('pm must not start')
+        },
+        promote: () => ({ ok: false, spoken: 'not mergeable: merge conflict' }),
+      },
+    )
+    expect(failed.fail).toEqual(['not mergeable: merge conflict'])
+    expect(failed.waitingUser).toEqual([])
+    expect(failed.waiting).toEqual([])
+  })
+
+  test('Puppetmaster auth denial waits on the user; ordinary miss still fails', async () => {
+    const auth = hooks()
+    await ensureDispatched(job({ id: 'job_pm_auth', pmJobId: 'job_denied' }), auth, [], {
+      ...live({
+        job_denied: {
+          snap: { job: { status: 'failed', error: 'HTTP 401 Unauthorized' } },
+          refs: [],
+        },
+      }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(auth.waitingUser).toEqual(['HTTP 401 Unauthorized'])
+    expect(auth.fail).toEqual([])
+    expect(auth.complete).toEqual([])
+
+    const miss = hooks()
+    await ensureDispatched(job({ id: 'job_pm_miss', pmJobId: 'job_empty' }), miss, [], {
+      ...live({
+        job_empty: { snap: { job: { status: 'complete' } }, refs: [] },
+      }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(miss.fail).toEqual(["Didn't land."])
+    expect(miss.waitingUser).toEqual([])
+  })
+
   test('waiting promote retries without completing or failing early', async () => {
     let calls = 0
     const sleeps: number[] = []
@@ -704,5 +858,144 @@ describe('land and ship dispatch', () => {
     })
     expect(second.complete).toEqual(['dev and main are equal.'])
     expect(second.fail).toEqual([])
+  })
+
+  test('unbound host promote and ship wait before any git/gh and do not use PRODUCT_ROOT', async () => {
+    const emptyHome = join(tmpdir(), `automaton-host-unbound-${Date.now()}`)
+    mkdirSync(emptyHome, { recursive: true })
+    const prevProjects = process.env.AUTOMATON_PROJECTS_ROOT
+    const prevHome = process.env.AUTOMATON_HOME
+    process.env.AUTOMATON_PROJECTS_ROOT = emptyHome
+    process.env.AUTOMATON_HOME = emptyHome
+    try {
+      for (const kind of ['promote', 'ship'] as const) {
+        resetJobsForTests()
+        const commands: { argv: string[]; cwd: string }[] = []
+        const recorded = hooks()
+        await ensureDispatched(
+          job({
+            id: `job_unbound_${kind}`,
+            ownerAgentId: 'agent_unbound',
+            kind,
+            goal: kind === 'promote' ? 'merge dest to main' : 'ship a new release',
+          }),
+          recorded,
+          [],
+          {
+            spawn: async () => {
+              throw new Error('pm must not start')
+            },
+            land: {
+              run: (argv, cwd) => {
+                commands.push({ argv, cwd })
+                return { status: 0, stdout: '', stderr: '' }
+              },
+            },
+          },
+        )
+        expect(commands).toEqual([])
+        expect(commands.every((row) => row.cwd !== PRODUCT_ROOT)).toBe(true)
+        expect(recorded.waitingUser).toEqual([
+          kind === 'promote' ? 'Need a product checkout to land dest.' : 'Need a product checkout to ship.',
+        ])
+        expect(recorded.fail).toEqual([])
+        expect(recorded.complete).toEqual([])
+      }
+    } finally {
+      if (prevProjects === undefined) delete process.env.AUTOMATON_PROJECTS_ROOT
+      else process.env.AUTOMATON_PROJECTS_ROOT = prevProjects
+      if (prevHome === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prevHome
+      rmSync(emptyHome, { recursive: true, force: true })
+    }
+  })
+
+  test('filesystem permission denied and artifact HTTP 401 stay failed; status.job.error waits', async () => {
+    const perm = hooks()
+    await ensureDispatched(job({ id: 'job_perm', pmJobId: 'job_perm' }), perm, [], {
+      readStatus: () => {
+        throw new Error('EACCES: permission denied')
+      },
+      readArtifactRefs: () => {
+        throw new Error('EACCES: permission denied')
+      },
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+      sleep: async () => undefined,
+      maxUnavailableStatusReads: 0,
+    })
+    expect(perm.fail).toEqual(["Didn't land."])
+    expect(perm.waitingUser).toEqual([])
+
+    const artifact = hooks()
+    await ensureDispatched(job({ id: 'job_art', pmJobId: 'job_art' }), artifact, [], {
+      ...live({
+        job_art: {
+          snap: { job: { status: 'failed' } },
+          refs: [
+            { type: 'finding', claim: 'the test log said HTTP 401 Unauthorized and gh auth login' },
+          ],
+        },
+      }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(artifact.fail).toEqual(["Didn't land."])
+    expect(artifact.waitingUser).toEqual([])
+
+    const status = hooks()
+    await ensureDispatched(job({ id: 'job_status_auth', pmJobId: 'job_status_auth' }), status, [], {
+      ...live({
+        job_status_auth: {
+          snap: { job: { status: 'failed', error: 'HTTP 401 Unauthorized' } },
+          refs: [],
+        },
+      }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(status.waitingUser).toEqual(['HTTP 401 Unauthorized'])
+    expect(status.fail).toEqual([])
+  })
+
+  test('missing OpenRouter key waits on the user when the hook exists', async () => {
+    const emptyHome = join(tmpdir(), `automaton-nokey-${Date.now()}`)
+    mkdirSync(emptyHome, { recursive: true })
+    const prevHome = process.env.AUTOMATON_HOME
+    const prevKey = process.env.OPENROUTER_API_KEY
+    process.env.AUTOMATON_HOME = emptyHome
+    delete process.env.OPENROUTER_API_KEY
+    try {
+      const recorded = hooks()
+      await ensureDispatched(job({ id: 'job_nokey' }), recorded, [], { analyzeFiles: fakeFiles })
+      expect(recorded.waitingUser).toEqual(['Need an OpenRouter key.'])
+      expect(recorded.fail).toEqual([])
+      expect(recorded.complete).toEqual([])
+
+      resetJobsForTests()
+      const fail: string[] = []
+      await ensureDispatched(
+        job({ id: 'job_nokey_fail' }),
+        {
+          onAttached: () => undefined,
+          onComplete: () => undefined,
+          onFail: (spoken) => {
+            fail.push(spoken)
+          },
+        },
+        [],
+        { analyzeFiles: fakeFiles },
+      )
+      expect(fail).toEqual(['Need an OpenRouter key.'])
+    } finally {
+      if (prevHome === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prevHome
+      if (prevKey === undefined) delete process.env.OPENROUTER_API_KEY
+      else process.env.OPENROUTER_API_KEY = prevKey
+      rmSync(emptyHome, { recursive: true, force: true })
+    }
   })
 })
