@@ -23,6 +23,7 @@ import {
   type GoalRun,
   type JobHandle,
   type MouthState,
+  type WidgetAnswer,
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
@@ -82,13 +83,20 @@ import {
   stopJob,
   cancelGoal,
   retryGoal,
+  waitComputerHost,
   waitComputerOperator,
   waitJobExternal,
   waitJobUser,
+  answerWidget,
+  dismissWidget,
+  fulfillSecretRequest,
+  dismissSecretRequest,
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
+import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
+import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { CHAT_THEME, T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
@@ -327,7 +335,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             if (keys.length === 0) return { text: 'Need an OpenRouter key.' }
             return chatComputerOpenRouter(messages, keys[0]!.key)
           },
-          seams: liveComputerSeams(),
+          seams: {
+            ...liveComputerSeams(),
+            hostAllowed: worker.hostAllowed === true ? true : undefined,
+          },
         },
         {
           onComplete: (spoken, screenshotPath) => {
@@ -338,6 +349,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           },
           onOperatorHelp: (instruction) => {
             setSession((current) => waitComputerOperator(current, worker.id, instruction))
+          },
+          onHostApproval: (prompt) => {
+            setSession((current) => waitComputerHost(current, worker.id, prompt))
           },
         },
       )
@@ -574,6 +588,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               attachmentsFor={(ids) =>
                 ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
               }
+              onAnswerWidget={(id, answer) => setSession((current) => answerWidget(current, id, answer))}
+              onDismissWidget={(id) => setSession((current) => dismissWidget(current, id))}
+              onSaveSecret={(id, value) => setSession((current) => fulfillSecretRequest(current, id, value))}
+              onDismissSecret={(id) => setSession((current) => dismissSecretRequest(current, id))}
             />
             <div
               testId="dock"
@@ -1317,7 +1335,9 @@ function paintedFeedCount(items: FeedItem[], thinking = false): number {
   for (const item of items) {
     if (item.kind === 'relay' && item.lane === 'from') continue
     if (item.kind === 'agent_note') continue
-    if (item.kind === 'relay' || item.kind === 'msg') count += 1
+    if (item.kind === 'relay' || item.kind === 'msg' || item.kind === 'widget' || item.kind === 'secret-request') {
+      count += 1
+    }
   }
   return thinking ? count + 1 : count
 }
@@ -1357,6 +1377,10 @@ export function Feed({
   attachmentsFor,
   dockPad = 0,
   mouth = 'idle',
+  onAnswerWidget,
+  onDismissWidget,
+  onSaveSecret,
+  onDismissSecret,
 }: {
   items: FeedItem[]
   agents: Agent[]
@@ -1364,6 +1388,10 @@ export function Feed({
   attachmentsFor?: (ids: string[]) => { id: string; path: string; kind: 'image' | 'file' }[]
   dockPad?: number
   mouth?: MouthState
+  onAnswerWidget?: (id: string, answer: WidgetAnswer) => void
+  onDismissWidget?: (id: string) => void
+  onSaveSecret?: (id: string, value: string) => void
+  onDismissSecret?: (id: string) => void
 }) {
   const ref = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
@@ -1408,6 +1436,34 @@ export function Feed({
           )
         }
         if (item.kind === 'agent_note') return null
+        if (item.kind === 'widget') {
+          return (
+            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
+              <QuestionCard
+                testId={`widget-${item.id}`}
+                widget={item.widget}
+                status={item.status}
+                answer={item.answer}
+                onAnswer={(answer) => onAnswerWidget?.(item.id, answer)}
+                onDismiss={() => onDismissWidget?.(item.id)}
+              />
+            </div>
+          )
+        }
+        if (item.kind === 'secret-request') {
+          return (
+            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
+              <SecretRequestCard
+                testId={`secret-request-${item.id}`}
+                connectorName={connectorDisplayName(item.connectorId)}
+                status={item.status}
+                configured={item.configured}
+                onSave={(value) => onSaveSecret?.(item.id, value)}
+                onDismiss={() => onDismissSecret?.(item.id)}
+              />
+            </div>
+          )
+        }
         if (item.kind !== 'msg') return null
         const inbound = items[index - 1]
         const fromPeer = inbound?.kind === 'agent_note' ? inbound.fromId : null
@@ -1680,84 +1736,6 @@ function GoalBlockerPanel({
           onClick={onCancel}
         >
           Cancel goal
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ConfirmCard({
-  testId,
-  prompt,
-  confirmId,
-  dismissId,
-  confirmLabel,
-  danger,
-  onConfirm,
-  onDismiss,
-}: {
-  testId: string
-  prompt: string
-  confirmId: string
-  dismissId: string
-  confirmLabel: string
-  danger?: boolean
-  onConfirm: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <div
-      testId={testId}
-      style={{
-        marginLeft: T.space.xl,
-        marginRight: T.space.xl,
-        marginBottom: T.space.sm,
-        padding: T.space.md,
-        borderRadius: T.radius.md,
-        backgroundColor: T.raised,
-        borderWidth: T.stroke.hairline,
-        borderColor: T.border,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: T.space.sm,
-      }}
-    >
-      <div style={{ fontSize: T.type.sm, color: T.secondary }}>{prompt}</div>
-      <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
-        <div
-          testId={confirmId}
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: danger ? T.danger : T.inverse,
-            color: danger ? T.inverse : T.onInverse,
-            fontSize: T.type.sm,
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </div>
-        <div
-          testId={dismissId}
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: T.raised,
-            color: T.text,
-            fontSize: T.type.sm,
-            ...HIT,
-          }}
-          onClick={onDismiss}
-        >
-          Dismiss
         </div>
       </div>
     </div>

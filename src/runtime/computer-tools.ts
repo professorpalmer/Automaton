@@ -246,6 +246,7 @@ export async function executeComputerTool(
 
   if (call.name === 'host_read' || call.name === 'host_shell' || call.name === 'host_attach') {
     if (seams.hostAllowed === false) return hostDenied()
+    if (seams.hostAllowed === true) return { ok: true, spoken: 'Running on your Mac.' }
     return hostCard()
   }
 

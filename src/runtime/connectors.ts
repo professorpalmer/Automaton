@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { connectorsPath } from './computer'
-import { automatonHome, listOpenRouterKeys } from './keys'
+import { automatonHome, listOpenRouterKeys, writeOpenRouterKey } from './keys'
 
 export const OPENROUTER_ID = 'openrouter'
 export const OPENROUTER_ORIGIN = 'https://openrouter.ai'
@@ -119,4 +119,30 @@ export function connectorStatusLabel(row: Connector): string {
 
 export function hasOpenRouterGrant(): boolean {
   return listOpenRouterKeys().length > 0
+}
+
+export function knownConnectorId(id: string, home = automatonHome()): boolean {
+  const trimmed = id.trim()
+  if (!trimmed) return false
+  return readConnectors(home).some((row) => row.id === trimmed)
+}
+
+export function connectorDisplayName(id: string, home = automatonHome()): string {
+  return readConnectors(home).find((row) => row.id === id)?.name ?? id
+}
+
+/** Write-only. Callers must not log `value` or put it on a feed item. */
+export function writeConnectorSecret(id: string, value: string, home = automatonHome()): boolean {
+  const trimmed = id.trim()
+  const secret = value.trim()
+  if (!trimmed || !secret) return false
+  if (!knownConnectorId(trimmed, home)) return false
+  if (trimmed === OPENROUTER_ID) writeOpenRouterKey(secret, home)
+  markConnected(trimmed, true, home)
+  return true
+}
+
+export function connectorConfigured(id: string, home = automatonHome()): boolean {
+  if (id === OPENROUTER_ID && hasOpenRouterGrant()) return true
+  return readConnectors(home).some((row) => row.id === id && row.connected)
 }

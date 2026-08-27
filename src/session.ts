@@ -29,12 +29,15 @@ import {
   goalLaunchContext,
   homeAck,
   homeNote,
+  hostApprovalWidget,
   hydrateGoalBlocker,
+  isLandKind,
   issueWorkTargets,
   isWhitelistedRunningStatus,
   jobKindForKit,
   joinAnd,
   keepAliveStatus,
+  landWidgetForKind,
   looksLikeCodebaseAsk,
   looksLikeJobStatusAsk,
   looksLikeSourceAsk,
@@ -42,23 +45,32 @@ import {
   needsFanoutConfirm,
   nextId,
   nextUnmetCriterion,
+  normalizeWidget,
   parseDeskUrl,
   parseGithubIssue,
+  parseMouthEmit,
   renameAck,
   renameAgents,
   returnBeat,
   runningStatusNote,
   sanitizeSpeak,
   sessionGoals,
+  type QuestionWidget,
+  type WidgetAnswer,
+  type WidgetPurpose,
   visibleAgents,
+  widgetDismissOnMoveOn,
+  widgetReplyText,
 } from './domain'
 import { kitForAgent } from './runtime/profile'
 import { displayForMouth } from './runtime/computer'
 import {
   computerWorkerAllowed,
+  HOST_APPROVAL_PROMPT,
   looksLikeComputerUse,
   needsOperatorHandoff,
 } from './runtime/computer-tools'
+import { knownConnectorId, writeConnectorSecret } from './runtime/connectors'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -70,6 +82,8 @@ export type ComputerWorker = {
   status: ComputerWorkerStatus
   instruction?: string
   screenshotPath?: string
+  /** Set after the host widget. Host tools still never run silent. */
+  hostAllowed?: boolean
 }
 
 export type Session = {
@@ -368,6 +382,7 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   if (shouldQueueSteer(row.mouth, row.computerBusy === true)) {
     return enqueueSteer(session, text, attachmentIds)
   }
+  session = dismissMoveOnWidgets(session, active)
 
   const roster = visibleAgents(session.agents)
   const kit = kitForAgent(active)
@@ -621,24 +636,30 @@ function openGoalRun(
   drafts: GoalCriterionDraft[],
   prior: string,
 ): Session {
+  const firstDraft = drafts[0]
+  const widgetFirst = firstDraft ? isLandKind(firstDraft.kind) : false
   const criteria: GoalCriterion[] = drafts.map((row, index) => ({
     ...row,
     id: nextId('crit'),
-    status: index === 0 ? 'running' : 'pending',
+    status: !widgetFirst && index === 0 ? 'running' : 'pending',
   }))
   const first = criteria[0]
   if (!first) return wakeMouth(session, ownerAgentId, 'answer')
+  const coordinatorId = session.agents.some((agent) => agent.id === 'staff') ? 'staff' : focused
   const goal: GoalRun = {
     id: nextId('goal'),
     text: objective,
-    coordinatorId: session.agents.some((agent) => agent.id === 'staff') ? 'staff' : focused,
+    coordinatorId,
     ownerAgentId,
     criteria,
     receipts: [],
-    status: 'running',
+    status: widgetFirst ? 'waiting_user' : 'running',
     activeCriterionId: first.id,
   }
   let next = putGoal(session, goal)
+  if (widgetFirst) {
+    return offerLandWidget(next, goal, first)
+  }
   next = { ...next, jobs: [...next.jobs, criterionJob(goal, first, prior)] }
   return wakeMouth(next, ownerAgentId, 'working')
 }
@@ -723,6 +744,20 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
     return finishBatch(next, agentId)
   }
   if (row.mouth !== 'answer') return session
+  const emit = parseMouthEmit(spoken)
+  if (emit?.kind === 'widget') {
+    const next = emitWidget(session, agentId, emit.widget)
+    return finishBatch(next, agentId)
+  }
+  if (emit?.kind === 'secret-request') {
+    const next = emitSecretRequest(session, agentId, emit.connectorId)
+    if (next === session) {
+      let fallback = speak(session, agentId, 'Need a connector grant.', focused)
+      fallback = wakeMouth(fallback, agentId, 'idle')
+      return finishBatch(fallback, agentId)
+    }
+    return finishBatch(next, agentId)
+  }
   const from = inboundCoordinatorId(session, agentId)
   let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, agentId, 'idle')
@@ -839,17 +874,26 @@ function bookNextOrClose(
   const prior = priorUserText(thread(session, goal.ownerAgentId).items)
   const nextCrit = nextUnmetCriterion(goal)
   if (!nextCrit) {
-    const complete =
-      everyCriterionMet(goal) ||
-      goal.criteria.every((row) => row.status === 'met' || row.status === 'skipped')
+    const settled = goal.criteria.every((row) => row.status === 'met' || row.status === 'skipped')
+    const complete = everyCriterionMet(goal) || (settled && goal.criteria.some((row) => row.status === 'met'))
+    const cancelled = settled && !complete
     return closeGoalThenReturn(
       session,
-      { ...goal, status: complete ? 'complete' : 'failed' },
+      { ...goal, status: complete ? 'complete' : cancelled ? 'cancelled' : 'failed' },
       goal.ownerAgentId,
       from,
       spoken,
       focused,
     )
+  }
+  if (isLandKind(nextCrit.kind)) {
+    const waiting = {
+      ...goal,
+      status: 'waiting_user' as const,
+      activeCriterionId: nextCrit.id,
+    }
+    const next = putGoal(session, waiting)
+    return offerLandWidget(next, waiting, nextCrit)
   }
   const running = {
     ...markCriterion(goal, nextCrit.id, 'running'),
@@ -1147,6 +1191,226 @@ export function resumeComputer(session: Session, agentId?: AgentId): Session {
 
 export function runningComputerWorkers(session: Session): ComputerWorker[] {
   return (session.computerWorkers ?? []).filter((row) => row.status === 'running')
+}
+
+function coordinatorSeat(session: Session, fallback: AgentId): AgentId {
+  if (session.threads.staff) return 'staff'
+  return fallback
+}
+
+function patchItem(session: Session, itemId: string, patch: (item: FeedItem) => FeedItem): Session {
+  for (const agentId of Object.keys(session.threads)) {
+    const row = session.threads[agentId]
+    if (!row) continue
+    const hit = row.items.findIndex((item) => item.id === itemId)
+    if (hit < 0) continue
+    const items = row.items.map((item, index) => (index === hit ? patch(item) : item))
+    return setThread(session, agentId, { items })
+  }
+  return session
+}
+
+function findFeedItem(session: Session, itemId: string): FeedItem | undefined {
+  for (const row of Object.values(session.threads)) {
+    const hit = row.items.find((item) => item.id === itemId)
+    if (hit) return hit
+  }
+  return undefined
+}
+
+function dismissMoveOnWidgets(session: Session, agentId: AgentId): Session {
+  const row = session.threads[agentId]
+  if (!row) return session
+  const items = row.items.map((item) => {
+    if (item.kind === 'widget' && item.status === 'open' && item.widget.dismissOnMoveOn) {
+      return { ...item, status: 'dismissed' as const }
+    }
+    return item
+  })
+  return setThread(session, agentId, { items })
+}
+
+function emitWidgetItem(
+  session: Session,
+  agentId: AgentId,
+  spec: QuestionWidget,
+  extra: {
+    purpose?: WidgetPurpose
+    goalId?: string
+    criterionId?: string
+    workerId?: string
+  } = {},
+): Session {
+  if (!session.threads[agentId]) return session
+  const normalized = normalizeWidget(spec)
+  if (!normalized) return session
+  const purpose = extra.purpose ?? 'ask'
+  if (widgetDismissOnMoveOn(purpose, spec.dismissOnMoveOn)) normalized.dismissOnMoveOn = true
+  else delete normalized.dismissOnMoveOn
+  const item: FeedItem = {
+    kind: 'widget',
+    id: nextId('item'),
+    agentId,
+    widget: normalized,
+    purpose,
+    status: 'open',
+    goalId: extra.goalId,
+    criterionId: extra.criterionId,
+    workerId: extra.workerId,
+    at: Date.now(),
+  }
+  let next = append(session, agentId, item, session.activeAgentId)
+  return wakeMouth(next, agentId, 'idle')
+}
+
+export function emitWidget(
+  session: Session,
+  agentId: AgentId,
+  spec: QuestionWidget,
+  extra: {
+    purpose?: WidgetPurpose
+    goalId?: string
+    criterionId?: string
+    workerId?: string
+  } = {},
+): Session {
+  return emitWidgetItem(session, agentId, spec, extra)
+}
+
+function offerLandWidget(session: Session, goal: GoalRun, criterion: GoalCriterion): Session {
+  const seat = coordinatorSeat(session, goal.coordinatorId)
+  const purpose: WidgetPurpose = criterion.kind === 'ship' ? 'ship' : 'merge'
+  let next = emitWidgetItem(session, seat, landWidgetForKind(criterion.kind), {
+    purpose,
+    goalId: goal.id,
+    criterionId: criterion.id,
+  })
+  next = wakeMouth(next, goal.ownerAgentId, 'idle')
+  return next
+}
+
+export function emitSecretRequest(session: Session, agentId: AgentId, connectorId: string): Session {
+  if (!session.threads[agentId]) return session
+  const id = connectorId.trim()
+  if (!id || !knownConnectorId(id)) return session
+  const item: FeedItem = {
+    kind: 'secret-request',
+    id: nextId('item'),
+    agentId,
+    connectorId: id,
+    status: 'open',
+    at: Date.now(),
+  }
+  let next = append(session, agentId, item, session.activeAgentId)
+  return wakeMouth(next, agentId, 'idle')
+}
+
+export function answerWidget(session: Session, itemId: string, answer: WidgetAnswer): Session {
+  const item = findFeedItem(session, itemId)
+  if (!item || item.kind !== 'widget' || item.status !== 'open') return session
+  const values = answer.values.filter((row) => row.trim())
+  const custom = answer.custom?.trim()
+  const nextAnswer: WidgetAnswer = { values }
+  if (custom) nextAnswer.custom = custom
+  let next = patchItem(session, itemId, (row) =>
+    row.kind === 'widget' ? { ...row, status: 'answered' as const, answer: nextAnswer } : row,
+  )
+  const purpose = item.purpose ?? 'ask'
+  if (purpose === 'merge' || purpose === 'ship') return resolveLandWidget(next, item, values)
+  if (purpose === 'host') return resolveHostWidget(next, item, values)
+  const reply = widgetReplyText(item.widget, nextAnswer)
+  if (!reply) return next
+  return send(wakeMouth(next, next.activeAgentId, 'idle'), reply)
+}
+
+export function dismissWidget(session: Session, itemId: string): Session {
+  const item = findFeedItem(session, itemId)
+  if (!item || item.kind !== 'widget' || item.status !== 'open') return session
+  let next = patchItem(session, itemId, (row) =>
+    row.kind === 'widget' ? { ...row, status: 'dismissed' as const } : row,
+  )
+  if (item.purpose === 'merge' || item.purpose === 'ship') {
+    return resolveLandWidget(next, item, ['cancel'])
+  }
+  if (item.purpose === 'host' && item.workerId) {
+    return failComputer(next, item.workerId, 'Not running that on your Mac.')
+  }
+  return next
+}
+
+function resolveLandWidget(session: Session, item: Extract<FeedItem, { kind: 'widget' }>, values: string[]): Session {
+  const goal = sessionGoals(session.goals).find((row) => row.id === item.goalId)
+  const criterion = goal?.criteria.find((row) => row.id === item.criterionId)
+  if (!goal || !criterion) return session
+  const focused = session.activeAgentId
+  if (values.includes('cancel')) {
+    const skipped: GoalRun = {
+      ...goal,
+      criteria: goal.criteria.map((row) =>
+        isLandKind(row.kind) && (row.status === 'pending' || row.id === criterion.id)
+          ? { ...row, status: 'skipped' as const }
+          : row,
+      ),
+    }
+    delete skipped.blocker
+    return bookNextOrClose(putGoal(session, skipped), skipped, 'Cancelled.', focused, null)
+  }
+  const running = {
+    ...markCriterion(goal, criterion.id, 'running'),
+    status: 'running' as const,
+    activeCriterionId: criterion.id,
+  }
+  delete running.blocker
+  const prior = priorUserText(thread(session, goal.ownerAgentId).items)
+  let next = putGoal(session, running)
+  next = { ...next, jobs: [...next.jobs, criterionJob(running, criterion, prior)] }
+  return wakeMouth(next, running.ownerAgentId, 'working')
+}
+
+function resolveHostWidget(session: Session, item: Extract<FeedItem, { kind: 'widget' }>, values: string[]): Session {
+  if (!item.workerId) return session
+  if (values.includes('cancel')) {
+    return failComputer(session, item.workerId, 'Not running that on your Mac.')
+  }
+  const worker = (session.computerWorkers ?? []).find((row) => row.id === item.workerId)
+  if (!worker || (worker.status !== 'waiting_operator' && worker.status !== 'running')) return session
+  let next = putComputer(session, { ...worker, status: 'running', hostAllowed: true })
+  next = setComputerBusy(next, worker.ownerAgentId, true)
+  return next
+}
+
+export function fulfillSecretRequest(session: Session, itemId: string, value: string): Session {
+  const item = findFeedItem(session, itemId)
+  if (!item || item.kind !== 'secret-request' || item.status !== 'open') return session
+  const secret = value.trim()
+  if (!secret) return session
+  if (!writeConnectorSecret(item.connectorId, secret)) return session
+  return patchItem(session, itemId, (row) =>
+    row.kind === 'secret-request' ? { ...row, status: 'saved' as const, configured: true } : row,
+  )
+}
+
+export function dismissSecretRequest(session: Session, itemId: string): Session {
+  const item = findFeedItem(session, itemId)
+  if (!item || item.kind !== 'secret-request' || item.status !== 'open') return session
+  return patchItem(session, itemId, (row) =>
+    row.kind === 'secret-request' ? { ...row, status: 'dismissed' as const } : row,
+  )
+}
+
+export function waitComputerHost(
+  session: Session,
+  workerId: string,
+  prompt = HOST_APPROVAL_PROMPT,
+): Session {
+  const worker = (session.computerWorkers ?? []).find((row) => row.id === workerId)
+  if (!worker || worker.status !== 'running') return session
+  let next = putComputer(session, { ...worker, status: 'waiting_operator', instruction: prompt })
+  next = setComputerBusy(next, worker.ownerAgentId, true)
+  return emitWidgetItem(next, worker.ownerAgentId, hostApprovalWidget(prompt), {
+    purpose: 'host',
+    workerId,
+  })
 }
 
 export function runningJobs(session: Session): JobHandle[] {

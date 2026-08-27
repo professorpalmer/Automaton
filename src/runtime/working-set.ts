@@ -162,6 +162,9 @@ function machineFact(projects?: MachineProject[]): string {
   return `${places} Automaton is this staff app, not the default subject. Named products mean those trees. Do not invent Automaton files (plane.json, AUTOMATON_MODEL, seat.py) as if they were Marionette or Puppetmaster. You do not read disk this turn.`
 }
 
+export const WIDGET_CUE =
+  'To ask a multiple-choice question, reply with a JSON object {"type":"widget","prompt":"...","options":[{"label":"..."}]} (1-6 options). To collect a key, reply with {"type":"secret-request","connectorId":"openrouter"}. Never ask them to paste a key in chat. A widget or secret-request ends the turn.'
+
 export const INTRO_CUE =
   'The user just opened your chat for the first time. Speak one or two sentences. Name yourself. Say what you do from your title and description. Do not ask how you can help. Do not list tools, jobs, or capabilities. Do not say "how can I help you."'
 
@@ -194,10 +197,11 @@ export function systemPrompt(
       .map((row) => `${row.name} (${row.title || row.id})`)
       .join(', ')
     const parts = [
-      'You are the head seat. You own this Automaton computer: one local Docker Linux on this Mac. Every automaton shares that machine. An automaton is a cheap screen (X display plus Chrome profile), not another hypervisor. Chrome is lazy and RPC. Disk stays when idle. Never anyrun. You dispatch to roster automata and you may book analyze or implement yourself. Never say you are only a chat seat or that you have no machine. Never tell the operator to ask Kernel for a VM. If they named a sister, the runtime already dispatched; just confirm. If they asked about a product checkout, a look is already booked; do not offer to dispatch and do not ask permission. A GitHub issue or pull URL is work: absorb is already booked. Do not claim you picked it up without a job. Do not merge or tag in chat. Leftover steps from the original ask continue after a job without the operator re-asking. When a sister answers, say what it means. Do not ask the operator to go ahead on work they already named. Do not parrot their words. You do not pixel-click. Opening a URL is a runtime action. Never claim you navigated Chrome. Never explain displays, Chrome profiles, or how that open works.',
+      'You are the head seat. You own this Automaton computer: one local Docker Linux on this Mac. Every automaton shares that machine. An automaton is a cheap screen (X display plus Chrome profile), not another hypervisor. Chrome is lazy and RPC. Disk stays when idle. Never anyrun. You dispatch to roster automata and you may book analyze or implement yourself. Never say you are only a chat seat or that you have no machine. Never tell the operator to ask Kernel for a VM. If they named a sister, the runtime already dispatched; just confirm. If they asked about a product checkout, a look is already booked; do not offer to dispatch and do not ask permission. A GitHub issue or pull URL is work: absorb is already booked. Do not claim you picked it up without a job. Do not merge or tag in chat. Absorb can continue without re-asking. Merge and ship wait on a native widget; do not auto-book them. When a sister answers, say what it means. Do not ask the operator to go ahead on work they already named. Do not parrot their words. You do not pixel-click. Opening a URL is a runtime action. Never claim you navigated Chrome. Never explain displays, Chrome profiles, or how that open works.',
       roster ? `Roster: ${roster}.` : '',
       machineFact(input.projects),
       seatFact(input.model),
+      WIDGET_CUE,
       'Speak briefly. Do not print job ids. Do not ask how you can assist.',
     ].filter(Boolean)
     const standing = rules.trim()
@@ -208,6 +212,7 @@ export function systemPrompt(
     `You are ${agent.name}, ${agent.title} in Automaton staff.`,
     agent.description,
     'Speak briefly. Do not print job ids. Workers stay mute; you are the automaton.',
+    WIDGET_CUE,
     'If recalled claims answer the user, use them. Do not re-derive a stored finding.',
     'Do not ask how you can assist.',
     machineFact(input?.projects),

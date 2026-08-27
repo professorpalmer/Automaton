@@ -7,6 +7,7 @@ import { writeProfile } from '../src/runtime/profile'
 import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
+  answerWidget,
   attachPmJob,
   bookComputer,
   completeComputer,
@@ -51,6 +52,16 @@ function fresh(): Session {
     jobs: [],
     pendingFanout: null,
   }
+}
+
+function openWidget(session: Session, agentId = 'staff') {
+  return session.threads[agentId]?.items.find((item) => item.kind === 'widget' && item.status === 'open')
+}
+
+function confirmLand(session: Session, value: 'merge' | 'ship', agentId = 'staff'): Session {
+  const widget = openWidget(session, agentId)
+  if (!widget || widget.kind !== 'widget') return session
+  return answerWidget(session, widget.id, { values: [value] })
 }
 
 describe('teammate session', () => {
@@ -930,12 +941,16 @@ describe('teammate session', () => {
       expect(pendingMouthTurns(s)).toEqual([])
       const firstId = s.jobs[0].id
       s = completeJob(s, firstId, 'Scope labels now match the data they aggregate.')
-      expect(s.jobs).toHaveLength(2)
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('merge')
+      s = confirmLand(s, 'merge')
       expect(s.jobs[1]?.kind).toBe('promote')
       expect(s.jobs[1]?.goal).toBe('merge dest to main')
       expect(s.threads.agent_m.mouth).toBe('working')
       s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
-      expect(s.jobs).toHaveLength(3)
+      expect(s.jobs.some((job) => job.kind === 'ship' && job.status === 'running')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[2]?.kind).toBe('ship')
       expect(s.jobs[2]?.goal).toBe('ship a new release')
       s = completeJob(s, s.jobs[2].id, 'Shipped v0.9.360.')
@@ -1019,9 +1034,15 @@ describe('teammate session', () => {
       expect(s.jobs[1]?.evidence?.some((row) => row.includes('green'))).toBe(true)
       expect(s.threads.staff.mouth).toBe('idle')
       s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('merge')
+      expect(s.threads.staff.mouth).toBe('idle')
+      s = confirmLand(s, 'merge')
       expect(s.jobs[2]?.kind).toBe('promote')
       expect(s.threads.staff.mouth).toBe('idle')
       s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[3]?.kind).toBe('ship')
       s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
       expect(s.goals?.[0]?.status).toBe('complete')
@@ -1086,6 +1107,7 @@ describe('teammate session', () => {
       s = failJob(s, s.jobs[1].id, "Didn't land.")
       expect(s.jobs).toHaveLength(2)
       expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(s.threads.staff.items.some((item) => item.kind === 'widget')).toBe(false)
       expect(s.goals?.[0]?.status).toBe('failed')
       expect(s.threads.staff.mouth).toBe('idle')
       expect(
@@ -1153,6 +1175,8 @@ describe('teammate session', () => {
       )
       s = completeJob(s, s.jobs[0].id, 'dest checks are green.')
       s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      s = confirmLand(s, 'merge')
       expect(s.jobs[2]?.kind).toBe('promote')
       const staffBefore = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
       s = waitJobExternal(s, s.jobs[2].id)
@@ -1171,7 +1195,9 @@ describe('teammate session', () => {
       const failed = failJob(s, s.jobs[2].id, "Couldn't merge dest into main.")
       expect(failed.goals?.[0]?.status).toBe('failed')
       s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
-      expect(s.goals?.[0]?.status).toBe('running')
+      expect(s.goals?.[0]?.status).toBe('waiting_user')
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[3]?.kind).toBe('ship')
       s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
       expect(s.goals?.[0]?.status).toBe('complete')
@@ -1240,8 +1266,11 @@ describe('teammate session', () => {
       expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['implement', 'promote', 'ship'])
       expect(s.jobs[0]?.kind).toBe('implement')
       s = completeJob(s, s.jobs[0].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      s = confirmLand(s, 'merge')
       expect(s.jobs[1]?.kind).toBe('promote')
       s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[2]?.kind).toBe('ship')
     } finally {
       if (prev === undefined) delete process.env.AUTOMATON_HOME
