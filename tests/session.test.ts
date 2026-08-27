@@ -8,6 +8,8 @@ import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
   attachPmJob,
+  bookComputer,
+  completeComputer,
   completeJob,
   completeMouth,
   drainSteer,
@@ -26,11 +28,14 @@ import {
   setActive,
   setDraft,
   stopJob,
+  waitComputerOperator,
   waitJobExternal,
   waitJobUser,
   retryGoal,
   cancelGoal,
   dispatchableJobs,
+  resumeComputer,
+  runningComputerWorkers,
   runningJobs,
   type Session,
 } from '../src/session'
@@ -1658,6 +1663,75 @@ describe('steer-queue', () => {
     const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
     expect(users).toHaveLength(1)
     if (users[0]?.kind === 'msg') expect(users[0].text).toBe('click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+})
+
+describe('computer-use workers', () => {
+  test('open example.com books a computer worker; Send stays Send and steers off-transcript', () => {
+    let s = send(fresh(), 'open example.com')
+    expect(s.deskHandoff).toBeFalsy()
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    expect(s.threads.staff.computerBusy).toBe(true)
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(composerEnterBusy(s.threads.staff.mouth, s.threads.staff.computerBusy)).toBe(false)
+    expect(pendingMouthTurns(s)).toEqual([])
+    s = send(s, 'click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'click the login button' }])
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    const workerId = s.computerWorkers?.[0]?.id
+    expect(workerId).toBeTruthy()
+    s = completeComputer(s, workerId!, 'Opened example.com.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('password login still hands the operator the stage', () => {
+    const s = send(fresh(), 'Can you navigate to the github on your pc so I can login?')
+    expect(s.deskHandoff?.instruction).toBe('Sign in to GitHub.')
+    expect(runningComputerWorkers(s)).toHaveLength(0)
+    expect(s.threads.staff.computerBusy).toBeFalsy()
+  })
+
+  test('Kernel computer worker does not declare a Goal complete', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'open example.com')
+    expect(s.goals ?? []).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    const workerId = s.computerWorkers![0]!.id
+    s = completeComputer(s, workerId, 'Opened example.com.')
+    expect(s.goals ?? []).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(s.threads.kernel.mouth).toBe('idle')
+  })
+
+  test('operator_help parks the worker; Release lets it proceed', () => {
+    let s = bookComputer(fresh(), 'staff', 'open a login page')
+    const workerId = s.computerWorkers![0]!.id
+    s = waitComputerOperator(s, workerId, 'Sign in if this page asks.')
+    expect(s.computerWorkers![0]!.status).toBe('waiting_operator')
+    expect(s.threads.staff.computerBusy).toBe(true)
+    expect(s.deskHandoff?.instruction).toBe('Sign in if this page asks.')
+    s = send(s, 'try the next field')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'try the next field' }])
+    s = resumeComputer(s, 'staff')
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    s = completeComputer(s, workerId, 'Signed in.')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('remount does not leave computerBusy pinning Send', () => {
+    let s = bookComputer(fresh(), 'staff', 'open example.com')
+    expect(s.threads.staff.computerBusy).toBe(true)
+    s = idleOrphanMouths(s)
+    expect(s.threads.staff.computerBusy).toBe(false)
+    expect(s.computerWorkers?.[0]?.status).toBe('failed')
+    s = send(s, 'hello staff')
+    expect(s.threads.staff.mouth).toBe('answer')
     expect(s.threads.staff.steerQueue).toEqual([])
   })
 })

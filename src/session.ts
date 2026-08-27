@@ -53,6 +53,24 @@ import {
   visibleAgents,
 } from './domain'
 import { kitForAgent } from './runtime/profile'
+import { displayForMouth } from './runtime/computer'
+import {
+  computerWorkerAllowed,
+  looksLikeComputerUse,
+  needsOperatorHandoff,
+} from './runtime/computer-tools'
+
+export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
+
+export type ComputerWorker = {
+  id: string
+  ownerAgentId: AgentId
+  display: number
+  goal: string
+  status: ComputerWorkerStatus
+  instruction?: string
+  screenshotPath?: string
+}
 
 export type Session = {
   agents: Agent[]
@@ -63,6 +81,7 @@ export type Session = {
   pendingFanout: { text: string; targets: AgentId[] } | null
   deskOpen?: { agentId: AgentId; url: string } | null
   deskHandoff?: DeskHandoff | null
+  computerWorkers?: ComputerWorker[]
 }
 
 /** Old snapshots omit goals and may still carry a worker mandate. */
@@ -80,6 +99,7 @@ export function normalizeSession(session: Session): Session {
     ...session,
     threads,
     jobs: Array.isArray(session.jobs) ? session.jobs : [],
+    computerWorkers: Array.isArray(session.computerWorkers) ? session.computerWorkers : [],
     goals: sessionGoals(session.goals).map((goal) => {
       const blocker = hydrateGoalBlocker(goal.blocker)
       return blocker ? { ...goal, blocker } : goal
@@ -116,6 +136,17 @@ export function idleOrphanMouths(session: Session): Session {
     }
     next = setThread(next, id, { mouth: 'idle' })
     next = finishBatch(next, id)
+  }
+  next = {
+    ...next,
+    computerWorkers: (next.computerWorkers ?? []).map((row) =>
+      row.status === 'running' || row.status === 'waiting_operator'
+        ? { ...row, status: 'failed' as const }
+        : row,
+    ),
+  }
+  for (const id of Object.keys(next.threads)) {
+    if (next.threads[id]?.computerBusy) next = setThread(next, id, { computerBusy: false })
   }
   return next
 }
@@ -253,9 +284,10 @@ export function dropLiveAgent(session: Session, agentId: AgentId): Session {
   delete threads[agentId]
   const jobs = session.jobs.filter((job) => job.ownerAgentId !== agentId)
   const goals = sessionGoals(session.goals).filter((goal) => goal.ownerAgentId !== agentId)
+  const computerWorkers = (session.computerWorkers ?? []).filter((row) => row.ownerAgentId !== agentId)
   const activeAgentId =
     session.activeAgentId === agentId ? (agents[0]?.id ?? '') : session.activeAgentId
-  return { ...session, agents, threads, jobs, goals, activeAgentId }
+  return { ...session, agents, threads, jobs, goals, computerWorkers, activeAgentId }
 }
 
 export function patchLiveAgent(session: Session, agent: Agent): Session {
@@ -395,12 +427,16 @@ function coordinatorDeskOpen(
   let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, deskOpenAck(url), focused)
-  next = wakeMouth(next, focused, 'idle')
-  return {
-    ...next,
-    deskOpen: { agentId: focused, url },
-    deskHandoff: { agentId: focused, url, instruction: deskHandoffInstruction(url) },
+  if (needsOperatorHandoff(url, text)) {
+    next = wakeMouth(next, focused, 'idle')
+    return {
+      ...next,
+      deskOpen: { agentId: focused, url },
+      deskHandoff: { agentId: focused, url, instruction: deskHandoffInstruction(url) },
+    }
   }
+  next = { ...next, deskOpen: null, deskHandoff: null }
+  return bookComputer(next, focused, text)
 }
 
 function coordinatorSetup(
@@ -561,6 +597,11 @@ function deliverTo(
     next = wakeMouth(next, agentId, 'ack')
     const rows = drafts.length > 0 ? drafts : [{ label: kind, kind, work: step }]
     return openGoalRun(next, agentId, focused, mandateText, rows, prior)
+  }
+  if (computerWorkerAllowed(kit, ping) && looksLikeComputerUse(text)) {
+    const url = parseDeskUrl(text)
+    next = speak(next, agentId, url ? deskOpenAck(url) : 'On it.', focused)
+    return bookComputer(next, agentId, text)
   }
   return wakeMouth(next, agentId, 'answer')
 }
@@ -1000,6 +1041,112 @@ export function stopJob(session: Session, jobId: string): Session {
   next = dropJobSteer(next, job.ownerAgentId)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
   return finishBatch(next, job.ownerAgentId)
+}
+
+function putComputer(session: Session, worker: ComputerWorker): Session {
+  const workers = session.computerWorkers ?? []
+  const hit = workers.findIndex((row) => row.id === worker.id)
+  const computerWorkers = hit < 0 ? [...workers, worker] : workers.map((row) => (row.id === worker.id ? worker : row))
+  return { ...session, computerWorkers }
+}
+
+function liveComputerOn(session: Session, agentId: AgentId): boolean {
+  return (session.computerWorkers ?? []).some(
+    (row) =>
+      row.ownerAgentId === agentId && (row.status === 'running' || row.status === 'waiting_operator'),
+  )
+}
+
+function setComputerBusy(session: Session, agentId: AgentId, busy: boolean): Session {
+  if (!session.threads[agentId]) return session
+  return setThread(session, agentId, { computerBusy: busy })
+}
+
+/** Job-shaped computer worker. Mouth stays Send via computerBusy. Staff still owns GoalRun. */
+export function bookComputer(session: Session, ownerAgentId: AgentId, goal: string): Session {
+  if (!session.threads[ownerAgentId]) return session
+  const worker: ComputerWorker = {
+    id: nextId('comp'),
+    ownerAgentId,
+    display: displayForMouth(ownerAgentId),
+    goal,
+    status: 'running',
+  }
+  let next = putComputer(session, worker)
+  next = setComputerBusy(next, ownerAgentId, true)
+  return wakeMouth(next, ownerAgentId, 'working')
+}
+
+function finishComputer(
+  session: Session,
+  workerId: string,
+  spoken: string,
+  status: 'complete' | 'failed',
+  screenshotPath?: string,
+): Session {
+  const worker = (session.computerWorkers ?? []).find((row) => row.id === workerId)
+  if (!worker) return session
+  if (worker.status !== 'running' && worker.status !== 'waiting_operator') return session
+  const focused = session.activeAgentId
+  let next = putComputer(session, { ...worker, status, screenshotPath })
+  next = speak(next, worker.ownerAgentId, sanitizeSpeak(spoken), focused)
+  next = setComputerBusy(next, worker.ownerAgentId, liveComputerOn(next, worker.ownerAgentId))
+  next = wakeMouth(next, worker.ownerAgentId, 'idle')
+  return finishBatch(next, worker.ownerAgentId)
+}
+
+export function completeComputer(
+  session: Session,
+  workerId: string,
+  spoken = 'Done.',
+  screenshotPath?: string,
+): Session {
+  return finishComputer(session, workerId, spoken, 'complete', screenshotPath)
+}
+
+export function failComputer(session: Session, workerId: string, spoken = "Didn't land."): Session {
+  return finishComputer(session, workerId, spoken, 'failed')
+}
+
+export function waitComputerOperator(
+  session: Session,
+  workerId: string,
+  instruction: string,
+  url = '',
+): Session {
+  const worker = (session.computerWorkers ?? []).find((row) => row.id === workerId)
+  if (!worker || worker.status !== 'running') return session
+  let next = putComputer(session, { ...worker, status: 'waiting_operator', instruction })
+  next = setComputerBusy(next, worker.ownerAgentId, true)
+  const handoffUrl = url || parseDeskUrl(worker.goal) || 'about:blank'
+  return {
+    ...next,
+    deskHandoff: {
+      agentId: worker.ownerAgentId,
+      url: handoffUrl,
+      instruction,
+    },
+  }
+}
+
+export function resumeComputer(session: Session, agentId?: AgentId): Session {
+  const computerWorkers = (session.computerWorkers ?? []).map((row) => {
+    if (row.status !== 'waiting_operator') return row
+    if (agentId && row.ownerAgentId !== agentId) return row
+    return { ...row, status: 'running' as const }
+  })
+  let next: Session = { ...session, computerWorkers }
+  const owners = new Set(
+    computerWorkers
+      .filter((row) => row.status === 'running' || row.status === 'waiting_operator')
+      .map((row) => row.ownerAgentId),
+  )
+  for (const owner of owners) next = setComputerBusy(next, owner, true)
+  return next
+}
+
+export function runningComputerWorkers(session: Session): ComputerWorker[] {
+  return (session.computerWorkers ?? []).filter((row) => row.status === 'running')
 }
 
 export function runningJobs(session: Session): JobHandle[] {

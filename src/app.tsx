@@ -31,7 +31,7 @@ import { clockDuration, runningTests } from './runtime/test-env'
 import { copyTextToClipboard } from './runtime/clipboard'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
-import { adoptMarionetteOpenRouterKey } from './runtime/keys'
+import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
 import { ensureMouth } from './runtime/mouth'
 import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
@@ -47,11 +47,15 @@ import {
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser } from './runtime/chrome'
+import { displayForMouth } from './runtime/computer'
+import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
+import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
   attachPmJob,
+  completeComputer,
   completeJob,
   completeMouth,
   hasUserMessage,
@@ -62,12 +66,15 @@ import {
   dismissFanout,
   dropLiveAgent,
   dropPendingPath,
+  failComputer,
   failJob,
   failMouth,
   noteJobStatus,
   patchLiveAgent,
   queuePaths,
   dispatchableJobs,
+  resumeComputer,
+  runningComputerWorkers,
   runningJobs,
   send,
   setActive,
@@ -75,6 +82,7 @@ import {
   stopJob,
   cancelGoal,
   retryGoal,
+  waitComputerOperator,
   waitJobExternal,
   waitJobUser,
   type Session,
@@ -300,6 +308,45 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       )
     }
   }, [store, session.jobs.map((job) => `${job.id}:${job.status}`).join('|')])
+
+  useEffect(() => {
+    if (runningTests()) return
+    for (const worker of runningComputerWorkers(session)) {
+      const agent = session.agents.find((row) => row.id === worker.ownerAgentId)
+      const keys = listOpenRouterKeys()
+      void ensureComputerWorker(
+        worker.id,
+        {
+          agentId: worker.ownerAgentId,
+          agentName: agent?.name ?? 'Worker',
+          display: worker.display,
+          goal: worker.goal,
+          kit: kitForAgent(worker.ownerAgentId),
+          role: 'worker',
+          chat: async (messages) => {
+            if (keys.length === 0) return { text: 'Need an OpenRouter key.' }
+            return chatComputerOpenRouter(messages, keys[0]!.key)
+          },
+          seams: liveComputerSeams(),
+        },
+        {
+          onComplete: (spoken, screenshotPath) => {
+            setSession((current) => completeComputer(current, worker.id, spoken, screenshotPath))
+          },
+          onFail: (spoken) => {
+            setSession((current) => failComputer(current, worker.id, spoken))
+          },
+          onOperatorHelp: (instruction) => {
+            setSession((current) => waitComputerOperator(current, worker.id, instruction))
+          },
+        },
+      )
+    }
+  }, [
+    session.computerWorkers
+      ?.map((row) => `${row.id}:${row.status}`)
+      .join('|') ?? '',
+  ])
 
   const onSend = () => {
     if (!thread || !active) return
@@ -587,7 +634,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     const agentId = session.deskHandoff?.agentId
                     setSession((current) => confirmDeskHandoff(current))
                     setDeskControl(true)
-                    if (agentId && !runningTests()) void ensureBrowser(agentId)
+                    if (agentId) {
+                      try {
+                        setHumanDriving(displayForMouth(agentId), true)
+                      } catch {
+                        /* fail open */
+                      }
+                      if (!runningTests()) void ensureBrowser(agentId)
+                    }
                   }}
                   onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
                 />
@@ -629,7 +683,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onTakeControl={() => {
                   setDeskControl((on) => {
                     const next = !on
+                    try {
+                      setHumanDriving(displayForMouth(active.id), next)
+                    } catch {
+                      /* fail open: a harness hiccup must not brick the computer */
+                    }
                     if (next && !runningTests()) void ensureBrowser(active.id)
+                    if (!next) {
+                      setSession((current) => resumeComputer(current, active.id))
+                    }
                     return next
                   })
                 }}
@@ -647,7 +709,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           name={active.name}
           left={railWidth + T.layout.railHandle}
           open={deskControl}
-          onRelease={() => setDeskControl(false)}
+          onRelease={() => {
+            setDeskControl(false)
+            try {
+              setHumanDriving(displayForMouth(active.id), false)
+            } catch {
+              /* fail open */
+            }
+            setSession((current) => resumeComputer(current, active.id))
+          }}
         />
       ) : null}
       {railDragging ? (
