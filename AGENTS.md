@@ -27,7 +27,7 @@ CI is `bun test`. There is no Python host, pytest job, or `tenant/` tree.
 instead of a bun terminal tile. `bun --hot src/main.tsx` remounts can leave a
 zombie window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a
 read-only analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
-OpenRouter mouth and its zero-call query path.
+OpenRouter mouth and its zero-call query path. `bun scripts/replay-tough-eval.ts` measures recall safety on a seeded mixed workload; it is not the 95% repeated-work replay.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
 An automaton is a cheap screen (X display plus a Chrome profile), not another
@@ -43,11 +43,14 @@ Invariants:
   that GoalRun; workers do not schedule leftover.
 - A GitHub issue or pull URL is work. A pull plus validate starts
   analyze; absorb-only stays implement-first. Explicit merge/release
-  wording is authority and does not wait for a confirm card. Binding a
-  home is not the job.
+  wording compiles the GoalRun. Do not run git/gh until the native
+  widget is answered; cancel settles the goal. Binding a home is not
+  the job.
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
-- Staff does not pixel-click. The operator takes control of the screen.
+- Staff does not pixel-click (no box_computer / box_browser). Staff may
+  own a computer worker for screenshot, host, and copy; host still asks.
+  The operator takes control of the screen.
 
 ## Safety
 
