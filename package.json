@@ -16,7 +16,8 @@
     "probe:kernel": "bun scripts/probe-kernel.ts",
     "probe:mouth": "bun scripts/probe-mouth.ts",
     "prove:durable": "bun scripts/prove-native-durable.ts",
-    "replay:repeated": "bun scripts/replay-repeated-work.ts"
+    "replay:repeated": "bun scripts/replay-repeated-work.ts",
+    "replay:tough": "bun scripts/replay-tough-eval.ts"
   },
   "dependencies": {
     "@gpuix/react": "^0.4.0",

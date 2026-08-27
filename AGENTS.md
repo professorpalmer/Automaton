@@ -27,7 +27,7 @@ CI is `bun test`. There is no Python host, pytest job, or `tenant/` tree.
 instead of a bun terminal tile. `bun --hot src/main.tsx` remounts can leave a
 zombie window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a
 read-only analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
-OpenRouter mouth and its zero-call query path.
+OpenRouter mouth and its zero-call query path. `bun scripts/replay-tough-eval.ts` measures recall safety on a seeded mixed workload; it is not the 95% repeated-work replay.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
 An automaton is a cheap screen (X display plus a Chrome profile), not another
