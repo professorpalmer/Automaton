@@ -16,6 +16,7 @@ import {
   parseJobId,
   parseLauncherPid,
   pmEnv,
+  implementPrompt,
   seedSandboxFromProduct,
   spokenFromArtifactRefs,
   substantiveSpokenFromRefs,
@@ -109,6 +110,20 @@ describe('puppetmaster spawn contract', () => {
     expect(argv[argv.indexOf('--provider') + 1]).toBe('openrouter')
     expect(argv).not.toContain('cursor')
     expect(argv).not.toContain('--no-edit')
+  })
+
+  test('issue absorb prompt lands on dest and does not tag', () => {
+    const prompt = implementPrompt({
+      id: 'job_issue',
+      ownerAgentId: 'agent_m',
+      goal: 'absorb https://github.com/professorpalmer/marionette/issues/223',
+      status: 'running',
+      kind: 'implement',
+    })
+    expect(prompt).toContain('marionette#223')
+    expect(prompt).toContain('onto dest')
+    expect(prompt).toContain('Do not merge dest into main')
+    expect(prompt).toContain('Do not tag a release')
   })
 
   test('implement run --config cwd is never the product checkout', () => {

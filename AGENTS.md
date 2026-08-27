@@ -5,7 +5,8 @@ automaton; others are created by the user or by Staff. Automata speak, then
 dispatch. The mouths are a harness for this Mac, not a chatbot about this
 checkout. Puppetmaster runs analyze and implement against the named
 product tree. Box-shell is `docker exec` on the shared computer, not a chat
-PTY. Workers never appear as chat.
+PTY. Land and ship are host git/gh jobs, not mouths. Workers never appear as
+chat.
 
 The native face is React authored and rendered through Zed GPUI using
 `@gpuix/react`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
@@ -30,7 +31,8 @@ OpenRouter mouth and its zero-call query path.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
 An automaton is a cheap screen (X display plus a Chrome profile), not another
-hypervisor. Chrome is lazy; disk stays when idle. Do not vendor exec-daemon
+hypervisor. Chrome runs on the box. This Mac must not keep a headless Google
+Chrome. Chrome is lazy; disk stays when idle. Do not vendor exec-daemon
 or noVNC. Do not bill a hosted computer-use vendor.
 
 Invariants:
@@ -38,6 +40,8 @@ Invariants:
 - Running a job is not mouth busy. Composer stays Send.
 - Fan-out to 3+ automata needs confirmation. Dismiss means no send.
 - Completion continues leftover steps from the original ask.
+- A GitHub issue or pull URL is work: absorb, then leftover land/ship
+  when the ask names them. Binding a home is not the job.
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.

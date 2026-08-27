@@ -20,6 +20,7 @@ import {
   foldAsk,
   homeAck,
   homeNote,
+  issueWorkTargets,
   isWhitelistedRunningStatus,
   jobKindForKit,
   joinAnd,
@@ -33,6 +34,7 @@ import {
   nextId,
   nextMandateJob,
   parseDeskUrl,
+  parseGithubIssue,
   remainingAsk,
   renameAck,
   renameAgents,
@@ -181,7 +183,12 @@ function priorUserText(items: FeedItem[]): string {
   return prior?.kind === 'msg' ? prior.text : ''
 }
 
-function jobGoal(text: string, prior: string, kind: 'analyze' | 'implement' | 'box-shell'): string {
+function jobGoal(
+  text: string,
+  prior: string,
+  kind: JobHandle['kind'],
+): string {
+  if (kind === 'promote' || kind === 'ship' || parseGithubIssue(text)) return text.trim()
   const goal = staffParaphrase(text)
   if (kind === 'analyze' && looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior)) {
     return `${goal} (continuing: ${staffParaphrase(prior)})`
@@ -254,8 +261,21 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
       return row ? { ...agent, name: row.name } : agent
     })
     const homes = bindHomes(text, visibleAgents(agents))
-    if (created.length > 0 || homes.length > 0 || renamed.length > 0) {
+    const issueWork = parseGithubIssue(text) != null
+    if (created.length > 0 || renamed.length > 0 || (homes.length > 0 && !issueWork)) {
       return coordinatorSetup({ ...session, agents }, text, created, homes, renamed, roster, attachmentIds)
+    }
+    if (homes.length > 0 && issueWork) {
+      return coordinatorSetup(
+        { ...session, agents },
+        text,
+        created,
+        homes,
+        renamed,
+        roster,
+        attachmentIds,
+        true,
+      )
     }
   }
   const named =
@@ -305,19 +325,40 @@ function coordinatorSetup(
   renamed: ReturnType<typeof renameAgents>,
   before: Agent[],
   attachmentIds: string[] = [],
+  continueWork = false,
 ): Session {
   const focused = session.activeAgentId
   const binds = homes.filter((row) => row.agentId !== focused)
+  const roster = visibleAgents(session.agents)
+  const targets = continueWork ? issueWorkTargets(text, roster, focused) : []
+  if (continueWork && targets.length === 0) {
+    return deliverTo(session, focused, text, focused, attachmentIds, false, text)
+  }
   let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   const spoken = [
     names.length > 0 ? `Created ${joinAnd(names)}.` : '',
     renameAck(before, renamed),
     homeAck(next.agents, binds),
+    continueWork && targets.length > 0 ? dispatchAck(text, next.agents, targets, focused) : '',
   ]
     .filter(Boolean)
     .join(' ')
   next = speak(next, focused, spoken || 'Done.', focused)
+  if (continueWork) {
+    for (const target of targets) {
+      if (target === focused) continue
+      next = appendRelay(next, focused, 'sent', target, text, focused)
+      next = append(
+        next,
+        target,
+        { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: text },
+        focused,
+      )
+      next = deliverTo(next, target, text, focused, [], false, text)
+    }
+    return wakeMouth(next, focused, 'idle')
+  }
   for (const bind of binds) {
     const note = homeNote(bind.slug)
     next = appendRelay(next, focused, 'sent', bind.agentId, note, focused)

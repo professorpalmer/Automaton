@@ -837,4 +837,89 @@ describe('teammate session', () => {
     expect(s.threads.staff.mandate).toBeUndefined()
     expect(s.threads.staff.mouth).toBe('idle')
   })
+
+  test('Staff issue drop binds then books absorb with leftover land and ship', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-issue-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_m',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'blob',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-26T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    resetIdsForTests()
+    const ask =
+      'Here is a new issue for Marionette, take it to the finish line, absorb it where relevant/validate it, merge it from dest to main so the branches are equal, and ship it when done, new release. https://github.com/professorpalmer/marionette/issues/223'
+    try {
+      let s = send(
+        {
+          agents: [...staffWithSisters(), marionette],
+          activeAgentId: 'staff',
+          threads: emptyThreads([...staffWithSisters(), marionette]),
+          jobs: [],
+          pendingFanout: null,
+        },
+        ask,
+      )
+      expect(s.jobs).toHaveLength(1)
+      expect(s.jobs[0]?.ownerAgentId).toBe('agent_m')
+      expect(s.jobs[0]?.kind).toBe('implement')
+      expect(s.jobs[0]?.goal).toContain('issues/223')
+      expect(s.threads.agent_m.mouth).toBe('working')
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(s.threads.agent_m.mandate?.text).toContain('issues/223')
+      expect(
+        s.threads.staff.items.some(
+          (item) =>
+            item.kind === 'msg' &&
+            item.from === 'agent' &&
+            item.text.includes("Marionette's home is professorpalmer/marionette") &&
+            item.text.includes('Telling Marionette'),
+        ),
+      ).toBe(true)
+      expect(pendingMouthTurns(s)).toEqual([])
+      const firstId = s.jobs[0].id
+      s = completeJob(s, firstId, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs).toHaveLength(2)
+      expect(s.jobs[1]?.kind).toBe('promote')
+      expect(s.jobs[1]?.goal).toBe('merge dest to main')
+      expect(s.threads.agent_m.mouth).toBe('working')
+      s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
+      expect(s.jobs).toHaveLength(3)
+      expect(s.jobs[2]?.kind).toBe('ship')
+      expect(s.jobs[2]?.goal).toBe('ship a new release')
+      s = completeJob(s, s.jobs[2].id, 'Shipped v0.9.360.')
+      expect(s.jobs.filter((job) => job.status === 'running')).toHaveLength(0)
+      expect(s.threads.agent_m.mandate).toBeUndefined()
+      expect(s.threads.agent_m.mouth).toBe('idle')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
 })

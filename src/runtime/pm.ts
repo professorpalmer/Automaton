@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
-import { sanitizeSpeak, type JobHandle } from '../domain'
+import { parseGithubIssue, sanitizeSpeak, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { DEFAULT_SEAT_MODEL, jobModel } from './plane'
 
@@ -222,12 +222,19 @@ export function writeAnalyzeConfig(input: {
 }
 
 export function implementPrompt(job: JobHandle): string {
+  const issue = parseGithubIssue(job.goal)
+  const absorb = issue
+    ? ` Absorb GitHub ${issue.kind} ${issue.owner}/${issue.repo}#${issue.number} onto dest. Validate against the whole stack. Do not merge dest into main. Do not tag a release.`
+    : ''
   return [
     `You are a Puppetmaster implement worker for Automaton ${job.ownerAgentId}.`,
     'You are in an isolated git sandbox, not the live Automaton checkout.',
     'Implement the request. Do not print job ids.',
+    absorb.trim(),
     `Request: ${job.goal}`,
-  ].join(' ')
+  ]
+    .filter(Boolean)
+    .join(' ')
 }
 
 export function implementInstruction(job: JobHandle): string {

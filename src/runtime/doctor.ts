@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process'
 import { boxStatus, computerLabel } from './box'
-import { chromeBinary } from './chrome'
 
 export type DoctorReport = {
   ok: boolean
@@ -24,6 +23,15 @@ function run(command: string, args: string[]): { status: number | null; text: st
   }
 }
 
+function chromeReport() {
+  const computer = boxStatus()
+  return {
+    computer,
+    chrome: (computer.running ? 'found' : 'missing') as 'found' | 'missing',
+    chromePath: computer.running ? 'box' : undefined,
+  }
+}
+
 export function doctorPuppetmaster(): DoctorReport {
   const attempts: Array<[string, string[]]> = [
     ['puppetmaster', ['doctor']],
@@ -35,26 +43,24 @@ export function doctorPuppetmaster(): DoctorReport {
     const { status, text } = run(command, args)
     last = text
     if (status === 0 && /ok\s+python/.test(text)) {
-      const bin = chromeBinary()
-      const computer = boxStatus()
+      const { computer, chrome, chromePath } = chromeReport()
       return {
         ok: true,
         python: [command, ...args].join(' '),
         puppetmaster: 'reachable',
-        chrome: bin || computer.running ? 'found' : 'missing',
-        chromePath: bin ?? undefined,
+        chrome,
+        chromePath,
         computer: computerLabel(computer),
       }
     }
   }
-  const bin = chromeBinary()
-  const computer = boxStatus()
+  const { computer, chrome, chromePath } = chromeReport()
   return {
     ok: false,
     python: 'puppetmaster | python -m puppetmaster',
     puppetmaster: 'failed',
-    chrome: bin || computer.running ? 'found' : 'missing',
-    chromePath: bin ?? undefined,
+    chrome,
+    chromePath,
     computer: computerLabel(computer),
     error: last.slice(0, 800),
   }

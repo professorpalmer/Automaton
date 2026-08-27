@@ -158,6 +158,7 @@ describe('mouth working set', () => {
     expect(prompt).toContain('Never tell the operator to ask Kernel for a VM')
     expect(prompt).toContain('already named')
     expect(prompt).toContain('do not offer to dispatch')
+    expect(prompt).toContain('A GitHub issue or pull URL is work')
     expect(prompt).toContain('Do not parrot')
     expect(prompt).toContain('Never claim you navigated Chrome')
     expect(prompt).toContain('Never explain displays')

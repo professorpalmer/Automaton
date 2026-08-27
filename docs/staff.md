@@ -55,8 +55,10 @@ assessment; it does not paint the sister's words as its own bubble.
 
 GitHub URLs bind a product home onto the named automata, and so does a
 local repo mention (`the local dugout repo` binds `~/Projects/dugout`).
-`create a new bot ... name the bot Dugout` registers Dugout on the roster
-at send time; the runtime does the provisioning, not the mouth. Bound code
+A numbered issue or pull URL is not bind-only: Staff binds, then books
+absorb on that mouth, and leftover land/ship continue from the original
+ask. `create a new bot ... name the bot Dugout` registers Dugout on the
+roster at send time; the runtime does the provisioning, not the mouth. Bound code
 work seeds from that checkout, never this Automaton tree. A note that
 names a concrete file (`surface its agents.md`) books an analyze look on
 the sister's checkout instead of a bare mouth turn.

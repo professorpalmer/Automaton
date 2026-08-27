@@ -12,7 +12,9 @@ import {
   devtoolsPath,
   ensureBrowser,
   goToUrl,
+  isAutomatonHostChromeCmd,
   readHandle,
+  sweepHostChrome,
   teardownBrowserDesktop,
   boxProfileLockRmArgv,
   type ChromeSeams,
@@ -36,6 +38,63 @@ describe('browser helper', () => {
     expect(chromeAvailable({ binary: null })).toBe(false)
     expect(chromeBinary({ binary: null })).toBeNull()
     expect(chromeMode({ binary: null })).toBe('none')
+  })
+
+  test('bun test does not resolve the Mac Chrome binary', () => {
+    expect(chromeBinary()).toBeNull()
+    expect(chromeMode()).toBe('none')
+  })
+
+  test('a down box is not host Chrome even when Chrome.app exists', () => {
+    const node = process.env.NODE_ENV
+    const bun = process.env.BUN_TEST
+    const host = process.env.AUTOMATON_CHROME_HOST
+    process.env.NODE_ENV = 'production'
+    delete process.env.BUN_TEST
+    delete process.env.AUTOMATON_CHROME_HOST
+    try {
+      expect(
+        chromeMode({
+          box: { docker: () => ({ status: 1, text: 'not running' }) },
+        }),
+      ).toBe('none')
+    } finally {
+      process.env.NODE_ENV = node
+      if (bun !== undefined) process.env.BUN_TEST = bun
+      else delete process.env.BUN_TEST
+      if (host !== undefined) process.env.AUTOMATON_CHROME_HOST = host
+      else delete process.env.AUTOMATON_CHROME_HOST
+    }
+  })
+
+  test('ensureBrowser does not spawn Mac Chrome from a test home', async () => {
+    const home = tmpHome()
+    expect(await ensureBrowser('staff', home)).toBeNull()
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('sweep kills Automaton host Chrome argv only', () => {
+    const killed: number[] = []
+    const n = sweepHostChrome({
+      ps: () =>
+        [
+          '  11 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+          '  22 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/tmp/automaton-shell-1/desktops/staff/browser --headless=new',
+          '  33 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome --user-data-dir=/Users/me/Library/Application Support/Google/Chrome',
+          '  44 Google Chrome Helper --user-data-dir=/Users/me/.automaton/desktops/kernel/browser',
+        ].join('\n'),
+      kill: (pid) => {
+        killed.push(pid)
+      },
+    })
+    expect(isAutomatonHostChromeCmd('--user-data-dir=/tmp/automaton-shell-1/desktops/staff/browser')).toBe(true)
+    expect(
+      isAutomatonHostChromeCmd(
+        '--user-data-dir=/Users/me/Library/Application Support/Google/Chrome',
+      ),
+    ).toBe(false)
+    expect(killed).toEqual([22, 44])
+    expect(n).toBe(2)
   })
 
   test('box launch is docker exec on a shared display, not a second VM', () => {

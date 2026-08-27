@@ -4,6 +4,7 @@ import { keepAliveStatus, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { type BoxSeams } from './box'
 import { runBoxShell } from './box-shell'
+import { runPromote, runShip, type LandSeams } from './land'
 import { listMachineProjects, matchMachineProject } from './machine'
 import { readProfile } from './profile'
 import {
@@ -55,6 +56,13 @@ export type DispatchSeams = {
   maxUnavailableStatusReads?: number
   box?: BoxSeams
   boxShell?: (
+    job: JobHandle,
+  ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
+  land?: LandSeams
+  promote?: (
+    job: JobHandle,
+  ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
+  ship?: (
     job: JobHandle,
   ) => { ok: boolean; spoken: string } | Promise<{ ok: boolean; spoken: string }>
 }
@@ -148,6 +156,18 @@ export async function ensureDispatched(
     }
     if (job.kind === 'box-shell') {
       const run = seams.boxShell ?? ((item) => runBoxShell(item, seams.box))
+      const result = await awaitWithStatus(Promise.resolve(run(job)), row, job, hooks, seams)
+      if (row.abandoned) return
+      if (result.ok) hooks.onComplete(result.spoken)
+      else hooks.onFail(result.spoken)
+      return
+    }
+    if (job.kind === 'promote' || job.kind === 'ship') {
+      const land = { cwd: resolveJobCwd(job), ...seams.land }
+      const run =
+        job.kind === 'promote'
+          ? (seams.promote ?? ((item) => runPromote(item, knownJobs, land)))
+          : (seams.ship ?? ((item) => runShip(item, knownJobs, land)))
       const result = await awaitWithStatus(Promise.resolve(run(job)), row, job, hooks, seams)
       if (row.abandoned) return
       if (result.ok) hooks.onComplete(result.spoken)

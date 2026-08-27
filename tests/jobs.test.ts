@@ -576,3 +576,59 @@ describe('box-shell dispatch', () => {
     expect(recorded.fail).toEqual([])
   })
 })
+
+describe('land and ship dispatch', () => {
+  beforeEach(() => {
+    resetJobsForTests()
+  })
+
+  test('promote does not spawn Puppetmaster', async () => {
+    const seen: string[] = []
+    const h = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_land',
+        ownerAgentId: 'agent_m',
+        kind: 'promote',
+        goal: 'merge dest to main',
+      }),
+      h,
+      [],
+      {
+        spawn: async (argv) => {
+          seen.push(argv.join(' '))
+          throw new Error('pm must not start')
+        },
+        promote: (item) => {
+          expect(item.kind).toBe('promote')
+          return { ok: true, spoken: 'dev and main are equal.' }
+        },
+      },
+    )
+    expect(seen).toEqual([])
+    expect(h.complete).toEqual(['dev and main are equal.'])
+    expect(h.fail).toEqual([])
+  })
+
+  test('ship fail stays off Puppetmaster', async () => {
+    const h = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_ship',
+        ownerAgentId: 'agent_m',
+        kind: 'ship',
+        goal: 'ship a new release',
+      }),
+      h,
+      [],
+      {
+        spawn: async () => {
+          throw new Error('pm must not start')
+        },
+        ship: () => ({ ok: false, spoken: 'Need a version on dest before tagging.' }),
+      },
+    )
+    expect(h.complete).toEqual([])
+    expect(h.fail).toEqual(['Need a version on dest before tagging.'])
+  })
+})

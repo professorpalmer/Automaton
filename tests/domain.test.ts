@@ -17,7 +17,11 @@ import {
     looksLikeBoxShell,
     looksLikeCodebaseAsk,
     looksLikeFileAsk,
+    looksLikeFinishLine,
+    looksLikeIssueWork,
     looksLikeJobStatusAsk,
+    looksLikePromote,
+    looksLikeShip,
     looksLikeSourceAsk,
     keepAliveStatus,
     isWhitelistedRunningStatus,
@@ -36,6 +40,8 @@ import {
   deskOpenAck,
   deskHandoffInstruction,
   parseGithubHomes,
+  parseGithubIssue,
+  issueWorkTargets,
   sanitizeDeskUrl,
   renameAgents,
   resetIdsForTests,
@@ -157,6 +163,8 @@ describe('mouth vs job', () => {
     expect(parseBoxShellIntent('install curl on the computer')).toEqual({ kind: 'install', name: 'curl' })
     expect(parseBoxShellIntent('rm -rf /')).toBeNull()
     expect(jobKindLabel('box-shell')).toBe('shell')
+    expect(jobKindLabel('promote')).toBe('land')
+    expect(jobKindLabel('ship')).toBe('ship')
   })
 
   test('leftover then/and steps book the next job kind', () => {
@@ -195,6 +203,52 @@ describe('mouth vs job', () => {
         goal: 'install curl on the computer',
       }),
     ).toBeNull()
+  })
+
+  test('a numbered GitHub issue is absorb work, not a home ping', () => {
+    const url = 'https://github.com/professorpalmer/marionette/issues/223'
+    const ask = `${url} take it to the finish line, absorb it, merge it from dest to main so the branches are equal, and ship it when done, new release.`
+    expect(parseGithubIssue(url)).toEqual({
+      owner: 'professorpalmer',
+      repo: 'marionette',
+      number: 223,
+      kind: 'issue',
+      url,
+    })
+    expect(parseGithubIssue('https://github.com/professorpalmer/marionette')).toBeNull()
+    expect(looksLikeIssueWork(ask)).toBe(true)
+    expect(looksLikeFinishLine(ask)).toBe(true)
+    expect(looksLikePromote(ask)).toBe(true)
+    expect(looksLikeShip(ask)).toBe(true)
+    expect(splitAskSteps(ask)).toEqual([
+      `absorb ${url}`,
+      'merge dest to main',
+      'ship a new release',
+    ])
+    expect(jobKindForKit('code', firstAskStep(ask))).toBe('implement')
+    expect(jobKindForKit('coordinator', firstAskStep(ask))).toBe('implement')
+    expect(jobKindForKit('lookup', firstAskStep(ask))).toBe('analyze')
+    expect(jobKindForKit('code', 'merge dest to main')).toBe('promote')
+    expect(jobKindForKit('code', 'ship a new release')).toBe('ship')
+    expect(
+      nextMandateJob('code', ask, { kind: 'implement', goal: `absorb ${url}` }),
+    ).toEqual({ kind: 'promote', text: 'merge dest to main' })
+    expect(
+      nextMandateJob('code', ask, { kind: 'promote', goal: 'merge dest to main' }),
+    ).toEqual({ kind: 'ship', text: 'ship a new release' })
+    expect(isPing(ask, staffWithSisters())).toBe(false)
+    const marionette = {
+      id: 'agent_m',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    expect(issueWorkTargets(ask, [...staffWithSisters(), marionette], 'staff')).toEqual(['agent_m'])
+    expect(
+      jobKindForKit('code', 'Can you ping Kernel, do we have any PRs or open issues?'),
+    ).toBe('analyze')
   })
 
   test('status asks are not new jobs; keepalive copy stays whitelisted', () => {
