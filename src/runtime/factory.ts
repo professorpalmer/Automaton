@@ -14,6 +14,7 @@ import {
   deleteProfile,
   ensureSeedProfiles,
   listProfileIds,
+  orderedProfileIds,
   readProfile,
   type AgentKit,
   type AgentProfile,
@@ -155,7 +156,7 @@ export function hydrateSession(session: Session, home = automatonHome()): Sessio
   const jobs = normalized.jobs.filter((job) => onDisk.has(job.ownerAgentId))
   const goals = (normalized.goals ?? []).filter((goal) => onDisk.has(goal.ownerAgentId))
   let next: Session = { ...normalized, agents, threads, jobs, goals, activeAgentId }
-  for (const id of listProfileIds(home)) {
+  for (const id of orderedProfileIds(home)) {
     const profile = readProfile(id, home)
     if (!profile) continue
     ensureDesktop(id, home)

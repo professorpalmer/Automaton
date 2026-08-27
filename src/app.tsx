@@ -51,6 +51,7 @@ import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
   attachPmJob,
+  maybeIntro,
   completeJob,
   completeMouth,
   confirmDeskHandoff,
@@ -113,7 +114,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     adoptMarionetteOpenRouterKey()
     return openStaffStore()
   }, [providedStore])
-  const [session, setSession] = useState<Session>(() => hydrateSession(store.load() ?? emptySeed()))
+  const [session, setSession] = useState<Session>(() => {
+    const hydrated = hydrateSession(store.load() ?? emptySeed())
+    return maybeIntro(hydrated, hydrated.activeAgentId)
+  })
   const [pane, setPane] = useState<Pane>('none')
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
@@ -193,11 +197,11 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
 
   useEffect(() => {
     void ensureMouth(session, store, {
-      onComplete: (agentId, spoken) => {
-        setSession((current) => completeMouth(current, agentId, spoken))
+      onComplete: (agentId, spoken, mode) => {
+        setSession((current) => completeMouth(current, agentId, spoken, mode))
       },
-      onFail: (agentId, spoken) => {
-        setSession((current) => failMouth(current, agentId, spoken))
+      onFail: (agentId, spoken, mode) => {
+        setSession((current) => failMouth(current, agentId, spoken, mode))
       },
     })
   }, [store, mouthEpoch])

@@ -1,6 +1,6 @@
 import type { AgentId } from '../domain'
 import type { Session } from '../session'
-import { pendingMouthTurns } from '../session'
+import { pendingMouthTurns, type MouthTurnMode } from '../session'
 import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from './connector-client'
 import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
@@ -13,8 +13,8 @@ export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
 export const MOUTH_MAX_TOKENS = 2048
 
 export type MouthHooks = {
-  onComplete: (agentId: AgentId, spoken: string) => void
-  onFail: (agentId: AgentId, spoken: string) => void
+  onComplete: (agentId: AgentId, spoken: string, mode?: MouthTurnMode) => void
+  onFail: (agentId: AgentId, spoken: string, mode?: MouthTurnMode) => void
 }
 
 export type MouthUsage = {
@@ -162,8 +162,49 @@ export async function ensureMouth(
     try {
       const agent = session.agents.find((item) => item.id === turn.agentId)
       if (!agent) {
-        store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'failed', false))
-        hooks.onFail(turn.agentId, "Couldn't speak.")
+        if (turn.mode !== 'intro') {
+          store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'failed', false))
+        }
+        hooks.onFail(turn.agentId, turn.mode === 'intro' ? '' : "Couldn't speak.", turn.mode)
+        continue
+      }
+      if (turn.mode === 'intro') {
+        const candidates = keys ?? listOpenRouterKeys()
+        if (candidates.length === 0) {
+          hooks.onComplete(turn.agentId, '', 'intro')
+          continue
+        }
+        model = mouthModel()
+        const messages = buildWorkingSet({
+          agent,
+          thread: session.threads[turn.agentId],
+          claims: [],
+          rules: readProfile(turn.agentId)?.rules,
+          kit: kitForAgent(turn.agentId),
+          roster: session.agents,
+          homeRepo: readProfile(turn.agentId)?.homeRepo,
+          model,
+          intro: true,
+        })
+        let spoken = ''
+        let lastError: unknown
+        for (const candidate of candidates) {
+          try {
+            inferenceAttempted = true
+            spoken = asChatResult(await chat(messages, candidate.key, model)).text
+            lastError = undefined
+            break
+          } catch (error) {
+            lastError = error
+            if (isAuthFailure(error) || isRateLimited(error)) continue
+            throw error
+          }
+        }
+        if (!spoken) {
+          hooks.onFail(turn.agentId, '', 'intro')
+          continue
+        }
+        hooks.onComplete(turn.agentId, spoken, 'intro')
         continue
       }
       const claims = turn.mode === 'assess' ? [] : store.recall(turn.userText)
@@ -172,13 +213,13 @@ export async function ensureMouth(
       const recalled = turn.mode === 'assess' || hasVision ? null : queryFirst(turn.userText, claims)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
-        hooks.onComplete(turn.agentId, recalled)
+        hooks.onComplete(turn.agentId, recalled, turn.mode)
         continue
       }
       const candidates = keys ?? listOpenRouterKeys()
       if (candidates.length === 0) {
         store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'failed', false))
-        hooks.onFail(turn.agentId, 'Need an OpenRouter key.')
+        hooks.onFail(turn.agentId, 'Need an OpenRouter key.', turn.mode)
         continue
       }
       model = mouthModel()
@@ -227,14 +268,14 @@ export async function ensureMouth(
       }
       if (!spoken) {
         store.recordReceipt(missReceipt(turn.itemId, model, unknownUsage(), 'failed', inferenceAttempted))
-        hooks.onFail(turn.agentId, mouthFailSpeak(lastError, authRejected))
+        hooks.onFail(turn.agentId, mouthFailSpeak(lastError, authRejected), turn.mode)
         continue
       }
       store.recordReceipt(missReceipt(turn.itemId, model, usage, 'complete', true))
-      hooks.onComplete(turn.agentId, spoken)
+      hooks.onComplete(turn.agentId, spoken, turn.mode)
     } catch (error) {
       store.recordReceipt(missReceipt(turn.itemId, model, unknownUsage(), 'failed', inferenceAttempted))
-      hooks.onFail(turn.agentId, mouthFailSpeak(error))
+      hooks.onFail(turn.agentId, mouthFailSpeak(error), turn.mode)
     }
   }
 }

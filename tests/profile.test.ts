@@ -24,8 +24,10 @@ describe('agent profiles', () => {
     expect(staff?.kit).toBe('coordinator')
     expect(staff?.name).toBe('Chief of Staff')
     expect(staff?.avatarShape).toBe('blob')
-    expect(readProfile('kernel', home)).toBeNull()
-    expect(readProfile('research', home)).toBeNull()
+    expect(readProfile('kernel', home)?.name).toBe('Kernel')
+    expect(readProfile('kernel', home)?.avatarShape).toBe('hex')
+    expect(readProfile('research', home)?.name).toBe('Research')
+    expect(readProfile('research', home)?.avatarShape).toBe('tablet')
     expect(kitForAgent('kernel', home)).toBe('code')
     expect(kitForAgent('research', home)).toBe('lookup')
     rmSync(home, { recursive: true, force: true })
@@ -97,7 +99,7 @@ describe('agent profiles', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  test('ensureSeedProfiles drops app-named Kernel and Research', () => {
+  test('ensureSeedProfiles keeps app-named Kernel and user-named Research', () => {
     const home = tmpHome()
     writeProfile(
       {
@@ -116,8 +118,34 @@ describe('agent profiles', () => {
       home,
     )
     ensureSeedProfiles(home)
-    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('kernel', home)?.name).toBe('Kernel')
     expect(readProfile('research', home)?.name).toBe('Research')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('existing profiles without seeds are not force-duplicated', () => {
+    const home = tmpHome()
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Chief of Staff', kit: 'coordinator', namedBy: 'app' }, 'staff'),
+        avatarShape: 'blob',
+        avatarColor: 'staff',
+      },
+      home,
+    )
+    writeProfile(
+      {
+        ...parseProfile({ name: 'Scout', kit: 'code', namedBy: 'user' }, 'agent_1'),
+        avatarShape: 'pebble',
+        avatarColor: 'cyan',
+      },
+      home,
+    )
+    ensureSeedProfiles(home)
+    expect(readProfile('staff', home)?.name).toBe('Chief of Staff')
+    expect(readProfile('agent_1', home)?.name).toBe('Scout')
+    expect(readProfile('kernel', home)).toBeNull()
+    expect(readProfile('research', home)).toBeNull()
     rmSync(home, { recursive: true, force: true })
   })
 })

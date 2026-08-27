@@ -9,6 +9,7 @@ export type MouthState =
   | 'ack'
   | 'working'
   | 'must_deliver'
+  | 'intro'
 
 export type AgentId = string
 
@@ -158,10 +159,10 @@ export const STAFF_AGENT: Agent = {
   hidden: false,
 }
 
-/** The only forced mouth. Sisters are created by the user or by Staff. */
+/** Head seat. Fresh installs also seed Kernel and Research via ensureSeedProfiles. */
 export const DEFAULT_AGENTS: Agent[] = [STAFF_AGENT]
 
-/** Named sisters for tests and leftover ids. Not seeded onto a new rail. */
+/** Named sisters for tests, leftover ids, and first-launch seeds. */
 export const SISTER_AGENTS: Agent[] = [
   {
     id: 'kernel',
@@ -191,10 +192,16 @@ export function visibleAgents(agents: Agent[]): Agent[] {
 
 /** Mouth is busy only while this agent is in a pilot turn. A PM job is not busy. */
 export function isMouthBusy(mouth: MouthState): boolean {
-  return mouth === 'must_first' || mouth === 'answer' || mouth === 'ack' || mouth === 'must_deliver'
+  return (
+    mouth === 'must_first' ||
+    mouth === 'answer' ||
+    mouth === 'ack' ||
+    mouth === 'must_deliver' ||
+    mouth === 'intro'
+  )
 }
 
-/** Composer Send stays Send while a job flies. */
+/** Composer Send stays Send while a job flies. Intro chews the mark without locking Send. */
 export function composerEnterBusy(mouth: MouthState): boolean {
   return mouth === 'must_first' || mouth === 'answer'
 }

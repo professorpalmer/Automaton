@@ -1,7 +1,7 @@
 # Automaton
 
-Named automata have their own threads. Chief of Staff is the only seeded
-automaton; others are created by the user or by Staff. Automata speak, then
+Named automata have their own threads. First launch seeds Staff, Kernel, and
+Research; the factory still creates and deletes automata. Automata speak, then
 dispatch. The mouths are a harness for this Mac, not a chatbot about this
 checkout. Puppetmaster runs analyze and implement against the named
 product tree. Box-shell is `docker exec` on the shared computer, not a chat

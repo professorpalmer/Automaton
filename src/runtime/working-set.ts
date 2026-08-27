@@ -237,6 +237,9 @@ export function queryFirst(query: string, claims: ClaimRef[]): string | null {
   return uniqueSpeakable(speakable, content)
 }
 
+export const INTRO_CUE =
+  'The user just opened your chat for the first time. Speak one or two sentences. Name yourself. Say what you do from your title and description. Do not ask how you can help. Do not list tools, jobs, or capabilities. Do not say "how can I help you."'
+
 export function buildWorkingSet(input: {
   agent: Agent
   thread: Thread
@@ -248,6 +251,7 @@ export function buildWorkingSet(input: {
   model?: string
   projects?: MachineProject[]
   attachments?: { id: string; path: string; mime: string; kind: 'image' | 'file' }[]
+  intro?: boolean
 }): ChatTurn[] {
   const messages: ChatTurn[] = [
     {
@@ -261,6 +265,10 @@ export function buildWorkingSet(input: {
       }),
     },
   ]
+  if (input.intro) {
+    messages.push({ role: 'user', content: INTRO_CUE })
+    return messages
+  }
   if (input.claims.length > 0) {
     messages.push({
       role: 'system',

@@ -3,6 +3,7 @@ import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, SISTER_AGENTS, staffWit
 import {
   buildWorkingSet,
   claimTaskKey,
+  INTRO_CUE,
   queryFirst,
   TAIL,
 } from '../src/runtime/working-set.ts'
@@ -228,5 +229,21 @@ describe('mouth working set', () => {
     expect(prompt).toContain('Your home is example/Puppetmaster.')
     expect(prompt).toContain('Do not ask for a repo path')
     expect(prompt).toContain('not Automaton')
+  })
+  test('intro working set is system plus hidden first-open cue', () => {
+    resetIdsForTests()
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread: emptyThreads(DEFAULT_AGENTS).staff,
+      claims: [{ ownerAgentId: 'staff', text: 'A stored claim.' }],
+      kit: 'coordinator',
+      intro: true,
+      projects: [],
+    })
+    expect(messages).toHaveLength(2)
+    expect(messages[0]?.role).toBe('system')
+    expect(messages[1]).toEqual({ role: 'user', content: INTRO_CUE })
+    expect(INTRO_CUE).toContain('first time')
+    expect(INTRO_CUE).toContain('Do not say "how can I help you."')
   })
 })

@@ -2,12 +2,14 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
-import { writeProfile } from '../src/runtime/profile'
+import { composerEnterBusy, emptyThreads, isMouthBusy, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { writeOpenRouterKey } from '../src/runtime/keys'
+import { ensureSeedProfiles, readProfile, writeProfile } from '../src/runtime/profile'
 import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
   attachPmJob,
+  maybeIntro,
   completeJob,
   completeMouth,
   confirmFanout,
@@ -1449,5 +1451,81 @@ describe('teammate session', () => {
     expect(s.goals?.[0]?.blocker?.source).toBe('staff')
     expect(s.threads.staff.items.filter((item) => item.kind === 'msg')).toHaveLength(staffBefore.length)
     expect(s.threads.staff.mouth).toBe('idle')
+  })
+})
+
+describe('first-open greeting', () => {
+  function isolate(): { home: string; restore: () => void } {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-intro-${Date.now()}-${Math.random()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    return {
+      home,
+      restore: () => {
+        if (prev === undefined) delete process.env.AUTOMATON_HOME
+        else process.env.AUTOMATON_HOME = prev
+        rmSync(home, { recursive: true, force: true })
+      },
+    }
+  }
+
+  test('greeting fires once and introPlayedAt sticks', () => {
+    const { home, restore } = isolate()
+    try {
+      ensureSeedProfiles(home)
+      writeOpenRouterKey('sk-or-test', home)
+      let s = maybeIntro(fresh(), 'staff')
+      expect(s.threads.staff.mouth).toBe('intro')
+      expect(isMouthBusy(s.threads.staff.mouth)).toBe(true)
+      expect(composerEnterBusy(s.threads.staff.mouth)).toBe(false)
+      expect(pendingMouthTurns(s)[0]?.mode).toBe('intro')
+      s = completeMouth(s, 'staff', 'Chief of Staff. I coordinate this computer.', 'intro')
+      const played = readProfile('staff', home)?.introPlayedAt
+      expect(played).toBeTruthy()
+      const last = s.threads.staff.items.at(-1)
+      expect(last?.kind).toBe('msg')
+      if (last?.kind === 'msg') {
+        expect(last.from).toBe('agent')
+        expect(last.text).toBe('Chief of Staff. I coordinate this computer.')
+      }
+      expect(s.threads.staff.mouth).toBe('idle')
+      s = setActive(s, 'kernel')
+      s = setActive(s, 'staff')
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(1)
+      expect(readProfile('staff', home)?.introPlayedAt).toBe(played)
+    } finally {
+      restore()
+    }
+  })
+
+  test('user send first skips intro and stamps introPlayedAt', () => {
+    const { home, restore } = isolate()
+    try {
+      ensureSeedProfiles(home)
+      writeOpenRouterKey('sk-or-test', home)
+      let s = send(fresh(), 'hello there, what is your name?')
+      expect(readProfile('staff', home)?.introPlayedAt).toBeTruthy()
+      expect(s.threads.staff.mouth).not.toBe('intro')
+      s = maybeIntro(s, 'staff')
+      expect(s.threads.staff.mouth).not.toBe('intro')
+      expect(s.threads.staff.items.some((item) => item.kind === 'msg' && item.from === 'agent' && item.text.includes('Chief of Staff'))).toBe(false)
+    } finally {
+      restore()
+    }
+  })
+
+  test('no key skips intro, stamps introPlayedAt, leaves the thread empty', () => {
+    const { home, restore } = isolate()
+    try {
+      ensureSeedProfiles(home)
+      const s = maybeIntro(fresh(), 'staff')
+      expect(s.threads.staff.mouth).toBe('idle')
+      expect(s.threads.staff.items).toHaveLength(0)
+      expect(readProfile('staff', home)?.introPlayedAt).toBeTruthy()
+    } finally {
+      restore()
+    }
   })
 })

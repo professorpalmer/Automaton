@@ -20,6 +20,7 @@ export type AgentProfile = {
   createdAt: string
   homeRepo: string
   homePath: string
+  introPlayedAt?: string | null
 }
 
 const KITS: AgentKit[] = ['coordinator', 'code', 'lookup', 'blank']
@@ -68,6 +69,10 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
     createdAt: typeof row.createdAt === 'string' ? row.createdAt : new Date().toISOString(),
     homeRepo: typeof row.homeRepo === 'string' ? row.homeRepo.trim() : '',
     homePath: typeof row.homePath === 'string' ? row.homePath.trim() : '',
+    introPlayedAt:
+      typeof row.introPlayedAt === 'string' && row.introPlayedAt.trim()
+        ? row.introPlayedAt
+        : null,
   }
 }
 
@@ -105,8 +110,6 @@ export function listProfileIds(home = automatonHome()): string[] {
   return readdirSync(root).filter((id) => existsSync(profilePath(id, home)))
 }
 
-const SEED_SISTER_IDS = ['kernel', 'research'] as const
-
 export function seedProfile(id: 'staff' | 'kernel' | 'research'): AgentProfile {
   const meta =
     id === 'staff'
@@ -128,36 +131,55 @@ export function seedProfile(id: 'staff' | 'kernel' | 'research'): AgentProfile {
     createdAt: '1970-01-01T00:00:00.000Z',
     homeRepo: '',
     homePath: '',
+    introPlayedAt: null,
   }
 }
 
-export function dropUnclaimedSeedSisters(home = automatonHome()): void {
-  for (const id of SEED_SISTER_IDS) {
-    const existing = readProfile(id, home)
-    if (!existing || existing.namedBy === 'user') continue
-    deleteProfile(id, home)
-  }
+export const SEED_AGENT_IDS = ['staff', 'kernel', 'research'] as const
+
+/** Empty agents dir: first launch. Existing profiles are left alone. */
+export function isFreshAgentHome(home = automatonHome()): boolean {
+  return listProfileIds(home).length === 0
+}
+
+export function orderedProfileIds(home = automatonHome()): string[] {
+  const ids = listProfileIds(home)
+  const seeds = SEED_AGENT_IDS.filter((id) => ids.includes(id))
+  const rest = ids.filter((id) => !SEED_AGENT_IDS.includes(id as (typeof SEED_AGENT_IDS)[number]))
+  return [...seeds, ...rest]
+}
+
+export function markIntroPlayedAt(id: string, home = automatonHome(), at = new Date().toISOString()): void {
+  const existing = readProfile(id, home)
+  if (!existing || existing.introPlayedAt) return
+  writeProfile({ ...existing, introPlayedAt: at }, home)
 }
 
 export function ensureSeedProfiles(home = automatonHome()): void {
-  dropUnclaimedSeedSisters(home)
-  const seed = seedProfile('staff')
+  const fresh = isFreshAgentHome(home)
+  const staffSeed = seedProfile('staff')
   const existing = readProfile('staff', home)
   if (!existing) {
-    writeProfile(seed, home)
-    return
+    writeProfile(staffSeed, home)
+  } else if (existing.namedBy === 'app') {
+    if (
+      existing.name !== staffSeed.name ||
+      existing.title !== staffSeed.title ||
+      existing.description !== staffSeed.description
+    ) {
+      writeProfile(
+        {
+          ...existing,
+          name: staffSeed.name,
+          title: staffSeed.title,
+          description: staffSeed.description,
+        },
+        home,
+      )
+    }
   }
-  if (existing.namedBy !== 'app') return
-  if (existing.name === seed.name && existing.title === seed.title && existing.description === seed.description) {
-    return
+  if (!fresh) return
+  for (const id of ['kernel', 'research'] as const) {
+    if (!readProfile(id, home)) writeProfile(seedProfile(id), home)
   }
-  writeProfile(
-    {
-      ...existing,
-      name: seed.name,
-      title: seed.title,
-      description: seed.description,
-    },
-    home,
-  )
 }

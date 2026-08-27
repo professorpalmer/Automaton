@@ -10,6 +10,7 @@ import {
   resetMouthForTests,
 } from '../src/runtime/mouth.ts'
 import { openStaffStore } from '../src/runtime/store.ts'
+import { INTRO_CUE } from '../src/runtime/working-set.ts'
 import { completeMouth, pendingMouthTurns, send } from '../src/session'
 
 describe('mouth sidecar', () => {
@@ -553,5 +554,50 @@ describe('mouth sidecar', () => {
       completionTokens: 3,
       costUsd: 0.001,
     })
+  })
+  test('intro turn hides the cue and does not book a job', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-intro-${Date.now()}.sqlite`))
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = {
+      ...session,
+      threads: {
+        ...session.threads,
+        staff: { ...session.threads.staff, mouth: 'intro' },
+      },
+    }
+    const turn = pendingMouthTurns(session)[0]
+    expect(turn?.mode).toBe('intro')
+    let spoken = ''
+    let seen: { role: string; content: unknown }[] = []
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async (messages) => {
+        seen = messages
+        return 'Chief of Staff. I coordinate this computer.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(spoken).toBe('Chief of Staff. I coordinate this computer.')
+    expect(seen.some((row) => row.role === 'user' && row.content === INTRO_CUE)).toBe(true)
+    expect(session.threads.staff.items).toHaveLength(0)
+    expect(session.jobs).toHaveLength(0)
+    expect(store.receipt(turn.itemId)).toBeNull()
   })
 })

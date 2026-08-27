@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import { allFrameNames } from '../scripts/bake-marks'
-import { DEFAULT_AGENTS, bindHomes, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { DEFAULT_AGENTS, bindHomes, emptyThreads, resetIdsForTests } from '../src/domain'
 import { applyHomeBinds, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, markForAgent, resolveFramePath } from '../src/runtime/factory'
 import { readProfile, writeProfile } from '../src/runtime/profile'
 import type { Session } from '../src/session'
@@ -69,33 +69,17 @@ describe('agent factory', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  test('hydrate drops app-named Kernel and Research from a saved roster', () => {
+  test('hydrate seeds Staff, Kernel, and Research on a fresh home', () => {
     resetIdsForTests()
     const home = tmpHome()
-    const next = hydrateSession(
-      {
-        agents: staffWithSisters(),
-        activeAgentId: 'kernel',
-        threads: emptyThreads(staffWithSisters()),
-        jobs: [
-          {
-            id: 'job_orphan',
-            ownerAgentId: 'kernel',
-            goal: 'stale seed job',
-            status: 'running',
-            kind: 'implement',
-          },
-        ],
-        pendingFanout: null,
-      },
-      home,
-    )
-    expect(next.agents.map((agent) => agent.id)).toEqual(['staff'])
+    const next = hydrateSession(seedSession(), home)
+    expect(next.agents.map((agent) => agent.id)).toEqual(['staff', 'kernel', 'research'])
+    expect(next.agents.find((agent) => agent.id === 'staff')?.name).toBe('Chief of Staff')
+    expect(next.agents.find((agent) => agent.id === 'kernel')?.name).toBe('Kernel')
+    expect(next.agents.find((agent) => agent.id === 'research')?.name).toBe('Research')
+    expect(next.threads.kernel).toBeTruthy()
+    expect(next.threads.research).toBeTruthy()
     expect(next.activeAgentId).toBe('staff')
-    expect(next.threads.kernel).toBeUndefined()
-    expect(next.threads.staff).toBeTruthy()
-    expect(next.jobs).toEqual([])
-    expect(next.goals).toEqual([])
     rmSync(home, { recursive: true, force: true })
   })
 

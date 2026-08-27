@@ -68,6 +68,8 @@ describe('mouth vs job', () => {
     expect(composerEnterBusy('working')).toBe(false)
     expect(composerEnterBusy('idle')).toBe(false)
     expect(composerEnterBusy('must_first')).toBe(true)
+    expect(isMouthBusy('intro')).toBe(true)
+    expect(composerEnterBusy('intro')).toBe(false)
   })
 
   test('feed thinking is mouth wait after a turn, not a job', () => {

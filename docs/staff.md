@@ -6,10 +6,12 @@ titlebar shows that mark and word, then the focused mouth (Chief of Staff
 until you switch). The window is opaque (`windowBackground: 'opaque'`) so
 clicks land on the rail and composer.
 
-Chief of Staff (`staff`) is the only seeded automaton. Other automata are
-created from chat or the factory (`New automaton`). Each named automaton has
-its own thread. The rail shows last spoken line, not a job-id chip or an
-unread count. Work goes through Chief of Staff; sisters are workers.
+First launch seeds Chief of Staff (`staff`), Kernel, and Research. Other
+automata are created from chat or the factory (`New automaton`). Factory
+create and delete stay. Each named automaton has its own thread. The rail
+shows last spoken line, not a job-id chip or an unread count. Work goes
+through Chief of Staff; sisters are workers. A new mouth greets once on
+first open (`introPlayedAt`); empty chrome is not that greeting.
 
 Staff is a harness for this Mac, like a general chat that can look at any
 checkout under `~/Projects`. Automaton is the app, not the default subject.

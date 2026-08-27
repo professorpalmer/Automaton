@@ -52,7 +52,9 @@ import {
   sessionGoals,
   visibleAgents,
 } from './domain'
-import { kitForAgent } from './runtime/profile'
+import { kitForAgent, markIntroPlayedAt, readProfile } from './runtime/profile'
+import { listOpenRouterKeys } from './runtime/keys'
+import { runningTests } from './runtime/test-env'
 
 export type Session = {
   agents: Agent[]
@@ -104,6 +106,11 @@ export function idleOrphanMouths(session: Session): Session {
   for (const id of Object.keys(session.threads)) {
     const row = next.threads[id]
     if (!row || row.mouth === 'idle' || row.mouth === 'working') continue
+    if (row.mouth === 'intro') {
+      stampIntro(id)
+      next = setThread(next, id, { mouth: 'idle' })
+      continue
+    }
     const last = row.items.at(-1)
     if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
       const name = next.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
@@ -124,7 +131,49 @@ function append(session: Session, agentId: AgentId, item: FeedItem, focused: Age
 
 export function setActive(session: Session, agentId: AgentId): Session {
   if (!session.threads[agentId]) return session
-  return setThread({ ...session, activeAgentId: agentId }, agentId, { unread: 0 })
+  const focused = setThread({ ...session, activeAgentId: agentId }, agentId, { unread: 0 })
+  return maybeIntro(focused, agentId)
+}
+
+function isolatedTestHome(): boolean {
+  return runningTests() && Boolean(process.env.AUTOMATON_HOME?.trim())
+}
+
+function stampIntro(agentId: AgentId): void {
+  if (runningTests() && !isolatedTestHome()) return
+  markIntroPlayedAt(agentId)
+}
+
+function introKeys() {
+  if (runningTests()) {
+    if (!isolatedTestHome()) return []
+    return listOpenRouterKeys({ env: {}, marionetteStatePath: '', marionettePath: '' })
+  }
+  return listOpenRouterKeys()
+}
+
+function threadHasUserMsg(session: Session, agentId: AgentId): boolean {
+  return thread(session, agentId).items.some((item) => item.kind === 'msg' && item.from === 'user')
+}
+
+/** First-open mouth greeting. Once per automaton. Not must_first. */
+export function maybeIntro(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  if (runningTests() && !isolatedTestHome()) return session
+  const row = thread(session, agentId)
+  const profile = readProfile(agentId)
+  if (!profile) return session
+  if (profile.introPlayedAt) return session
+  if (threadHasUserMsg(session, agentId)) {
+    stampIntro(agentId)
+    return session
+  }
+  if (row.mouth !== 'idle') return session
+  if (introKeys().length === 0) {
+    stampIntro(agentId)
+    return session
+  }
+  return setThread(session, agentId, { mouth: 'intro' })
 }
 
 export function setDraft(session: Session, text: string): Session {
@@ -176,7 +225,8 @@ export function addLiveAgent(session: Session, agent: Agent, focus = true): Sess
     ? session.threads
     : { ...session.threads, ...emptyThreads([agent]) }
   const steal = focus || !session.activeAgentId || !session.threads[session.activeAgentId]
-  return { ...session, agents, threads, activeAgentId: steal ? agent.id : session.activeAgentId }
+  const next = { ...session, agents, threads, activeAgentId: steal ? agent.id : session.activeAgentId }
+  return steal ? maybeIntro(next, agent.id) : next
 }
 
 export function dropLiveAgent(session: Session, agentId: AgentId): Session {
@@ -265,6 +315,12 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   if (!active || !session.threads[active]) return session
   if (!text && attachmentIds.length === 0) return session
   if (composerEnterBusy(thread(session, active).mouth)) return session
+  if (thread(session, active).mouth === 'intro') {
+    stampIntro(active)
+    session = wakeMouth(session, active, 'idle')
+  } else if (readProfile(active) && !readProfile(active)?.introPlayedAt) {
+    stampIntro(active)
+  }
 
   const roster = visibleAgents(session.agents)
   const kit = kitForAgent(active)
@@ -553,11 +609,22 @@ function ackLine(name: string): string {
   return 'Telling them.'
 }
 
+export type MouthTurnMode = 'chat' | 'assess' | 'intro'
+
 export function pendingMouthTurns(
   session: Session,
-): { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] {
-  const pending: { agentId: AgentId; userText: string; itemId: string; mode: 'chat' | 'assess' }[] = []
+): { agentId: AgentId; userText: string; itemId: string; mode: MouthTurnMode }[] {
+  const pending: { agentId: AgentId; userText: string; itemId: string; mode: MouthTurnMode }[] = []
   for (const row of Object.values(session.threads)) {
+    if (row.mouth === 'intro') {
+      pending.push({
+        agentId: row.agentId,
+        userText: '',
+        itemId: `intro:${row.agentId}`,
+        mode: 'intro',
+      })
+      continue
+    }
     if (row.mouth !== 'answer') continue
     const last = row.items.at(-1)
     if (last?.kind === 'msg' && last.from === 'user') {
@@ -577,7 +644,22 @@ export function pendingMouthTurns(
   return pending
 }
 
-export function completeMouth(session: Session, agentId: AgentId, spoken: string): Session {
+export function completeMouth(
+  session: Session,
+  agentId: AgentId,
+  spoken: string,
+  mode?: MouthTurnMode,
+): Session {
+  if (mode === 'intro' || thread(session, agentId).mouth === 'intro') {
+    if (thread(session, agentId).mouth !== 'intro') return session
+    stampIntro(agentId)
+    if (!spoken.trim()) return wakeMouth(session, agentId, 'idle')
+    const focused = session.activeAgentId
+    let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
+    next = wakeMouth(next, agentId, 'idle')
+    if (agentId === focused) next = setThread(next, agentId, { unread: 0 })
+    return next
+  }
   if (thread(session, agentId).mouth !== 'answer') return session
   const focused = session.activeAgentId
   const from = inboundCoordinatorId(session, agentId)
@@ -623,7 +705,17 @@ function coordinatorReturn(
   return wakeMouth(next, from, 'answer')
 }
 
-export function failMouth(session: Session, agentId: AgentId, spoken: string): Session {
+export function failMouth(
+  session: Session,
+  agentId: AgentId,
+  spoken: string,
+  mode?: MouthTurnMode,
+): Session {
+  if (mode === 'intro' || thread(session, agentId).mouth === 'intro') {
+    stampIntro(agentId)
+    if (thread(session, agentId).mouth !== 'intro') return session
+    return wakeMouth(session, agentId, 'idle')
+  }
   const row = thread(session, agentId)
   const last = row.items.at(-1)
   if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
