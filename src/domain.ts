@@ -128,6 +128,37 @@ export type JobHandle = {
   evidence?: string[]
 }
 
+export const WIDGET_OPTION_CAP = 6
+
+export type WidgetOptionStyle = 'default' | 'primary' | 'danger'
+
+export type WidgetOption = {
+  label: string
+  value?: string
+  description?: string
+  style?: WidgetOptionStyle
+}
+
+export type QuestionWidget = {
+  prompt: string
+  helpText?: string
+  options: WidgetOption[]
+  multiSelect?: boolean
+  allowCustom?: boolean
+  dismissOnMoveOn?: boolean
+}
+
+export type WidgetPurpose = 'ask' | 'merge' | 'ship' | 'host'
+
+export type WidgetAnswer = {
+  values: string[]
+  custom?: string
+}
+
+export type WidgetStatus = 'open' | 'answered' | 'dismissed'
+
+export type SecretRequestStatus = 'open' | 'saved' | 'dismissed'
+
 export type FeedItem =
   | {
       kind: 'msg'
@@ -140,6 +171,28 @@ export type FeedItem =
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
+  | {
+      kind: 'widget'
+      id: string
+      agentId: AgentId
+      widget: QuestionWidget
+      purpose?: WidgetPurpose
+      status: WidgetStatus
+      answer?: WidgetAnswer
+      goalId?: string
+      criterionId?: string
+      workerId?: string
+      at?: number
+    }
+  | {
+      kind: 'secret-request'
+      id: string
+      agentId: AgentId
+      connectorId: string
+      status: SecretRequestStatus
+      configured?: boolean
+      at?: number
+    }
 
 export type SteerLine = {
   text: string
@@ -1303,6 +1356,134 @@ export function shouldShowFeedClock(prev: FeedItem | null, item: FeedItem): bool
   const next = new Date(item.at)
   if (!sameCalendarDay(then, next)) return true
   return item.at - prev.at >= T.feed.clockGapMs
+}
+
+export function asWidgetOptionStyle(value: unknown): WidgetOptionStyle {
+  return value === 'primary' || value === 'danger' ? value : 'default'
+}
+
+export function clampWidgetOptions(options: WidgetOption[]): WidgetOption[] {
+  return options.slice(0, WIDGET_OPTION_CAP)
+}
+
+export function widgetOptionValue(option: WidgetOption): string {
+  const value = option.value?.trim()
+  return value || option.label
+}
+
+export function normalizeWidget(spec: QuestionWidget): QuestionWidget | null {
+  const prompt = spec.prompt.trim()
+  const options = clampWidgetOptions(
+    spec.options
+      .map((row) => ({
+        label: row.label.trim(),
+        value: row.value?.trim() || undefined,
+        description: row.description?.trim() || undefined,
+        style: asWidgetOptionStyle(row.style),
+      }))
+      .filter((row) => row.label.length > 0),
+  )
+  if (!prompt || options.length < 1) return null
+  const widget: QuestionWidget = { prompt, options }
+  if (spec.helpText?.trim()) widget.helpText = spec.helpText.trim()
+  if (spec.multiSelect) widget.multiSelect = true
+  if (spec.allowCustom) widget.allowCustom = true
+  if (spec.dismissOnMoveOn) widget.dismissOnMoveOn = true
+  return widget
+}
+
+export function widgetReplyText(_widget: QuestionWidget, answer: WidgetAnswer): string {
+  const custom = answer.custom?.trim()
+  if (custom) return custom
+  return answer.values.join(', ')
+}
+
+export function widgetDismissOnMoveOn(purpose: WidgetPurpose | undefined, requested?: boolean): boolean {
+  if (purpose === 'merge' || purpose === 'ship' || purpose === 'host') return false
+  return requested === true
+}
+
+export function isLandKind(kind: JobKind): boolean {
+  return kind === 'promote' || kind === 'ship'
+}
+
+export function landWidgetForKind(kind: JobKind): QuestionWidget {
+  if (kind === 'ship') {
+    return {
+      prompt: 'Ship a new release?',
+      options: [
+        { label: 'Ship', value: 'ship', style: 'primary' },
+        { label: 'Cancel', value: 'cancel', style: 'danger' },
+      ],
+    }
+  }
+  return {
+    prompt: 'Merge dest into main?',
+    options: [
+      { label: 'Merge', value: 'merge', style: 'primary' },
+      { label: 'Cancel', value: 'cancel', style: 'danger' },
+    ],
+  }
+}
+
+export function hostApprovalWidget(prompt = 'Run this on your Mac?'): QuestionWidget {
+  return {
+    prompt,
+    options: [
+      { label: 'Run', value: 'run', style: 'primary' },
+      { label: 'Cancel', value: 'cancel', style: 'danger' },
+    ],
+  }
+}
+
+export type MouthEmit =
+  | { kind: 'widget'; widget: QuestionWidget }
+  | { kind: 'secret-request'; connectorId: string }
+
+function stripJsonFence(text: string): string {
+  const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
+  return fenced?.[1]?.trim() ?? text
+}
+
+export function parseMouthEmit(spoken: string): MouthEmit | null {
+  const raw = stripJsonFence(spoken.trim())
+  if (!raw.startsWith('{')) return null
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const type = parsed.type
+    if (type === 'secret-request' || type === 'secret_request') {
+      const connectorId = typeof parsed.connectorId === 'string' ? parsed.connectorId.trim() : ''
+      if (!connectorId) return null
+      return { kind: 'secret-request', connectorId }
+    }
+    if (type === 'widget' || type === 'question') {
+      const optionsRaw = Array.isArray(parsed.options) ? parsed.options : []
+      const options: WidgetOption[] = optionsRaw
+        .filter((row) => row && typeof row === 'object')
+        .map((row) => {
+          const item = row as Record<string, unknown>
+          return {
+            label: typeof item.label === 'string' ? item.label : '',
+            value: typeof item.value === 'string' ? item.value : undefined,
+            description: typeof item.description === 'string' ? item.description : undefined,
+            style: asWidgetOptionStyle(item.style),
+          }
+        })
+      const widget = normalizeWidget({
+        prompt: typeof parsed.prompt === 'string' ? parsed.prompt : '',
+        helpText: typeof parsed.helpText === 'string' ? parsed.helpText : undefined,
+        options,
+        multiSelect: parsed.multiSelect === true,
+        allowCustom: parsed.allowCustom === true,
+        dismissOnMoveOn: parsed.dismissOnMoveOn === true,
+      })
+      if (!widget) return null
+      return { kind: 'widget', widget }
+    }
+  } catch {
+    return null
+  }
+  return null
 }
 
 /** Workers stay mute; mouths never speak a Puppetmaster id unless asked. */

@@ -205,6 +205,21 @@ describe('computer tool catalog', () => {
     expect(boxed).toBe(false)
     expect(denied.ok).toBe(false)
     expect(denied.needsApproval).toBe(true)
+    const approved = await executeComputerTool(
+      { name: 'host_read', args: { path: '/Users/carypalmer/Projects' } },
+      { agentId: 'staff', display: 1, holderId: 'w1', role: 'coordinator', kit: 'coordinator' },
+      {
+        hostAllowed: true,
+        boxExec: () => {
+          boxed = true
+          return { status: 0, text: 'secret' }
+        },
+      },
+    )
+    expect(boxed).toBe(false)
+    expect(approved.ok).toBe(true)
+    expect(approved.needsApproval).toBeUndefined()
+    expect(approved.spoken).toBe('Running on your Mac.')
   })
 
   test('open example.com is box_browser; password sites are operator_help', () => {
@@ -306,6 +321,23 @@ describe('computer worker loop', () => {
     expect(result.screenshotPath).toBe('shot.png')
     expect(result.rounds).toBeGreaterThan(0)
     expect(result.rounds).toBeLessThanOrEqual(COMPUTER_ROUNDS)
+  })
+
+  test('host_read parks on an approval prompt instead of looping', async () => {
+    const result = await runComputerWorker({
+      agentId: 'staff',
+      agentName: 'Chief of Staff',
+      display: 1,
+      goal: 'list ~/Projects on my Mac',
+      kit: 'coordinator',
+      role: 'coordinator',
+      maxRounds: 4,
+      chat: async () => ({ text: '', actions: [{ name: 'host_read', args: { path: '/Users/carypalmer/Projects' } }] }),
+    })
+    expect(result.ok).toBe(false)
+    expect(result.needsApproval).toBe(true)
+    expect(result.spoken).toBe(HOST_APPROVAL_PROMPT)
+    expect(result.rounds).toBe(1)
   })
 
   test('Staff role refuses pixel tools on the near side', async () => {

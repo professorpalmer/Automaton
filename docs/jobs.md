@@ -21,8 +21,8 @@ lookup phrasing, and may book implement when the line is a job and no
 sister is named. PATH, `which`, and apt-install-on-the-computer book
 `box-shell` first. A numbered GitHub issue or pull URL is Staff-owned GoalRun work on the
 bound product mouth. A pull plus validate/review starts `analyze`;
-absorb-only stays `implement`. Explicit merge/release wording books
-`promote` then `ship` without a confirm card. A GitHub URL plus a
+absorb-only stays `implement`. Explicit merge/release wording offers a native widget
+(primary merge, danger cancel). Failed GATE still does not enqueue merge. A GitHub URL plus a
 release ask never compiles absorb then ship without promote. Bare
 `tag`/`tagged` or incidental `shipping` prose is not a release. Listing
 "open issues" without a number stays analyze.

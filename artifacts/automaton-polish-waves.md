@@ -1,6 +1,6 @@
 # Automaton polish waves
 
-Wave 2 (this branch): steer-queue. Stop here.
+Wave 4 (this branch): in-chat widgets + secret-request. Stop here.
 
 Chief of Staff is the only seeded mouth. `dropUnclaimedSeedSisters` stays. Do not seed Kernel or Research. Users spin up more automata via the Chief / factory (`addLiveAgent` / New agent). GPU tweens stay size / pos / opacity / radius. No glass window. Do not touch `pm.ts`, blob bake, I2/J2, Puppetmaster, or Marionette.
 
@@ -36,9 +36,14 @@ Who-is-driving:
 
 Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Box tools go through existing `boxExec` + Chromium debug port.
 
-## 4. In-chat widgets + secret-request (slice M)
+## 4. In-chat widgets + secret-request (slice M) — THIS BRANCH
 
-Merge / promote is a **widget**, not an auto-book. Secret-request is a card, not a spoken password. Widgets are native GPUI, not agent HTML.
+Merge / promote is a **widget**, not an auto-book. Secret-request is a card, not a spoken password. Widgets are native GPUIX cards in the transcript, not agent HTML.
+
+- Question widget: prompt, optional helpText, 1–6 options, optional multiSelect / allowCustom / dismissOnMoveOn. Ends the turn. User pick returns as their reply.
+- Mouth-emitted secret-request: masked input, value goes to the connector credential file, never the transcript. Credential target id is the entire authority.
+- Promote/ship wait on Staff widget (primary merge/ship, danger cancel). Failed GATE still does not enqueue merge.
+- Host Mac tools that return an approval prompt use this widget (`Run this on your Mac?`). dismissOnMoveOn stays off for merge/host/secret.
 
 Do not add job ids to spoken lines unless the user asked.
 

@@ -34,6 +34,7 @@ export type ComputerWorkerHooks = {
   onComplete: (spoken: string, screenshotPath?: string) => void
   onFail: (spoken: string) => void
   onOperatorHelp?: (instruction: string) => void
+  onHostApproval?: (prompt: string) => void
 }
 
 export type ComputerWorkerInput = {
@@ -55,6 +56,7 @@ export type ComputerWorkerOutcome = {
   screenshotPath?: string
   rounds: number
   operatorHelp?: boolean
+  needsApproval?: boolean
 }
 
 const started = new Set<string>()
@@ -136,6 +138,16 @@ export async function runComputerWorker(input: ComputerWorkerInput): Promise<Com
           spoken = help.spoken
           break
         }
+        const approval = batch.results.find((row) => row.needsApproval && !row.refused)
+        if (approval) {
+          return {
+            ok: false,
+            spoken: approval.spoken,
+            screenshotPath: lastScreenshot(turns),
+            rounds,
+            needsApproval: true,
+          }
+        }
         if (batch.halted) {
           spoken = line
           if (batch.results.some((row) => row.refused)) {
@@ -172,6 +184,10 @@ export async function ensureComputerWorker(
     const result = await runComputerWorker(input)
     if (result.operatorHelp) {
       hooks.onOperatorHelp?.(result.spoken)
+      return
+    }
+    if (result.needsApproval) {
+      hooks.onHostApproval?.(result.spoken)
       return
     }
     if (result.ok) hooks.onComplete(result.spoken, result.screenshotPath)
