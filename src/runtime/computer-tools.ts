@@ -28,6 +28,7 @@ export type ComputerToolResult = {
   needsApproval?: boolean
   refused?: boolean
   operatorHelp?: boolean
+  action?: string
 }
 
 export const KEEP_SCREENSHOTS = 3
@@ -144,18 +145,21 @@ export function boxShellLooksLikeGui(command: string): boolean {
   )
 }
 
-export function stableComputerPrefix(input: { agentName: string; display: number; goal: string }): string {
+export function stableComputerPrefix(input: { agentName: string; display: number; goal?: string }): string {
   return [
     `You drive ${input.agentName}'s screen on the Automaton computer (DISPLAY :${input.display}).`,
     'Use box_browser for the web. Use box_computer for pixels. Use box_shell for install and PATH, never for clicks.',
     'Never type passwords. Call operator_help and wait.',
     'Do not declare the Goal complete. Return what you did.',
-    `Task: ${input.goal}`,
   ].join(' ')
 }
 
 export function prefixHasTimestamp(text: string): boolean {
   return /\b\d{4}-\d{2}-\d{2}T|\bDate\.now\b|\bunix timestamp\b/i.test(text)
+}
+
+export function prefixHasVolatile(text: string): boolean {
+  return prefixHasTimestamp(text) || /\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i.test(text)
 }
 
 export function trimScreenshots<T extends { screenshotPath?: string }>(
@@ -212,11 +216,12 @@ function hostDenied(): ComputerToolResult {
   }
 }
 
-function hostCard(): ComputerToolResult {
+function hostCard(action = ''): ComputerToolResult {
   return {
     ok: false,
     spoken: HOST_APPROVAL_PROMPT,
     needsApproval: true,
+    action: action || undefined,
   }
 }
 
@@ -245,9 +250,11 @@ export async function executeComputerTool(
   }
 
   if (call.name === 'host_read' || call.name === 'host_shell' || call.name === 'host_attach') {
+    const action =
+      asString(call.args.command) || asString(call.args.cmd) || asString(call.args.path) || call.name
     if (seams.hostAllowed === false) return hostDenied()
     if (seams.hostAllowed === true) return { ok: true, spoken: 'Running on your Mac.' }
-    return hostCard()
+    return hostCard(action)
   }
 
   if (call.name === 'box_shell') {

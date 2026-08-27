@@ -9,6 +9,7 @@ import { listSkills } from './skills'
 import { DEFAULT_SEAT_MODEL, mouthModel } from './plane'
 import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
+import { applyCompact, compactRequestMessages, COMPACT_MODEL, shouldCompact, withCacheBreakpoint } from './compact'
 import { buildWorkingSet, introFallback, queryFirst, type ChatTurn } from './working-set'
 
 export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
@@ -72,6 +73,22 @@ function retryWaitMs(): number {
 
 function unknownUsage(): MouthUsage {
   return { promptTokens: null, completionTokens: null, costUsd: null }
+}
+
+async function maybeCompactMessages(
+  messages: ChatTurn[],
+  chat: ChatFn,
+  key: string,
+): Promise<ChatTurn[]> {
+  if (!shouldCompact(messages)) return messages
+  const request = compactRequestMessages(messages)
+  if (!request) return messages
+  try {
+    const result = asChatResult(await chat(request, key, COMPACT_MODEL))
+    return applyCompact(messages, result.text)
+  } catch {
+    return messages
+  }
 }
 
 export function asChatResult(value: string | ChatResult): { text: string; usage: MouthUsage } {
@@ -207,15 +224,17 @@ export async function ensureMouth(
       if (turn.mode === 'assess') {
         messages.push({ role: 'user', content: turn.userText })
       }
+      let packed = messages
       let spoken = ''
       let usage = unknownUsage()
       let authRejected = false
       let lastError: unknown
       for (const candidate of candidates) {
+        packed = await maybeCompactMessages(packed, chat, candidate.key)
         for (let attempt = 0; attempt < 2 && !spoken; attempt += 1) {
           try {
             inferenceAttempted = true
-            const result = asChatResult(await chat(messages, candidate.key, model))
+            const result = asChatResult(await chat(packed, candidate.key, model))
             spoken = result.text
             usage = result.usage
             authRejected = false
@@ -309,7 +328,7 @@ export async function chatOpenRouter(
       method: 'POST',
       body: JSON.stringify({
         model,
-        messages,
+        messages: withCacheBreakpoint(messages),
         max_tokens: MOUTH_MAX_TOKENS,
       }),
     },

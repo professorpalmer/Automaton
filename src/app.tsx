@@ -350,15 +350,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           onOperatorHelp: (instruction) => {
             setSession((current) => waitComputerOperator(current, worker.id, instruction))
           },
-          onHostApproval: (prompt) => {
-            setSession((current) => waitComputerHost(current, worker.id, prompt))
+          onHostApproval: (prompt, action) => {
+            setSession((current) => waitComputerHost(current, worker.id, prompt, action))
           },
         },
       )
     }
   }, [
     session.computerWorkers
-      ?.map((row) => `${row.id}:${row.status}`)
+      ?.map((row) => `${row.id}:${row.status}:${row.hostAllowed === true ? '1' : '0'}`)
       .join('|') ?? '',
   ])
 
