@@ -10,6 +10,7 @@ import {
   attachPmJob,
   completeJob,
   completeMouth,
+  drainSteer,
   confirmFanout,
   dropLiveAgent,
   dropPendingPath,
@@ -33,7 +34,7 @@ import {
   runningJobs,
   type Session,
 } from '../src/session'
-import { composerEnterBusy, isMouthBusy } from '../src/domain'
+import { composerEnterBusy, isMouthBusy, shouldQueueSteer } from '../src/domain'
 
 function fresh(): Session {
   resetIdsForTests()
@@ -1540,6 +1541,124 @@ describe('first-open greeting', () => {
     s = idleOrphanMouths(s)
     expect(s.threads.staff.mouth).toBe('idle')
     expect(s.threads.staff.items).toHaveLength(0)
+  })
+})
+
+
+describe('steer-queue', () => {
+  test('Send stays Send during a live mouth turn', () => {
+    const s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(composerEnterBusy(s.threads.staff.mouth)).toBe(false)
+    expect(shouldQueueSteer(s.threads.staff.mouth)).toBe(true)
+    expect(isMouthBusy(s.threads.staff.mouth)).toBe(true)
+  })
+
+  test('mid-turn Send parks off the transcript until drain', () => {
+    let s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    s = send(s, 'also check the pin')
+    expect(s.threads.staff.mouth).toBe('answer')
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    if (users[0]?.kind === 'msg') expect(users[0].text).toBe('hello staff')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'also check the pin' }])
+    expect(s.threads.staff.draft).toBe('')
+    s = completeMouth(s, 'staff', 'The pin is grok-4.6 Extra High plus Fast.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('also check the pin')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    expect(s.threads.staff.mouth).toBe('answer')
+  })
+
+  test('failMouth also drains the parked line', () => {
+    let s = send(fresh(), 'hello staff')
+    s = send(s, 'try again')
+    s = failMouth(s, 'staff', "Couldn't reach OpenRouter.")
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(2)
+    if (users[1]?.kind === 'msg') expect(users[1].text).toBe('try again')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('empty queue is a no-op', () => {
+    const idle = fresh()
+    expect(drainSteer(idle, 'staff')).toBe(idle)
+    let s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    const before = s.threads.staff.items.length
+    s = completeMouth(s, 'staff', 'Hello.')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    expect(s.threads.staff.items.length).toBe(before + 1)
+  })
+
+  test('Stop drops a job queue and still sends the user steer', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    expect(s.threads.kernel.mouth).toBe('working')
+    const jobId = s.jobs[0]!.id
+    s = {
+      ...s,
+      threads: {
+        ...s.threads,
+        kernel: {
+          ...s.threads.kernel,
+          steerQueue: [{ text: 'do this instead' }],
+          jobSteerQueue: [{ text: 'internal leftover' }],
+        },
+      },
+    }
+    const usersBefore = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    s = stopJob(s, jobId)
+    expect(s.jobs[0]?.status).toBe('failed')
+    expect(s.threads.kernel.jobSteerQueue).toEqual([])
+    const users = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(usersBefore.length + 1)
+    if (users.at(-1)?.kind === 'msg') expect(users.at(-1).text).toBe('do this instead')
+    expect(s.threads.kernel.steerQueue).toEqual([])
+  })
+
+  test('Stop during a job does not drop a queued steer on another mouth', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    const jobId = s.jobs[0]!.id
+    s = setActive(s, 'staff')
+    s = send(s, 'what is the pin?')
+    s = send(s, 'make it shorter')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'make it shorter' }])
+    const staffUsers = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(staffUsers).toHaveLength(1)
+    s = stopJob(s, jobId)
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'make it shorter' }])
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    s = completeMouth(s, 'staff', 'The pin is grok-4.6 Extra High plus Fast.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('make it shorter')
+  })
+
+  test('computerBusy parks Send so Wave 3 can attach', () => {
+    let s = fresh()
+    s = {
+      ...s,
+      threads: { ...s.threads, staff: { ...s.threads.staff, computerBusy: true } },
+    }
+    s = send(s, 'click the login button')
+    expect(s.threads.staff.items).toHaveLength(0)
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'click the login button' }])
+    expect(composerEnterBusy(s.threads.staff.mouth, true)).toBe(false)
+    s = {
+      ...s,
+      threads: { ...s.threads, staff: { ...s.threads.staff, computerBusy: false } },
+    }
+    s = drainSteer(s, 'staff')
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    if (users[0]?.kind === 'msg') expect(users[0].text).toBe('click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([])
   })
 })
 

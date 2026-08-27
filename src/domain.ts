@@ -141,6 +141,11 @@ export type FeedItem =
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
 
+export type SteerLine = {
+  text: string
+  attachmentIds?: string[]
+}
+
 export type Thread = {
   agentId: AgentId
   items: FeedItem[]
@@ -148,6 +153,12 @@ export type Thread = {
   pendingPaths: string[]
   mouth: MouthState
   unread: number
+  /** Off-transcript user words. Not in items until drain. Survives Stop. */
+  steerQueue: SteerLine[]
+  /** Job/delegation park. Dropped on Stop. Computer-use can attach later. */
+  jobSteerQueue: SteerLine[]
+  /** Wave 3 computer-use sets this so Send queues instead of locking. */
+  computerBusy?: boolean
 }
 
 export const STAFF_AGENT: Agent = {
@@ -201,14 +212,19 @@ export function isMouthBusy(mouth: MouthState): boolean {
   )
 }
 
-/** Composer Send stays Send while a job flies. Intro does not steal Enter. */
-export function composerEnterBusy(mouth: MouthState): boolean {
-  return mouth === 'must_first' || mouth === 'answer'
+/** Mid-turn Send parks on the steer queue. Mouth and computer-use keep Send live. */
+export function shouldQueueSteer(mouth: MouthState, computerBusy = false): boolean {
+  return computerBusy || mouth === 'must_first' || mouth === 'answer'
+}
+
+/** Composer Send stays Send during jobs, mouth, intro, and computer-use. */
+export function composerEnterBusy(_mouth: MouthState, _computerBusy = false): boolean {
+  return false
 }
 
 /** Ephemeral feed wait. Not a persisted item. Jobs use the strip, not this. */
 export function feedThinking(mouth: MouthState, items: FeedItem[]): boolean {
-  return composerEnterBusy(mouth) && items.length > 0
+  return (mouth === 'must_first' || mouth === 'answer') && items.length > 0
 }
 
 export function thinkingDots(step: number): string {
@@ -1224,6 +1240,8 @@ export function emptyThreads(agents: Agent[]): Record<AgentId, Thread> {
       pendingPaths: [],
       mouth: 'idle',
       unread: 0,
+      steerQueue: [],
+      jobSteerQueue: [],
     }
   }
   return threads
