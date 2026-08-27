@@ -62,8 +62,9 @@ const TERMINAL = new Set(['complete', 'failed', 'stalled', 'cancelled'])
 export type PmBin = { command: string; prefix: string[] }
 
 export type StatusSnap = {
-  job?: { id?: string; status?: string }
+  job?: { id?: string; status?: string; error?: string }
   delivery?: { successful?: boolean }
+  error?: string
 }
 
 export function parseJobId(text: string): string | null {

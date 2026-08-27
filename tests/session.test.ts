@@ -24,6 +24,9 @@ import {
   setDraft,
   stopJob,
   waitJobExternal,
+  waitJobUser,
+  retryGoal,
+  cancelGoal,
   dispatchableJobs,
   runningJobs,
   type Session,
@@ -1364,5 +1367,87 @@ describe('teammate session', () => {
     expect(s.jobs.some((job) => job.goalId === firstId && job.goal.toLowerCase().includes('python'))).toBe(true)
     expect(s.goals?.find((row) => row.id === secondId)?.criteria[0]?.status).toBe('running')
     expect(s.jobs.some((job) => job.goalId === secondId && job.status === 'running')).toBe(true)
+  })
+
+  test('waiting_user parks the job, retry books a fresh job, cancel settles without dispatch', () => {
+    let s = send(fresh(), 'install curl on the computer then check if python is on PATH')
+    const firstId = s.jobs[0]?.id
+    const goalId = s.goals?.[0]?.id
+    const criterionId = s.goals?.[0]?.criteria[0]?.id
+    expect(firstId && goalId && criterionId).toBeTruthy()
+    const staffBefore = s.threads.staff.items.filter((item) => item.kind === 'msg')
+    s = waitJobUser(s, firstId!, 'Need a product checkout to land dest.')
+    expect(s.jobs[0]?.status).toBe('waiting')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.goals?.[0]?.status).toBe('waiting_user')
+    expect(s.goals?.[0]?.criteria[0]?.status).toBe('blocked')
+    expect(s.goals?.[0]?.blocker?.reason).toContain('Need a product checkout')
+    expect(s.goals?.[0]?.blocker?.criterionId).toBe(criterionId)
+    expect(s.goals?.[0]?.blocker?.source).toBe('staff')
+    expect(runningJobs(s)).toEqual([])
+    expect(dispatchableJobs(s)).toEqual([])
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg')).toHaveLength(staffBefore.length)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && /blocked|\?/.test(item.text),
+      ),
+    ).toBe(false)
+
+    const retried = retryGoal(s, goalId!)
+    expect(retried.goals?.[0]?.status).toBe('running')
+    expect(retried.goals?.[0]?.blocker).toBeUndefined()
+    expect(retried.goals?.[0]?.criteria[0]?.status).toBe('running')
+    expect(retried.jobs).toHaveLength(2)
+    expect(retried.jobs[0]?.status).toBe('failed')
+    expect(retried.jobs.some((row) => row.status === 'waiting')).toBe(false)
+    expect(retried.jobs[1]?.id).not.toBe(firstId)
+    expect(retried.jobs[1]?.status).toBe('running')
+    expect(retried.jobs[1]?.criterionId).toBe(criterionId)
+    expect(retried.jobs[1]?.goalId).toBe(goalId)
+    expect(dispatchableJobs(retried).map((job) => job.id)).toEqual([retried.jobs[1]!.id])
+    expect(retried.jobs.some((job) => job.goal.toLowerCase().includes('python'))).toBe(false)
+
+    const cancelled = cancelGoal(s, goalId!)
+    expect(cancelled.goals?.[0]?.status).toBe('cancelled')
+    expect(cancelled.goals?.[0]?.blocker).toBeUndefined()
+    expect(cancelled.jobs[0]?.status).toBe('failed')
+    expect(cancelled.jobs).toHaveLength(1)
+    expect(dispatchableJobs(cancelled)).toEqual([])
+    expect(cancelled.jobs.some((job) => job.goal.toLowerCase().includes('python'))).toBe(false)
+  })
+
+  test('waitJobUser rejects complete or cancelled goals before parking the job', () => {
+    let s = send(fresh(), 'install curl on the computer')
+    const jobId = s.jobs[0]?.id
+    expect(jobId).toBeTruthy()
+    const complete = {
+      ...s,
+      goals: s.goals?.map((goal) => ({ ...goal, status: 'complete' as const })),
+    }
+    const afterComplete = waitJobUser(complete, jobId!, 'Need an OpenRouter key.', 'staff')
+    expect(afterComplete.jobs[0]?.status).toBe('running')
+    expect(afterComplete.goals?.[0]?.status).toBe('complete')
+    expect(afterComplete.goals?.[0]?.blocker).toBeUndefined()
+
+    const cancelled = {
+      ...s,
+      goals: s.goals?.map((goal) => ({ ...goal, status: 'cancelled' as const })),
+    }
+    const afterCancel = waitJobUser(cancelled, jobId!, 'Need an OpenRouter key.', 'staff')
+    expect(afterCancel.jobs[0]?.status).toBe('running')
+    expect(afterCancel.goals?.[0]?.status).toBe('cancelled')
+    expect(afterCancel.goals?.[0]?.blocker).toBeUndefined()
+  })
+
+  test('missing OpenRouter key parks the GoalRun without speaking', () => {
+    let s = send(fresh(), 'install curl on the computer')
+    const staffBefore = s.threads.staff.items.filter((item) => item.kind === 'msg')
+    s = waitJobUser(s, s.jobs[0]!.id, 'Need an OpenRouter key.', 'staff')
+    expect(s.jobs[0]?.status).toBe('waiting')
+    expect(s.goals?.[0]?.status).toBe('waiting_user')
+    expect(s.goals?.[0]?.blocker?.reason).toBe('Need an OpenRouter key.')
+    expect(s.goals?.[0]?.blocker?.source).toBe('staff')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg')).toHaveLength(staffBefore.length)
+    expect(s.threads.staff.mouth).toBe('idle')
   })
 })

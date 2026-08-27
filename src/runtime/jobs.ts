@@ -1,10 +1,16 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { WAITING_CHECKS, keepAliveStatus, type JobHandle } from '../domain'
+import {
+  WAITING_CHECKS,
+  boundGoalEvidence,
+  keepAliveStatus,
+  type GoalBlockerSource,
+  type JobHandle,
+} from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { type BoxSeams } from './box'
 import { runBoxShell } from './box-shell'
-import { runPromote, runShip, type HostResult, type LandSeams } from './land'
+import { isDefinitiveAuthDenial, runPromote, runShip, type HostResult, type LandSeams } from './land'
 import { listMachineProjects, matchMachineProject } from './machine'
 import { readProfile } from './profile'
 import {
@@ -35,6 +41,7 @@ export type DispatchHooks = {
   onComplete: (spoken: string) => void
   onFail: (spoken: string) => void
   onWaitingExternal?: (spoken: string) => void
+  onWaitingUser?: (spoken: string, source: GoalBlockerSource) => void
 }
 
 export type AnalyzeReuseHit = {
@@ -162,7 +169,7 @@ export async function ensureDispatched(
       return
     }
     if (job.kind === 'promote' || job.kind === 'ship') {
-      const land = { cwd: resolveJobCwd(job), ...seams.land }
+      const land = { cwd: resolveBoundProductCwd(job), ...seams.land }
       const run =
         job.kind === 'promote'
           ? (seams.promote ?? ((item) => runPromote(item, knownJobs, land)))
@@ -190,7 +197,8 @@ export async function ensureDispatched(
       launchKey: job.id,
     })
     if (!seams.spawn && listOpenRouterKeys().length === 0) {
-      hooks.onFail('Need an OpenRouter key.')
+      if (hooks.onWaitingUser) hooks.onWaitingUser('Need an OpenRouter key.', 'staff')
+      else hooks.onFail('Need an OpenRouter key.')
       return
     }
     const spawned = seams.spawn ? await seams.spawn(argv) : await spawnFresh(argv, row)
@@ -202,9 +210,11 @@ export async function ensureDispatched(
     await watchUntilTerminal(spawned.pmJobId, row, statusOf, seams, hooks, job)
     if (row.abandoned) return
     deliverTerminal(spawned.pmJobId, hooks, statusOf, refsOf)
-  } catch {
+  } catch (error) {
     if (row.abandoned) return
-    hooks.onFail("Couldn't start.")
+    const auth = pmAuthDenialSpoken(error)
+    if (auth && hooks.onWaitingUser) hooks.onWaitingUser(auth, 'job')
+    else hooks.onFail("Couldn't start.")
   } finally {
     inflight.delete(job.id)
     started.delete(job.id)
@@ -229,21 +239,32 @@ export function implementSeedRoot(
   return fallback
 }
 
+/** Bound checkout only. Never Automaton-as-fallback. Host land waits when this is empty. */
+export function resolveBoundProductCwd(
+  job: JobHandle,
+  home = automatonHome(),
+  projects = listMachineProjects(),
+): string | undefined {
+  const hit = matchMachineProject(job.goal, projects)
+  if (hit) return hit.path
+  const profile = readProfile(job.ownerAgentId, home)
+  const path = profile?.homePath?.trim()
+  if (path && existsSync(join(path, '.git'))) return path
+  const ownerHint = [profile?.name, profile?.homeRepo, profile?.title].filter(Boolean).join(' ')
+  if (ownerHint) {
+    const byOwner = matchMachineProject(ownerHint, projects)
+    if (byOwner) return byOwner.path
+  }
+  return undefined
+}
+
 export function resolveJobCwd(
   job: JobHandle,
   fallback = PRODUCT_ROOT,
   home = automatonHome(),
   projects = listMachineProjects(),
 ): string {
-  const hit = matchMachineProject(job.goal, projects)
-  if (hit) return hit.path
-  const profile = readProfile(job.ownerAgentId, home)
-  const ownerHint = [profile?.name, profile?.homeRepo, profile?.title].filter(Boolean).join(' ')
-  if (ownerHint) {
-    const byOwner = matchMachineProject(ownerHint, projects)
-    if (byOwner) return byOwner.path
-  }
-  return implementSeedRoot(job.ownerAgentId, fallback, home)
+  return resolveBoundProductCwd(job, home, projects) ?? implementSeedRoot(job.ownerAgentId, fallback, home)
 }
 
 function writeImplementLaunch(job: JobHandle): { configPath: string; goalPath: string } {
@@ -296,6 +317,12 @@ async function runHostLand(
   for (;;) {
     const result = await awaitWithStatus(Promise.resolve(run(current)), row, current, hooks, seams)
     if (row.abandoned) return
+    if (result.waitingUser) {
+      const source = result.source ?? 'staff'
+      if (hooks.onWaitingUser) hooks.onWaitingUser(result.spoken, source)
+      else hooks.onFail(result.spoken)
+      return
+    }
     if (result.waitingExternal) {
       hooks.onWaitingExternal?.(result.spoken)
       if (!notedWait) {
@@ -376,6 +403,25 @@ async function watchUntilTerminal(
   }
 }
 
+function spokenAuthLine(parts: string[]): string | null {
+  const text = parts.join('\n')
+  if (!isDefinitiveAuthDenial(text)) return null
+  const line = parts
+    .flatMap((part) => part.split('\n'))
+    .map((row) => row.trim())
+    .find((row) => row.length > 0 && row.length < 180 && isDefinitiveAuthDenial(row))
+  return boundGoalEvidence(line || 'Authentication or authorization was denied.')
+}
+
+/** Puppetmaster: thrown Error or status error fields only. Never refs, FINDINGs, or JSON blobs. */
+function pmAuthDenialSpoken(error?: unknown, snap?: StatusSnap): string | null {
+  const parts: string[] = []
+  if (error instanceof Error) parts.push(error.message)
+  if (typeof snap?.job?.error === 'string') parts.push(snap.job.error)
+  if (typeof snap?.error === 'string') parts.push(snap.error)
+  return spokenAuthLine(parts)
+}
+
 function deliverTerminal(
   pmJobId: string,
   hooks: DispatchHooks,
@@ -385,17 +431,27 @@ function deliverTerminal(
   let snap: StatusSnap
   try {
     snap = statusOf(pmJobId)
-  } catch {
-    hooks.onFail("Didn't land.")
+  } catch (error) {
+    const auth = pmAuthDenialSpoken(error)
+    if (auth && hooks.onWaitingUser) hooks.onWaitingUser(auth, 'job')
+    else hooks.onFail("Didn't land.")
     return
   }
+  let refs: unknown = null
+  try {
+    refs = refsOf(pmJobId)
+  } catch {
+    refs = null
+  }
   if (jobOutcome(snap) !== 'complete') {
-    hooks.onFail("Didn't land.")
+    const auth = pmAuthDenialSpoken(undefined, snap)
+    if (auth && hooks.onWaitingUser) hooks.onWaitingUser(auth, 'job')
+    else hooks.onFail("Didn't land.")
     return
   }
   let spoken: string | null
   try {
-    spoken = substantiveSpokenFromRefs(refsOf(pmJobId))
+    spoken = substantiveSpokenFromRefs(refs)
   } catch {
     spoken = null
   }

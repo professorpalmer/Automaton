@@ -29,13 +29,16 @@ release ask never compiles absorb then ship without promote. Bare
 
 Analyze runs read-only against the named checkout on this Mac
 (`~/Projects/Puppetmaster` when they asked about Puppetmaster). Bound
-`homePath` is next. This Automaton tree is last, and only when nothing
-else matched. Implement copies the chosen git tree into an isolated
-sandbox under `~/.automaton/sandboxes/`. It never writes the live
-Automaton checkout. Box-shell never calls Puppetmaster. Promote and ship
-run `git`/`gh` on the same-goal implement sandbox, or the bound checkout
-when that GoalRun is merge-only. They never force-push.
-Ship does not bump a version; it fails closed without one.
+`homePath` is next. This Automaton tree is last for analyze and
+implement, and only when nothing else matched. Implement copies the
+chosen git tree into an isolated sandbox under
+`~/.automaton/sandboxes/`. It never writes the live Automaton checkout.
+Box-shell never calls Puppetmaster. Promote and ship run `git`/`gh` on
+the same-goal implement sandbox, or a bound checkout: a named machine
+project, an existing `homePath` git tree, or an owner-hint match. They
+never inherit this Automaton tree. Unbound host land waits before any
+`git`/`gh`. They never force-push. Ship does not bump a version; it
+fails closed without one.
 
 Bind a GitHub home from Staff (`Point Kernel at https://github.com/…`).
 `homePath` is a local clone under `~/Projects/<repo>` when that checkout
@@ -46,8 +49,18 @@ exists. The runtime does not clone for you.
 A flying job is not mouth busy. Send stays Send. Staff owns the GoalRun.
 A worker terminal reconciles that criterion; success books the next unmet
 step on the same product mouth; a terminal fail does not book downstream
-and Staff speaks one blocker. Staff assesses a sister only after every
-criterion is met. Concurrent GoalRuns persist on the session snapshot.
+and Staff speaks one blocker. Missing product checkout, binding, or
+OpenRouter key, and concrete GitHub or Puppetmaster auth denial
+(`Unauthorized`, `authentication failed`, `HTTP 401`/`403`,
+`gh auth login`), park the job as `waiting` and the GoalRun as
+`waiting_user`. Generic `permission denied` stays failed. Those jobs
+are not dispatchable. Retry settles the parked job, then books a fresh
+id for the same criterion. Cancel settles the goal and the parked job
+without dispatch. Pending
+required checks stay `waiting_external` on the same running job. Generic
+worker, test, or merge failures stay failed. Staff assesses a sister only
+after every criterion is met. Concurrent GoalRuns persist on the session
+snapshot. The blocker panel is Staff chrome, not a chat message.
 While a job flies, the strip may show `Still running.` A status ask
 restates that line and does not start a new mouth turn. Jobs do not
 pixel-click the shared computer. Take control is the operator on that

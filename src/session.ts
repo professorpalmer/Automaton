@@ -3,6 +3,7 @@ import {
   type AgentId,
   type DeskHandoff,
   type FeedItem,
+  type GoalBlockerSource,
   type GoalCriterion,
   type GoalCriterionDraft,
   type GoalReceipt,
@@ -12,6 +13,7 @@ import {
   type Thread,
   assessAsk,
   bindHomes,
+  boundGoalEvidence,
   composerEnterBusy,
   createAgentNames,
   criteriaFromAsk,
@@ -27,6 +29,7 @@ import {
   goalLaunchContext,
   homeAck,
   homeNote,
+  hydrateGoalBlocker,
   issueWorkTargets,
   isWhitelistedRunningStatus,
   jobKindForKit,
@@ -75,7 +78,10 @@ export function normalizeSession(session: Session): Session {
     ...session,
     threads,
     jobs: Array.isArray(session.jobs) ? session.jobs : [],
-    goals: sessionGoals(session.goals),
+    goals: sessionGoals(session.goals).map((goal) => {
+      const blocker = hydrateGoalBlocker(goal.blocker)
+      return blocker ? { ...goal, blocker } : goal
+    }),
   }
 }
 
@@ -732,6 +738,88 @@ export function waitJobExternal(session: Session, jobId: string): Session {
   if (!goal || goal.status === 'waiting_external') return session
   if (goal.status !== 'running' && goal.status !== 'planning') return session
   return putGoal(session, { ...goal, status: 'waiting_external' })
+}
+
+/** Park a running job. Criterion stays unmet. Staff owns the blocker, not the feed. */
+export function waitJobUser(
+  session: Session,
+  jobId: string,
+  spoken: string,
+  source: GoalBlockerSource = 'staff',
+): Session {
+  const job = session.jobs.find((item) => item.id === jobId)
+  if (!job || job.status !== 'running') return session
+  const goal = matchingGoal(session, job)
+  const criterion = goal ? matchingCriterion(goal, job) : undefined
+  if (!goal || !criterion) return session
+  if (goal.status === 'complete' || goal.status === 'cancelled') return session
+  let next: Session = {
+    ...session,
+    jobs: session.jobs.map((item) =>
+      item.id === jobId ? { ...item, status: 'waiting' as const } : item,
+    ),
+  }
+  next = wakeMouth(next, job.ownerAgentId, 'idle')
+  const waiting: GoalRun = {
+    ...markCriterion(goal, criterion.id, 'blocked'),
+    status: 'waiting_user',
+    activeCriterionId: criterion.id,
+    blocker: {
+      reason: boundGoalEvidence(spoken),
+      criterionId: criterion.id,
+      jobId: job.id,
+      at: Date.now(),
+      source,
+    },
+  }
+  return putGoal(next, waiting)
+}
+
+/** User repaired the condition. Clear the blocker and book a fresh job for that criterion. */
+export function retryGoal(session: Session, goalId: string): Session {
+  const goal = sessionGoals(session.goals).find((row) => row.id === goalId)
+  if (!goal || goal.status !== 'waiting_user' || !goal.blocker) return session
+  const criterion = goal.criteria.find((row) => row.id === goal.blocker?.criterionId)
+  if (!criterion) return session
+  const prior = priorUserText(thread(session, goal.ownerAgentId).items)
+  const running: GoalRun = {
+    ...markCriterion(goal, criterion.id, 'running'),
+    status: 'running',
+    activeCriterionId: criterion.id,
+  }
+  delete running.blocker
+  let next: Session = {
+    ...session,
+    jobs: session.jobs.map((item) =>
+      item.goalId === goalId && item.status === 'waiting' ? { ...item, status: 'failed' as const } : item,
+    ),
+  }
+  next = putGoal(next, running)
+  next = { ...next, jobs: [...next.jobs, criterionJob(running, criterion, prior)] }
+  return wakeMouth(next, running.ownerAgentId, 'working')
+}
+
+/** Settle the goal and its open jobs. Does not book or dispatch. */
+export function cancelGoal(session: Session, goalId: string): Session {
+  const goal = sessionGoals(session.goals).find((row) => row.id === goalId)
+  if (!goal) return session
+  if (goal.status === 'complete' || goal.status === 'cancelled') return session
+  const cancelled: GoalRun = {
+    ...goal,
+    status: 'cancelled',
+    activeCriterionId: undefined,
+  }
+  delete cancelled.blocker
+  let next: Session = {
+    ...session,
+    jobs: session.jobs.map((item) =>
+      item.goalId === goalId && (item.status === 'running' || item.status === 'waiting')
+        ? { ...item, status: 'failed' as const }
+        : item,
+    ),
+  }
+  next = putGoal(next, cancelled)
+  return wakeMouth(next, goal.ownerAgentId, 'idle')
 }
 
 export function completeJob(session: Session, jobId: string, spoken = 'Done.'): Session {
