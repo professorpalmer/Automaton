@@ -7,15 +7,21 @@ import { writeProfile } from '../src/runtime/profile'
 import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
+  answerWidget,
   attachPmJob,
+  bookComputer,
+  completeComputer,
   completeJob,
   completeMouth,
+  drainSteer,
   confirmFanout,
   dropLiveAgent,
   dropPendingPath,
   failJob,
   failMouth,
+  hasUserMessage,
   idleOrphanMouths,
+  maybeIntro,
   noteJobStatus,
   pendingMouthTurns,
   queuePaths,
@@ -23,14 +29,18 @@ import {
   setActive,
   setDraft,
   stopJob,
+  waitComputerOperator,
   waitJobExternal,
   waitJobUser,
   retryGoal,
   cancelGoal,
   dispatchableJobs,
+  resumeComputer,
+  runningComputerWorkers,
   runningJobs,
   type Session,
 } from '../src/session'
+import { composerEnterBusy, isMouthBusy, shouldQueueSteer } from '../src/domain'
 
 function fresh(): Session {
   resetIdsForTests()
@@ -42,6 +52,16 @@ function fresh(): Session {
     jobs: [],
     pendingFanout: null,
   }
+}
+
+function openWidget(session: Session, agentId = 'staff') {
+  return session.threads[agentId]?.items.find((item) => item.kind === 'widget' && item.status === 'open')
+}
+
+function confirmLand(session: Session, value: 'merge' | 'ship', agentId = 'staff'): Session {
+  const widget = openWidget(session, agentId)
+  if (!widget || widget.kind !== 'widget') return session
+  return answerWidget(session, widget.id, { values: [value] })
 }
 
 describe('teammate session', () => {
@@ -921,12 +941,16 @@ describe('teammate session', () => {
       expect(pendingMouthTurns(s)).toEqual([])
       const firstId = s.jobs[0].id
       s = completeJob(s, firstId, 'Scope labels now match the data they aggregate.')
-      expect(s.jobs).toHaveLength(2)
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('merge')
+      s = confirmLand(s, 'merge')
       expect(s.jobs[1]?.kind).toBe('promote')
       expect(s.jobs[1]?.goal).toBe('merge dest to main')
       expect(s.threads.agent_m.mouth).toBe('working')
       s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
-      expect(s.jobs).toHaveLength(3)
+      expect(s.jobs.some((job) => job.kind === 'ship' && job.status === 'running')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[2]?.kind).toBe('ship')
       expect(s.jobs[2]?.goal).toBe('ship a new release')
       s = completeJob(s, s.jobs[2].id, 'Shipped v0.9.360.')
@@ -1010,9 +1034,15 @@ describe('teammate session', () => {
       expect(s.jobs[1]?.evidence?.some((row) => row.includes('green'))).toBe(true)
       expect(s.threads.staff.mouth).toBe('idle')
       s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(openWidget(s)?.purpose).toBe('merge')
+      expect(s.threads.staff.mouth).toBe('idle')
+      s = confirmLand(s, 'merge')
       expect(s.jobs[2]?.kind).toBe('promote')
       expect(s.threads.staff.mouth).toBe('idle')
       s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[3]?.kind).toBe('ship')
       s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
       expect(s.goals?.[0]?.status).toBe('complete')
@@ -1077,6 +1107,7 @@ describe('teammate session', () => {
       s = failJob(s, s.jobs[1].id, "Didn't land.")
       expect(s.jobs).toHaveLength(2)
       expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      expect(s.threads.staff.items.some((item) => item.kind === 'widget')).toBe(false)
       expect(s.goals?.[0]?.status).toBe('failed')
       expect(s.threads.staff.mouth).toBe('idle')
       expect(
@@ -1144,6 +1175,8 @@ describe('teammate session', () => {
       )
       s = completeJob(s, s.jobs[0].id, 'dest checks are green.')
       s = completeJob(s, s.jobs[1].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      s = confirmLand(s, 'merge')
       expect(s.jobs[2]?.kind).toBe('promote')
       const staffBefore = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
       s = waitJobExternal(s, s.jobs[2].id)
@@ -1162,7 +1195,9 @@ describe('teammate session', () => {
       const failed = failJob(s, s.jobs[2].id, "Couldn't merge dest into main.")
       expect(failed.goals?.[0]?.status).toBe('failed')
       s = completeJob(s, s.jobs[2].id, 'dev and main are equal.')
-      expect(s.goals?.[0]?.status).toBe('running')
+      expect(s.goals?.[0]?.status).toBe('waiting_user')
+      expect(openWidget(s)?.purpose).toBe('ship')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[3]?.kind).toBe('ship')
       s = completeJob(s, s.jobs[3].id, 'Shipped v0.9.360.')
       expect(s.goals?.[0]?.status).toBe('complete')
@@ -1231,8 +1266,11 @@ describe('teammate session', () => {
       expect(s.goals?.[0]?.criteria.map((row) => row.kind)).toEqual(['implement', 'promote', 'ship'])
       expect(s.jobs[0]?.kind).toBe('implement')
       s = completeJob(s, s.jobs[0].id, 'Scope labels now match the data they aggregate.')
+      expect(s.jobs.some((job) => job.kind === 'promote')).toBe(false)
+      s = confirmLand(s, 'merge')
       expect(s.jobs[1]?.kind).toBe('promote')
       s = completeJob(s, s.jobs[1].id, 'dev and main are equal.')
+      s = confirmLand(s, 'ship')
       expect(s.jobs[2]?.kind).toBe('ship')
     } finally {
       if (prev === undefined) delete process.env.AUTOMATON_HOME
@@ -1451,3 +1489,289 @@ describe('teammate session', () => {
     expect(s.threads.staff.mouth).toBe('idle')
   })
 })
+
+describe('first-open greeting', () => {
+  test('maybeIntro fires once, sticks after complete, and Send stays Send', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    expect(isMouthBusy('intro')).toBe(true)
+    expect(composerEnterBusy('intro')).toBe(false)
+    expect(pendingMouthTurns(s)[0]?.mode).toBe('intro')
+    expect(pendingMouthTurns(s)[0]?.agentId).toBe('staff')
+    s = completeMouth(s, 'staff', 'Chief of Staff. I coordinate this computer.')
+    expect(s.threads.staff.mouth).toBe('idle')
+    const greetings = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
+    expect(greetings).toHaveLength(1)
+    if (greetings[0]?.kind === 'msg') {
+      expect(greetings[0].text).toContain('Chief of Staff')
+    }
+    const replay = maybeIntro(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(replay.threads.staff.items).toHaveLength(1)
+    expect(replay.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(replay)).toEqual([])
+  })
+
+  test('setActive and focused factory create start intro; unfocused create waits', () => {
+    let s = setActive(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    s = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    const bot = {
+      id: 'agent_1',
+      name: 'New automaton',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    s = addLiveAgent(s, bot, false, null)
+    expect(s.activeAgentId).toBe('staff')
+    expect(s.threads.agent_1.mouth).toBe('idle')
+    expect(s.threads.agent_1.items).toHaveLength(0)
+    s = addLiveAgent(s, { ...bot, id: 'agent_2', name: 'Scout' }, true, null)
+    expect(s.activeAgentId).toBe('agent_2')
+    expect(s.threads.agent_2.mouth).toBe('intro')
+    expect(s.threads.agent_2.unread).toBe(0)
+    s = completeMouth(s, 'agent_2', 'Scout.')
+    expect(s.threads.agent_2.unread).toBe(0)
+    s = setActive(s, 'agent_1', null)
+    expect(s.threads.agent_1.mouth).toBe('intro')
+  })
+
+  test('user send first skips intro forever even if the transcript is later empty', () => {
+    let s = send(fresh(), 'hello staff')
+    expect(hasUserMessage(s, 'staff')).toBe(true)
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = maybeIntro(s, 'staff', null)
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = completeMouth(s, 'staff', 'Hello.')
+    s = setThreadEmpty(s, 'staff')
+    s = maybeIntro(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items).toHaveLength(0)
+  })
+
+  test('user send during intro wins and does not leave a second greeting', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    expect(s.threads.staff.mouth).toBe('intro')
+    s = send(s, 'skip the hello')
+    expect(s.threads.staff.mouth).toBe('answer')
+    s = completeMouth(s, 'staff', 'should not land as intro')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(1)
+    const after = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    expect(after).toBe(s)
+  })
+
+  test('click away and back does not start a second intro once played', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    s = completeMouth(s, 'staff', 'Chief of Staff. Coordinator.')
+    s = setActive(s, 'kernel')
+    s = setActive(s, 'staff', '2026-08-27T06:00:00.000Z')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'agent')).toHaveLength(1)
+  })
+
+  test('remount idles an in-flight intro without speaking', () => {
+    let s = maybeIntro(fresh(), 'staff', null)
+    s = idleOrphanMouths(s)
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.items).toHaveLength(0)
+  })
+})
+
+
+describe('steer-queue', () => {
+  test('Send stays Send during a live mouth turn', () => {
+    const s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(composerEnterBusy(s.threads.staff.mouth)).toBe(false)
+    expect(shouldQueueSteer(s.threads.staff.mouth)).toBe(true)
+    expect(isMouthBusy(s.threads.staff.mouth)).toBe(true)
+  })
+
+  test('mid-turn Send parks off the transcript until drain', () => {
+    let s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    s = send(s, 'also check the pin')
+    expect(s.threads.staff.mouth).toBe('answer')
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    if (users[0]?.kind === 'msg') expect(users[0].text).toBe('hello staff')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'also check the pin' }])
+    expect(s.threads.staff.draft).toBe('')
+    s = completeMouth(s, 'staff', 'The pin is grok-4.6 Extra High plus Fast.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('also check the pin')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    expect(s.threads.staff.mouth).toBe('answer')
+  })
+
+  test('failMouth also drains the parked line', () => {
+    let s = send(fresh(), 'hello staff')
+    s = send(s, 'try again')
+    s = failMouth(s, 'staff', "Couldn't reach OpenRouter.")
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(2)
+    if (users[1]?.kind === 'msg') expect(users[1].text).toBe('try again')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('empty queue is a no-op', () => {
+    const idle = fresh()
+    expect(drainSteer(idle, 'staff')).toBe(idle)
+    let s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    const before = s.threads.staff.items.length
+    s = completeMouth(s, 'staff', 'Hello.')
+    expect(s.threads.staff.steerQueue).toEqual([])
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    expect(s.threads.staff.items.length).toBe(before + 1)
+  })
+
+  test('Stop drops a job queue and still sends the user steer', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    expect(s.threads.kernel.mouth).toBe('working')
+    const jobId = s.jobs[0]!.id
+    s = {
+      ...s,
+      threads: {
+        ...s.threads,
+        kernel: {
+          ...s.threads.kernel,
+          steerQueue: [{ text: 'do this instead' }],
+          jobSteerQueue: [{ text: 'internal leftover' }],
+        },
+      },
+    }
+    const usersBefore = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    s = stopJob(s, jobId)
+    expect(s.jobs[0]?.status).toBe('failed')
+    expect(s.threads.kernel.jobSteerQueue).toEqual([])
+    const users = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(usersBefore.length + 1)
+    if (users.at(-1)?.kind === 'msg') expect(users.at(-1).text).toBe('do this instead')
+    expect(s.threads.kernel.steerQueue).toEqual([])
+  })
+
+  test('Stop during a job does not drop a queued steer on another mouth', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
+    const jobId = s.jobs[0]!.id
+    s = setActive(s, 'staff')
+    s = send(s, 'what is the pin?')
+    s = send(s, 'make it shorter')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'make it shorter' }])
+    const staffUsers = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(staffUsers).toHaveLength(1)
+    s = stopJob(s, jobId)
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'make it shorter' }])
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    s = completeMouth(s, 'staff', 'The pin is grok-4.6 Extra High plus Fast.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('make it shorter')
+  })
+
+  test('computerBusy parks Send so Wave 3 can attach', () => {
+    let s = fresh()
+    s = {
+      ...s,
+      threads: { ...s.threads, staff: { ...s.threads.staff, computerBusy: true } },
+    }
+    s = send(s, 'click the login button')
+    expect(s.threads.staff.items).toHaveLength(0)
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'click the login button' }])
+    expect(composerEnterBusy(s.threads.staff.mouth, true)).toBe(false)
+    s = {
+      ...s,
+      threads: { ...s.threads, staff: { ...s.threads.staff, computerBusy: false } },
+    }
+    s = drainSteer(s, 'staff')
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    if (users[0]?.kind === 'msg') expect(users[0].text).toBe('click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+})
+
+describe('computer-use workers', () => {
+  test('open example.com books a computer worker; Send stays Send and steers off-transcript', () => {
+    let s = send(fresh(), 'open example.com')
+    expect(s.deskHandoff).toBeFalsy()
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    expect(s.threads.staff.computerBusy).toBe(true)
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(composerEnterBusy(s.threads.staff.mouth, s.threads.staff.computerBusy)).toBe(false)
+    expect(pendingMouthTurns(s)).toEqual([])
+    s = send(s, 'click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'click the login button' }])
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    const workerId = s.computerWorkers?.[0]?.id
+    expect(workerId).toBeTruthy()
+    s = completeComputer(s, workerId!, 'Opened example.com.')
+    const after = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(after).toHaveLength(2)
+    if (after[1]?.kind === 'msg') expect(after[1].text).toBe('click the login button')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('password login still hands the operator the stage', () => {
+    const s = send(fresh(), 'Can you navigate to the github on your pc so I can login?')
+    expect(s.deskHandoff?.instruction).toBe('Sign in to GitHub.')
+    expect(runningComputerWorkers(s)).toHaveLength(0)
+    expect(s.threads.staff.computerBusy).toBeFalsy()
+  })
+
+  test('Kernel computer worker does not declare a Goal complete', () => {
+    let s = setActive(fresh(), 'kernel')
+    s = send(s, 'open example.com')
+    expect(s.goals ?? []).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    const workerId = s.computerWorkers![0]!.id
+    s = completeComputer(s, workerId, 'Opened example.com.')
+    expect(s.goals ?? []).toEqual([])
+    expect(s.jobs).toHaveLength(0)
+    expect(s.threads.kernel.mouth).toBe('idle')
+  })
+
+  test('operator_help parks the worker; Release lets it proceed', () => {
+    let s = bookComputer(fresh(), 'staff', 'open a login page')
+    const workerId = s.computerWorkers![0]!.id
+    s = waitComputerOperator(s, workerId, 'Sign in if this page asks.')
+    expect(s.computerWorkers![0]!.status).toBe('waiting_operator')
+    expect(s.threads.staff.computerBusy).toBe(true)
+    expect(s.deskHandoff?.instruction).toBe('Sign in if this page asks.')
+    s = send(s, 'try the next field')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'try the next field' }])
+    s = resumeComputer(s, 'staff')
+    expect(runningComputerWorkers(s)).toHaveLength(1)
+    s = completeComputer(s, workerId, 'Signed in.')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+
+  test('remount does not leave computerBusy pinning Send', () => {
+    let s = bookComputer(fresh(), 'staff', 'open example.com')
+    expect(s.threads.staff.computerBusy).toBe(true)
+    s = idleOrphanMouths(s)
+    expect(s.threads.staff.computerBusy).toBe(false)
+    expect(s.computerWorkers?.[0]?.status).toBe('failed')
+    s = send(s, 'hello staff')
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(s.threads.staff.steerQueue).toEqual([])
+  })
+})
+
+function setThreadEmpty(session: Session, agentId: string): Session {
+  return {
+    ...session,
+    threads: {
+      ...session.threads,
+      [agentId]: { ...session.threads[agentId]!, items: [], mouth: 'idle', unread: 0 },
+    },
+  }
+}
+

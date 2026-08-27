@@ -5,11 +5,15 @@ import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from '
 import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
 import { kitForAgent, readProfile } from './profile'
+import { listSkills } from './skills'
 import { DEFAULT_SEAT_MODEL, mouthModel } from './plane'
 import type { StaffStore, TurnReceipt } from './store'
-import { buildWorkingSet, queryFirst, type ChatTurn } from './working-set'
+import { runningTests } from './test-env'
+import { applyCompact, compactRequestMessages, COMPACT_MODEL, shouldCompact, withCacheBreakpoint } from './compact'
+import { buildWorkingSet, introFallback, queryFirst, type ChatTurn } from './working-set'
 
 export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
+export const INTRO_MOUTH_MODEL = 'openai/gpt-4o-mini'
 export const MOUTH_MAX_TOKENS = 2048
 
 export type MouthHooks = {
@@ -69,6 +73,22 @@ function retryWaitMs(): number {
 
 function unknownUsage(): MouthUsage {
   return { promptTokens: null, completionTokens: null, costUsd: null }
+}
+
+async function maybeCompactMessages(
+  messages: ChatTurn[],
+  chat: ChatFn,
+  key: string,
+): Promise<ChatTurn[]> {
+  if (!shouldCompact(messages)) return messages
+  const request = compactRequestMessages(messages)
+  if (!request) return messages
+  try {
+    const result = asChatResult(await chat(request, key, COMPACT_MODEL))
+    return applyCompact(messages, result.text)
+  } catch {
+    return messages
+  }
 }
 
 export function asChatResult(value: string | ChatResult): { text: string; usage: MouthUsage } {
@@ -157,6 +177,10 @@ export async function ensureMouth(
     const key = turn.itemId
     if (started.has(key)) continue
     started.add(key)
+    if (turn.mode === 'intro') {
+      await speakIntro(session, turn.agentId, hooks, chat, keys)
+      continue
+    }
     let model: string | null = null
     let inferenceAttempted = false
     try {
@@ -175,36 +199,42 @@ export async function ensureMouth(
         hooks.onComplete(turn.agentId, recalled)
         continue
       }
-      const candidates = keys ?? listOpenRouterKeys()
+      const candidates = keys ?? (runningTests() ? [] : listOpenRouterKeys())
       if (candidates.length === 0) {
         store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'failed', false))
         hooks.onFail(turn.agentId, 'Need an OpenRouter key.')
         continue
       }
       model = mouthModel()
+      const profile = readProfile(turn.agentId)
       const messages = buildWorkingSet({
         agent,
         thread: session.threads[turn.agentId],
         claims,
-        rules: readProfile(turn.agentId)?.rules,
+        rules: profile?.rules,
         kit: kitForAgent(turn.agentId),
         roster: session.agents,
-        homeRepo: readProfile(turn.agentId)?.homeRepo,
+        homeRepo: profile?.homeRepo,
         model,
         attachments: attached,
+        skills: listSkills(),
+        skillIds: profile?.skillIds ?? [],
+        query: turn.userText,
       })
       if (turn.mode === 'assess') {
         messages.push({ role: 'user', content: turn.userText })
       }
+      let packed = messages
       let spoken = ''
       let usage = unknownUsage()
       let authRejected = false
       let lastError: unknown
       for (const candidate of candidates) {
+        packed = await maybeCompactMessages(packed, chat, candidate.key)
         for (let attempt = 0; attempt < 2 && !spoken; attempt += 1) {
           try {
             inferenceAttempted = true
-            const result = asChatResult(await chat(messages, candidate.key, model))
+            const result = asChatResult(await chat(packed, candidate.key, model))
             spoken = result.text
             usage = result.usage
             authRejected = false
@@ -239,6 +269,52 @@ export async function ensureMouth(
   }
 }
 
+async function speakIntro(
+  session: Session,
+  agentId: AgentId,
+  hooks: MouthHooks,
+  chat: ChatFn,
+  keys?: ResolvedKey[],
+): Promise<void> {
+  const agent = session.agents.find((item) => item.id === agentId)
+  if (!agent) {
+    hooks.onComplete(agentId, '')
+    return
+  }
+  const fallback = introFallback(agent)
+  const candidates = keys ?? listOpenRouterKeys()
+  if (candidates.length === 0) {
+    hooks.onComplete(agentId, fallback)
+    return
+  }
+  const model = INTRO_MOUTH_MODEL
+  const profile = readProfile(agentId)
+  const messages = buildWorkingSet({
+    agent,
+    thread: session.threads[agentId],
+    claims: [],
+    rules: profile?.rules,
+    kit: kitForAgent(agentId),
+    roster: session.agents,
+    homeRepo: profile?.homeRepo,
+    model,
+    intro: true,
+    skills: listSkills(),
+    skillIds: profile?.skillIds ?? [],
+  })
+  let spoken = ''
+  for (const candidate of candidates) {
+    try {
+      const result = asChatResult(await chat(messages, candidate.key, model))
+      spoken = result.text.trim()
+      if (spoken) break
+    } catch {
+      continue
+    }
+  }
+  hooks.onComplete(agentId, spoken || fallback)
+}
+
 export async function chatOpenRouter(
   messages: ChatTurn[],
   key: string,
@@ -252,7 +328,7 @@ export async function chatOpenRouter(
       method: 'POST',
       body: JSON.stringify({
         model,
-        messages,
+        messages: withCacheBreakpoint(messages),
         max_tokens: MOUTH_MAX_TOKENS,
       }),
     },

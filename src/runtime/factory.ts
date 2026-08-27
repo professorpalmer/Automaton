@@ -102,6 +102,7 @@ export function createAgent(input?: {
     createdAt: new Date().toISOString(),
     homeRepo: '',
     homePath: '',
+    introPlayedAt: null,
   }
   writeProfile(profile, home)
   ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)
@@ -154,7 +155,8 @@ export function hydrateSession(session: Session, home = automatonHome()): Sessio
     : 'staff'
   const jobs = normalized.jobs.filter((job) => onDisk.has(job.ownerAgentId))
   const goals = (normalized.goals ?? []).filter((goal) => onDisk.has(goal.ownerAgentId))
-  let next: Session = { ...normalized, agents, threads, jobs, goals, activeAgentId }
+  const computerWorkers = (normalized.computerWorkers ?? []).filter((row) => onDisk.has(row.ownerAgentId))
+  let next: Session = { ...normalized, agents, threads, jobs, goals, computerWorkers, activeAgentId }
   for (const id of listProfileIds(home)) {
     const profile = readProfile(id, home)
     if (!profile) continue

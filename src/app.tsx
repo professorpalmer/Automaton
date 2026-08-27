@@ -4,6 +4,7 @@ import { motion, useGpuix } from '@gpuix/react'
 import {
   DEFAULT_AGENTS,
   bindHomes,
+  composerEnterBusy,
   createAgentNames,
   emptyThreads,
   isMouthBusy,
@@ -22,6 +23,7 @@ import {
   type GoalRun,
   type JobHandle,
   type MouthState,
+  type WidgetAnswer,
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
@@ -30,9 +32,9 @@ import { clockDuration, runningTests } from './runtime/test-env'
 import { copyTextToClipboard } from './runtime/clipboard'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
-import { adoptMarionetteOpenRouterKey } from './runtime/keys'
+import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
 import { ensureMouth } from './runtime/mouth'
-import { kitForAgent, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
+import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
 import {
@@ -46,25 +48,34 @@ import {
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser } from './runtime/chrome'
+import { displayForMouth } from './runtime/computer'
+import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
+import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
   attachPmJob,
+  completeComputer,
   completeJob,
   completeMouth,
+  hasUserMessage,
+  maybeIntro,
   confirmDeskHandoff,
   confirmFanout,
   dismissDeskHandoff,
   dismissFanout,
   dropLiveAgent,
   dropPendingPath,
+  failComputer,
   failJob,
   failMouth,
   noteJobStatus,
   patchLiveAgent,
   queuePaths,
   dispatchableJobs,
+  resumeComputer,
+  runningComputerWorkers,
   runningJobs,
   send,
   setActive,
@@ -72,12 +83,20 @@ import {
   stopJob,
   cancelGoal,
   retryGoal,
+  waitComputerHost,
+  waitComputerOperator,
   waitJobExternal,
   waitJobUser,
+  answerWidget,
+  dismissWidget,
+  fulfillSecretRequest,
+  dismissSecretRequest,
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
+import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
+import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { CHAT_THEME, T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
@@ -107,13 +126,40 @@ function emptySeed(): Session {
   }
 }
 
+
+function bindNewUserAttachments(store: StaffStore, before: Session, after: Session): void {
+  for (const [id, row] of Object.entries(after.threads)) {
+    const prev = new Set((before.threads[id]?.items ?? []).map((item) => item.id))
+    for (const item of row.items) {
+      if (item.kind === 'msg' && item.from === 'user' && !prev.has(item.id) && item.attachmentIds?.length) {
+        store.bindAttachments(item.attachmentIds, item.id)
+      }
+    }
+  }
+}
+
+function persistIntroIfUserSpoke(session: Session): void {
+  for (const id of Object.keys(session.threads)) {
+    if (hasUserMessage(session, id)) markIntroPlayedAt(id)
+  }
+}
+
+function playIntro(session: Session, agentId: string): Session {
+  const played = readProfile(agentId)?.introPlayedAt ?? null
+  if (hasUserMessage(session, agentId) && !played) markIntroPlayedAt(agentId)
+  return maybeIntro(session, agentId, played)
+}
+
 export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const store = useMemo(() => {
     if (providedStore) return providedStore
     adoptMarionetteOpenRouterKey()
     return openStaffStore()
   }, [providedStore])
-  const [session, setSession] = useState<Session>(() => hydrateSession(store.load() ?? emptySeed()))
+  const [session, setSession] = useState<Session>(() => {
+    const seeded = hydrateSession(store.load() ?? emptySeed())
+    return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
+  })
   const [pane, setPane] = useState<Pane>('none')
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
@@ -192,12 +238,24 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }, [session.deskOpen?.agentId, session.deskOpen?.url])
 
   useEffect(() => {
+    if (runningTests()) return
     void ensureMouth(session, store, {
       onComplete: (agentId, spoken) => {
-        setSession((current) => completeMouth(current, agentId, spoken))
+        setSession((current) => {
+          if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
+          const next = completeMouth(current, agentId, spoken)
+          bindNewUserAttachments(store, current, next)
+          persistIntroIfUserSpoke(next)
+          return next
+        })
       },
       onFail: (agentId, spoken) => {
-        setSession((current) => failMouth(current, agentId, spoken))
+        setSession((current) => {
+          const next = failMouth(current, agentId, spoken)
+          bindNewUserAttachments(store, current, next)
+          persistIntroIfUserSpoke(next)
+          return next
+        })
       },
     })
   }, [store, mouthEpoch])
@@ -232,10 +290,20 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 freshness: 'fresh',
               })
             }
-            setSession((current) => completeJob(current, job.id, spoken))
+            setSession((current) => {
+              const next = completeJob(current, job.id, spoken)
+              bindNewUserAttachments(store, current, next)
+              persistIntroIfUserSpoke(next)
+              return next
+            })
           },
           onFail: (spoken) => {
-            setSession((current) => failJob(current, job.id, spoken))
+            setSession((current) => {
+              const next = failJob(current, job.id, spoken)
+              bindNewUserAttachments(store, current, next)
+              persistIntroIfUserSpoke(next)
+              return next
+            })
           },
           onWaitingExternal: () => {
             setSession((current) => waitJobExternal(current, job.id))
@@ -248,6 +316,51 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       )
     }
   }, [store, session.jobs.map((job) => `${job.id}:${job.status}`).join('|')])
+
+  useEffect(() => {
+    if (runningTests()) return
+    for (const worker of runningComputerWorkers(session)) {
+      const agent = session.agents.find((row) => row.id === worker.ownerAgentId)
+      const keys = listOpenRouterKeys()
+      void ensureComputerWorker(
+        worker.id,
+        {
+          agentId: worker.ownerAgentId,
+          agentName: agent?.name ?? 'Worker',
+          display: worker.display,
+          goal: worker.goal,
+          kit: kitForAgent(worker.ownerAgentId),
+          role: 'worker',
+          chat: async (messages) => {
+            if (keys.length === 0) return { text: 'Need an OpenRouter key.' }
+            return chatComputerOpenRouter(messages, keys[0]!.key)
+          },
+          seams: {
+            ...liveComputerSeams(),
+            hostAllowed: worker.hostAllowed === true ? true : undefined,
+          },
+        },
+        {
+          onComplete: (spoken, screenshotPath) => {
+            setSession((current) => completeComputer(current, worker.id, spoken, screenshotPath))
+          },
+          onFail: (spoken) => {
+            setSession((current) => failComputer(current, worker.id, spoken))
+          },
+          onOperatorHelp: (instruction) => {
+            setSession((current) => waitComputerOperator(current, worker.id, instruction))
+          },
+          onHostApproval: (prompt, action) => {
+            setSession((current) => waitComputerHost(current, worker.id, prompt, action))
+          },
+        },
+      )
+    }
+  }, [
+    session.computerWorkers
+      ?.map((row) => `${row.id}:${row.status}:${row.hostAllowed === true ? '1' : '0'}`)
+      .join('|') ?? '',
+  ])
 
   const onSend = () => {
     if (!thread || !active) return
@@ -275,6 +388,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           working = patchLiveAgent(working, agent)
         }
       }
+      const beforeIds = new Set((working.threads[working.activeAgentId]?.items ?? []).map((item) => item.id))
       let next = send(working, row.draft, ids)
       if (kitForAgent(next.activeAgentId) === 'coordinator') {
         const draft = row.draft.trim()
@@ -289,8 +403,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       }
       const last = [...(next.threads[next.activeAgentId]?.items ?? [])]
         .reverse()
-        .find((item) => item.kind === 'msg' && item.from === 'user')
+        .find((item) => item.kind === 'msg' && item.from === 'user' && !beforeIds.has(item.id))
       if (last?.kind === 'msg') store.bindAttachments(ids, last.id)
+      persistIntroIfUserSpoke(next)
       return next
     })
   }
@@ -339,7 +454,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const onCreateAgent = () => {
     setRailMenu(null)
     const created = createAgent()
-    setSession((current) => addLiveAgent(current, created.agent, true))
+    setSession((current) =>
+      addLiveAgent(
+        current,
+        created.agent,
+        true,
+        runningTests() ? undefined : created.profile.introPlayedAt ?? null,
+      ),
+    )
     setPane('inspector')
   }
 
@@ -403,7 +525,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               return
             }
             setRailMenu(null)
-            setSession((current) => setActive(current, id))
+            setSession((current) => (runningTests() ? setActive(current, id) : playIntro(setActive(current, id), id)))
             setPane((current) => (current === 'settings' ? 'none' : current))
           }}
           onCreate={onCreateAgent}
@@ -466,6 +588,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               attachmentsFor={(ids) =>
                 ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
               }
+              onAnswerWidget={(id, answer) => setSession((current) => answerWidget(current, id, answer))}
+              onDismissWidget={(id) => setSession((current) => dismissWidget(current, id))}
+              onSaveSecret={(id, value) => setSession((current) => fulfillSecretRequest(current, id, value))}
+              onDismissSecret={(id) => setSession((current) => dismissSecretRequest(current, id))}
             />
             <div
               testId="dock"
@@ -492,7 +618,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     agents={session.agents}
                     onStop={(id) => {
                       abandonJob(id)
-                      setSession((current) => stopJob(current, id))
+                      setSession((current) => {
+                        const next = stopJob(current, id)
+                        bindNewUserAttachments(store, current, next)
+                        persistIntroIfUserSpoke(next)
+                        return next
+                      })
                     }}
                   />
                 ) : null}
@@ -521,7 +652,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     const agentId = session.deskHandoff?.agentId
                     setSession((current) => confirmDeskHandoff(current))
                     setDeskControl(true)
-                    if (agentId && !runningTests()) void ensureBrowser(agentId)
+                    if (agentId) {
+                      try {
+                        setHumanDriving(displayForMouth(agentId), true)
+                      } catch {
+                        /* fail open */
+                      }
+                      if (!runningTests()) void ensureBrowser(agentId)
+                    }
                   }}
                   onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
                 />
@@ -541,7 +679,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               <Composer
                 value={thread?.draft ?? ''}
                 pendingPaths={thread?.pendingPaths ?? []}
-                locked={!thread || isMouthBusy(thread.mouth)}
+                locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
@@ -563,7 +701,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onTakeControl={() => {
                   setDeskControl((on) => {
                     const next = !on
+                    try {
+                      setHumanDriving(displayForMouth(active.id), next)
+                    } catch {
+                      /* fail open: a harness hiccup must not brick the computer */
+                    }
                     if (next && !runningTests()) void ensureBrowser(active.id)
+                    if (!next) {
+                      setSession((current) => resumeComputer(current, active.id))
+                    }
                     return next
                   })
                 }}
@@ -581,7 +727,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           name={active.name}
           left={railWidth + T.layout.railHandle}
           open={deskControl}
-          onRelease={() => setDeskControl(false)}
+          onRelease={() => {
+            setDeskControl(false)
+            try {
+              setHumanDriving(displayForMouth(active.id), false)
+            } catch {
+              /* fail open */
+            }
+            setSession((current) => resumeComputer(current, active.id))
+          }}
         />
       ) : null}
       {railDragging ? (
@@ -1181,7 +1335,9 @@ function paintedFeedCount(items: FeedItem[], thinking = false): number {
   for (const item of items) {
     if (item.kind === 'relay' && item.lane === 'from') continue
     if (item.kind === 'agent_note') continue
-    if (item.kind === 'relay' || item.kind === 'msg') count += 1
+    if (item.kind === 'relay' || item.kind === 'msg' || item.kind === 'widget' || item.kind === 'secret-request') {
+      count += 1
+    }
   }
   return thinking ? count + 1 : count
 }
@@ -1221,6 +1377,10 @@ export function Feed({
   attachmentsFor,
   dockPad = 0,
   mouth = 'idle',
+  onAnswerWidget,
+  onDismissWidget,
+  onSaveSecret,
+  onDismissSecret,
 }: {
   items: FeedItem[]
   agents: Agent[]
@@ -1228,6 +1388,10 @@ export function Feed({
   attachmentsFor?: (ids: string[]) => { id: string; path: string; kind: 'image' | 'file' }[]
   dockPad?: number
   mouth?: MouthState
+  onAnswerWidget?: (id: string, answer: WidgetAnswer) => void
+  onDismissWidget?: (id: string) => void
+  onSaveSecret?: (id: string, value: string) => void
+  onDismissSecret?: (id: string) => void
 }) {
   const ref = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
@@ -1272,6 +1436,34 @@ export function Feed({
           )
         }
         if (item.kind === 'agent_note') return null
+        if (item.kind === 'widget') {
+          return (
+            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
+              <QuestionCard
+                testId={`widget-${item.id}`}
+                widget={item.widget}
+                status={item.status}
+                answer={item.answer}
+                onAnswer={(answer) => onAnswerWidget?.(item.id, answer)}
+                onDismiss={() => onDismissWidget?.(item.id)}
+              />
+            </div>
+          )
+        }
+        if (item.kind === 'secret-request') {
+          return (
+            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
+              <SecretRequestCard
+                testId={`secret-request-${item.id}`}
+                connectorName={connectorDisplayName(item.connectorId)}
+                status={item.status}
+                configured={item.configured}
+                onSave={(value) => onSaveSecret?.(item.id, value)}
+                onDismiss={() => onDismissSecret?.(item.id)}
+              />
+            </div>
+          )
+        }
         if (item.kind !== 'msg') return null
         const inbound = items[index - 1]
         const fromPeer = inbound?.kind === 'agent_note' ? inbound.fromId : null
@@ -1544,84 +1736,6 @@ function GoalBlockerPanel({
           onClick={onCancel}
         >
           Cancel goal
-        </div>
-      </div>
-    </div>
-  )
-}
-
-function ConfirmCard({
-  testId,
-  prompt,
-  confirmId,
-  dismissId,
-  confirmLabel,
-  danger,
-  onConfirm,
-  onDismiss,
-}: {
-  testId: string
-  prompt: string
-  confirmId: string
-  dismissId: string
-  confirmLabel: string
-  danger?: boolean
-  onConfirm: () => void
-  onDismiss: () => void
-}) {
-  return (
-    <div
-      testId={testId}
-      style={{
-        marginLeft: T.space.xl,
-        marginRight: T.space.xl,
-        marginBottom: T.space.sm,
-        padding: T.space.md,
-        borderRadius: T.radius.md,
-        backgroundColor: T.raised,
-        borderWidth: T.stroke.hairline,
-        borderColor: T.border,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: T.space.sm,
-      }}
-    >
-      <div style={{ fontSize: T.type.sm, color: T.secondary }}>{prompt}</div>
-      <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
-        <div
-          testId={confirmId}
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: danger ? T.danger : T.inverse,
-            color: danger ? T.inverse : T.onInverse,
-            fontSize: T.type.sm,
-            cursor: 'pointer',
-            userSelect: 'none',
-          }}
-          onClick={onConfirm}
-        >
-          {confirmLabel}
-        </div>
-        <div
-          testId={dismissId}
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: T.raised,
-            color: T.text,
-            fontSize: T.type.sm,
-            ...HIT,
-          }}
-          onClick={onDismiss}
-        >
-          Dismiss
         </div>
       </div>
     </div>

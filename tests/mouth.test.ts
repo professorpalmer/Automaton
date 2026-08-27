@@ -2,15 +2,19 @@ import { describe, expect, test } from 'bun:test'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { mkdirSync, rmSync } from 'node:fs'
 import {
   DEFAULT_MOUTH_MODEL,
+  INTRO_MOUTH_MODEL,
   ensureMouth,
   mouthFailSpeak,
   parseOpenRouterUsage,
   resetMouthForTests,
 } from '../src/runtime/mouth.ts'
+import { INTRO_CUE, introFallback } from '../src/runtime/working-set.ts'
+import { markIntroPlayedAt, readProfile, writeProfile } from '../src/runtime/profile.ts'
 import { openStaffStore } from '../src/runtime/store.ts'
-import { completeMouth, pendingMouthTurns, send } from '../src/session'
+import { completeMouth, maybeIntro, pendingMouthTurns, send } from '../src/session'
 
 describe('mouth sidecar', () => {
   test('stored finding answers without calling OpenRouter', async () => {
@@ -553,5 +557,140 @@ describe('mouth sidecar', () => {
       completionTokens: 3,
       costUsd: 0.001,
     })
+  })
+
+  test('intro mouth uses the hidden cue, cheap model, and no claims', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-intro-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'staff',
+      text: 'should not be recalled for intro',
+      source: 'mouth',
+    })
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = maybeIntro(session, 'staff', null)
+    let spoken = ''
+    let calls = 0
+    let modelUsed = ''
+    let lastMessages: { role: string; content: unknown }[] = []
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async (messages, _key, model) => {
+        calls += 1
+        modelUsed = model
+        lastMessages = messages
+        return 'Chief of Staff. I own this computer and dispatch work.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(modelUsed).toBe(INTRO_MOUTH_MODEL)
+    expect(spoken).toBe('Chief of Staff. I own this computer and dispatch work.')
+    expect(lastMessages).toHaveLength(2)
+    expect(lastMessages[1]?.role).toBe('user')
+    expect(String(lastMessages[1]?.content)).toContain(INTRO_CUE)
+    expect(JSON.stringify(lastMessages)).not.toContain('should not be recalled for intro')
+    session = completeMouth(session, 'staff', spoken)
+    expect(session.threads.staff.items.filter((item) => item.kind === 'msg')).toHaveLength(1)
+  })
+
+  test('intro without a key uses the name-title template and introPlayedAt sticks', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const home = join(tmpdir(), `automaton-mouth-intro-home-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    const prev = process.env.AUTOMATON_HOME
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'staff',
+        name: 'Chief of Staff',
+        title: 'Coordinator',
+        description: 'Owns the computer.',
+        rules: '',
+        kit: 'coordinator',
+        avatarShape: 'blob',
+        avatarColor: 'staff',
+        namedBy: 'app',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '1970-01-01T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+        introPlayedAt: null,
+      },
+      home,
+    )
+    const store = openStaffStore(join(home, 'staff.sqlite'))
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = maybeIntro(session, 'staff', readProfile('staff', home)?.introPlayedAt ?? null)
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (agentId, text) => {
+          spoken = text
+          markIntroPlayedAt(agentId, home)
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'should not run'
+      },
+      [],
+    )
+    expect(calls).toBe(0)
+    expect(spoken).toBe(introFallback({ id: 'staff', name: 'Chief of Staff', title: 'Coordinator', description: '', color: '', hidden: false }))
+    session = completeMouth(session, 'staff', spoken)
+    expect(readProfile('staff', home)?.introPlayedAt).toBeTruthy()
+    const played = readProfile('staff', home)?.introPlayedAt ?? null
+    const again = maybeIntro(session, 'staff', played)
+    expect(again.threads.staff.mouth).toBe('idle')
+    resetMouthForTests()
+    await ensureMouth(
+      again,
+      store,
+      {
+        onComplete: () => {
+          throw new Error('second intro')
+        },
+        onFail: () => {
+          throw new Error('second intro fail')
+        },
+      },
+      async () => 'nope',
+      [],
+    )
+    if (prev === undefined) delete process.env.AUTOMATON_HOME
+    else process.env.AUTOMATON_HOME = prev
+    rmSync(home, { recursive: true, force: true })
   })
 })

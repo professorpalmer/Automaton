@@ -37,7 +37,7 @@ or noVNC. Do not bill a hosted computer-use vendor.
 
 Invariants:
 
-- Running a job is not mouth busy. Composer stays Send.
+- Running a job is not mouth busy. Composer stays Send. A live mouth does not lock Send; mid-turn words wait on a steer queue.
 - Fan-out to 3+ automata needs confirmation. Dismiss means no send.
 - Completion continues leftover steps from the original ask. Staff owns
   that GoalRun; workers do not schedule leftover.

@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   bindHomes,
   composerEnterBusy,
+  shouldQueueSteer,
   createAgentNames,
   DEFAULT_AGENTS,
   dispatchTargets,
@@ -67,7 +68,18 @@ describe('mouth vs job', () => {
     expect(isMouthBusy('working')).toBe(false)
     expect(composerEnterBusy('working')).toBe(false)
     expect(composerEnterBusy('idle')).toBe(false)
-    expect(composerEnterBusy('must_first')).toBe(true)
+    expect(composerEnterBusy('must_first')).toBe(false)
+    expect(composerEnterBusy('answer')).toBe(false)
+    expect(composerEnterBusy('answer', true)).toBe(false)
+    expect(isMouthBusy('intro')).toBe(true)
+    expect(composerEnterBusy('intro')).toBe(false)
+    expect(composerEnterBusy('ack')).toBe(false)
+    expect(shouldQueueSteer('must_first')).toBe(true)
+    expect(shouldQueueSteer('answer')).toBe(true)
+    expect(shouldQueueSteer('working')).toBe(false)
+    expect(shouldQueueSteer('idle')).toBe(false)
+    expect(shouldQueueSteer('intro')).toBe(false)
+    expect(shouldQueueSteer('idle', true)).toBe(true)
   })
 
   test('feed thinking is mouth wait after a turn, not a job', () => {
