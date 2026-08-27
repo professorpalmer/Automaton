@@ -37,6 +37,53 @@ export type BoxShellIntent =
 
 export type AgentKit = 'coordinator' | 'code' | 'lookup' | 'blank'
 
+export type GoalStatus =
+  | 'planning'
+  | 'running'
+  | 'waiting_external'
+  | 'waiting_user'
+  | 'verifying'
+  | 'complete'
+  | 'failed'
+  | 'cancelled'
+
+export type GoalCriterionStatus = 'pending' | 'running' | 'met' | 'blocked' | 'failed' | 'skipped'
+
+export type GoalCriterion = {
+  id: string
+  label: string
+  kind: JobKind
+  work: string
+  status: GoalCriterionStatus
+}
+
+export type GoalReceipt = {
+  id: string
+  criterionId: string
+  jobId?: string
+  spoken: string
+  ok: boolean
+  at: number
+}
+
+/** Staff-owned durable work. Multiple may coexist on a session. */
+export type GoalRun = {
+  id: string
+  text: string
+  coordinatorId: AgentId
+  ownerAgentId: AgentId
+  criteria: GoalCriterion[]
+  receipts: GoalReceipt[]
+  status: GoalStatus
+  activeCriterionId?: string
+}
+
+export type GoalCriterionDraft = {
+  label: string
+  kind: JobKind
+  work: string
+}
+
 export type JobHandle = {
   id: string
   ownerAgentId: AgentId
@@ -48,6 +95,12 @@ export type JobHandle = {
   /** Whitelisted keepalive only. Never a sanitized terminal fallback. */
   lastNote?: string
   updatedAt?: number
+  goalId?: string
+  criterionId?: string
+  /** Original user line. Workers stay bounded to the current criterion. */
+  objective?: string
+  unmetCriteria?: string[]
+  evidence?: string[]
 }
 
 export type FeedItem =
@@ -63,14 +116,6 @@ export type FeedItem =
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
 
-export const MANDATE_MAX_STEPS = 6
-
-/** Original ask while jobs continue. Closed when leftover is not a job, Stop, or the cap. */
-export type Mandate = {
-  text: string
-  steps: number
-}
-
 export type Thread = {
   agentId: AgentId
   items: FeedItem[]
@@ -78,7 +123,6 @@ export type Thread = {
   pendingPaths: string[]
   mouth: MouthState
   unread: number
-  mandate?: Mandate
 }
 
 export const STAFF_AGENT: Agent = {
@@ -181,7 +225,17 @@ export function looksLikeIssueWork(text: string): boolean {
 }
 
 export function looksLikeFinishLine(text: string): boolean {
-  return /\b(finish line|take it to the finish|absorb|land (?:it|this))\b/i.test(text)
+  return /\b(finish line|take it to the finish|absorb(?:ed|ing)?|land(?:ed|ing)?(?:\s+(?:it|this))?)\b/i.test(
+    text,
+  )
+}
+
+export function looksLikeValidate(text: string): boolean {
+  return /\b(validate[ds]?|review(?:ed|ing)?)\b/i.test(text)
+}
+
+export function looksLikeAbsorb(text: string): boolean {
+  return /\b(absorb(?:ed|ing)?|land(?:ed|ing)?(?:\s+(?:it|this))?)\b/i.test(text)
 }
 
 export function looksLikePromote(text: string): boolean {
@@ -189,15 +243,20 @@ export function looksLikePromote(text: string): boolean {
   return (
     lower.includes('merge dest to main') ||
     lower.includes('from dest to main') ||
+    lower.includes('dest to main') ||
     lower.includes('dev into main') ||
     (lower.includes('dev') && lower.includes('main') && lower.includes('equal')) ||
     lower.includes('branches are equal') ||
-    /\bpromote\b/.test(lower)
+    /\bpromote\b/.test(lower) ||
+    (parseGithubIssue(text) != null && /\bmerge[ds]?\b/.test(lower))
   )
 }
 
 export function looksLikeShip(text: string): boolean {
-  return /\b(ship|new release|cut a release|tag a release)\b/i.test(text)
+  const lower = text.toLowerCase()
+  if (/\b(?:new release|cut a release|tag(?:ged)? a release)\b/.test(lower)) return true
+  if (/\bship(?:ped|ping)?\b[\s\S]{0,48}\brelease\b/.test(lower)) return true
+  return /\bship\b/.test(lower)
 }
 
 export function looksLikeLookup(text: string): boolean {
@@ -323,6 +382,7 @@ export function jobKindLabel(kind: JobKind): string {
 }
 
 export const STILL_RUNNING = 'Still running.'
+export const WAITING_CHECKS = 'Waiting for required checks.'
 
 /** Ask about an in-flight job, not a new booking and not a chat turn. */
 export function looksLikeJobStatusAsk(text: string): boolean {
@@ -340,6 +400,7 @@ export function looksLikeJobStatusAsk(text: string): boolean {
 export function isWhitelistedRunningStatus(text: string): boolean {
   const trimmed = text.trim()
   if (trimmed === STILL_RUNNING) return true
+  if (trimmed === WAITING_CHECKS) return true
   if (trimmed === 'Still landing.' || trimmed === 'Still shipping.') return true
   return /^Still installing [A-Za-z][A-Za-z0-9._+-]{0,63}\.$/.test(trimmed)
 }
@@ -401,7 +462,10 @@ export function jobKindForKit(
       ? 'analyze'
       : null
   }
-  if (looksLikeIssueWork(text)) return 'implement'
+  if (looksLikeIssueWork(text)) {
+    const compiled = compileGithubCriteria(text)
+    return compiled[0]?.kind ?? 'implement'
+  }
   if (looksLikePromote(text)) return 'promote'
   if (looksLikeShip(text)) return 'ship'
   if (looksLikeJob(text)) return 'implement'
@@ -416,23 +480,76 @@ export function foldAsk(text: string): string {
   return text.replace(/^@\S+\s*/g, '').trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
-/** Sequential leftover. Bare `and find` stays one look. */
-export function splitAskSteps(text: string): string[] {
-  const trimmed = text.trim()
-  if (!trimmed) return []
-  const issue = parseGithubIssue(trimmed)
-  if (issue) {
-    const steps = [`absorb ${issue.url}`]
-    if (looksLikePromote(trimmed) || looksLikeFinishLine(trimmed)) steps.push('merge dest to main')
-    if (looksLikeShip(trimmed)) steps.push('ship a new release')
-    return steps
-  }
-  const parts = trimmed.split(
+function splitThenAnd(text: string): string[] {
+  const parts = text.split(
     /\s+(?:and\s+)?then\s+|\s+and\s+(?=check|install|which|implement|fix|patch|look)\b|;+\s*/i,
   )
   return parts
     .map((part) => part.replace(/^[,.\s]+|[,\s]+$/g, '').trim())
     .filter((part) => part.length > 0)
+}
+
+function compileGithubCriteria(text: string): GoalCriterionDraft[] {
+  const issue = parseGithubIssue(text)
+  if (!issue) return []
+  const drafts: GoalCriterionDraft[] = []
+  const namedValidate = looksLikeValidate(text)
+  const namedAbsorb = looksLikeAbsorb(text) || looksLikeFinishLine(text)
+  const namedMerge = looksLikePromote(text)
+  const namedShip = looksLikeShip(text)
+  const reviewOnly = namedValidate && !namedAbsorb && !namedMerge && !namedShip
+  if (issue.kind === 'pull' && namedValidate) {
+    drafts.push({ label: 'validate', kind: 'analyze', work: `validate ${issue.url}` })
+  }
+  if (!reviewOnly && (namedAbsorb || namedValidate || namedMerge || namedShip || drafts.length === 0)) {
+    drafts.push({ label: 'absorb', kind: 'implement', work: `absorb ${issue.url}` })
+  }
+  if (namedMerge || namedShip) {
+    drafts.push({ label: 'merge', kind: 'promote', work: 'merge dest to main' })
+  }
+  if (namedShip) drafts.push({ label: 'ship', kind: 'ship', work: 'ship a new release' })
+  return drafts
+}
+
+function labelForKind(kind: JobKind): string {
+  if (kind === 'box-shell') return 'shell'
+  if (kind === 'promote') return 'merge'
+  if (kind === 'analyze') return 'look'
+  return kind
+}
+
+/** Sequential leftover. Numbered GitHub asks compile to validate/absorb/merge/ship. */
+export function splitAskSteps(text: string): string[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  const compiled = compileGithubCriteria(trimmed)
+  if (compiled.length > 0) return compiled.map((row) => row.work)
+  return splitThenAnd(trimmed)
+}
+
+/** Compile a work line into Staff-owned criteria. Empty means chat, not a goal. */
+export function criteriaFromAsk(
+  text: string,
+  kit: AgentKit = 'code',
+  prior = '',
+  productNames: string[] = [],
+): GoalCriterionDraft[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  const github = compileGithubCriteria(trimmed)
+  if (github.length > 0) {
+    if (kit === 'blank') return []
+    if (kit === 'lookup') return [{ label: 'look', kind: 'analyze', work: github[0].work }]
+    return github
+  }
+  const parts = splitThenAnd(trimmed)
+  const rows = parts.length > 0 ? parts : [trimmed]
+  const drafts: GoalCriterionDraft[] = []
+  for (const part of rows) {
+    const kind = jobKindForKit(kit, part, prior, productNames)
+    if (kind) drafts.push({ label: labelForKind(kind), kind, work: part })
+  }
+  return drafts
 }
 
 export function firstAskStep(text: string): string {
@@ -457,46 +574,34 @@ function stepMatchesCompleted(step: string, done: string): boolean {
   return false
 }
 
-export type MandateJob = { kind: JobKind; text: string }
-
-function sameMandateJob(
-  kind: JobKind,
-  text: string,
-  completed: { kind: JobKind; goal: string },
-): boolean {
-  const n = foldAsk(text)
-  const done = foldAsk(completed.goal)
-  if (!n || kind !== completed.kind) return false
-  if (n === done) return true
-  if (done.length >= 8 && done.includes(n)) return true
-  if (n.length >= 8 && n.includes(done)) return true
-  return false
+export function nextUnmetCriterion(goal: GoalRun): GoalCriterion | undefined {
+  return goal.criteria.find((row) => row.status === 'pending')
 }
 
-/** Next job from the original ask after a terminal handle. Null means the mandate is done. */
-export function nextMandateJob(
-  kit: AgentKit,
-  mandateText: string,
-  completed: { kind: JobKind; goal: string },
-  productNames: string[] = [],
-  prior = '',
-): MandateJob | null {
-  const remaining = remainingAsk(mandateText, completed.goal)
-  if (remaining) {
-    const first = firstAskStep(remaining)
-    const kind = jobKindForKit(kit, first, prior || mandateText, productNames)
-    if (kind && !sameMandateJob(kind, first, completed)) return { kind, text: first }
-    if (kind && sameMandateJob(kind, first, completed)) {
-      const rest = remainingAsk(remaining, first)
-      if (rest) return nextMandateJob(kit, rest, completed, productNames, prior)
-    }
-  }
-  if (completed.kind !== 'analyze') return null
-  if (kit === 'blank' || kit === 'lookup') return null
-  if (!looksLikeJob(mandateText)) return null
-  const text = remaining || mandateText
-  if (sameMandateJob('implement', text, completed)) return null
-  return { kind: 'implement', text }
+export function everyCriterionMet(goal: GoalRun): boolean {
+  return goal.criteria.length > 0 && goal.criteria.every((row) => row.status === 'met')
+}
+
+export function sessionGoals(goals: GoalRun[] | undefined): GoalRun[] {
+  return Array.isArray(goals) ? goals : []
+}
+
+export function goalBlocker(name: string, spoken: string): string {
+  const line = sanitizeSpeak(spoken)
+  return `${name} is blocked. ${line}`
+}
+
+export function goalLaunchContext(
+  goal: Pick<GoalRun, 'text' | 'criteria' | 'receipts'>,
+  criterion: Pick<GoalCriterion, 'id' | 'label' | 'work'>,
+): { objective: string; unmetCriteria: string[]; evidence: string[] } {
+  const unmet = goal.criteria
+    .filter((row) => row.id !== criterion.id && (row.status === 'pending' || row.status === 'running'))
+    .map((row) => row.label)
+  const evidence = goal.receipts
+    .filter((row) => row.ok && row.spoken.trim())
+    .map((row) => row.spoken.trim())
+  return { objective: goal.text, unmetCriteria: unmet, evidence }
 }
 
 /** Seed ids keep the historic policy so existing tests stay pinned. */
@@ -1048,7 +1153,7 @@ export function returnBeat(name: string, spoken: string): string {
 }
 
 export function assessAsk(name: string, spoken: string): string {
-  return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences.`
+  return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences. You are copy, not the scheduler.`
 }
 
 export function needsFanoutConfirm(mentioned: AgentId[]): boolean {

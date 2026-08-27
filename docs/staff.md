@@ -50,14 +50,15 @@ question that only mentions a product is not. A product-stack question
 send time; Staff does not offer to dispatch. `Ask Puppetmaster to look at
 the repo` sends the remainder and books analyze on that mouth, using its
 bound or named checkout, not Automaton. The sister thinks on its own
-thread. When that sister's leftover steps finish, Staff speaks an
+thread. When that sister's GoalRun criteria are met, Staff speaks an
 assessment; it does not paint the sister's words as its own bubble.
 
 GitHub URLs bind a product home onto the named automata, and so does a
 local repo mention (`the local dugout repo` binds `~/Projects/dugout`).
-A numbered issue or pull URL is not bind-only: Staff binds, then books
-absorb on that mouth, and leftover land/ship continue from the original
-ask. `create a new bot ... name the bot Dugout` registers Dugout on the
+A numbered issue or pull URL is not bind-only: Staff binds, then creates
+a GoalRun and books the first criterion on that mouth. Workers have no
+mandate. Leftover land/ship continue from the original ask when the user
+named them. `create a new bot ... name the bot Dugout` registers Dugout on the
 roster at send time; the runtime does the provisioning, not the mouth. Bound code
 work seeds from that checkout, never this Automaton tree. A note that
 names a concrete file (`surface its agents.md`) books an analyze look on

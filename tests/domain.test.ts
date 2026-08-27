@@ -22,12 +22,13 @@ import {
     looksLikeJobStatusAsk,
     looksLikePromote,
     looksLikeShip,
+    looksLikeValidate,
+    criteriaFromAsk,
     looksLikeSourceAsk,
     keepAliveStatus,
     isWhitelistedRunningStatus,
     runningStatusNote,
     STILL_RUNNING,
-  nextMandateJob,
   firstAskStep,
   remainingAsk,
   splitAskSteps,
@@ -184,25 +185,22 @@ describe('mouth vs job', () => {
       'check if python is on PATH',
     )
     expect(remainingAsk(installThenPath, 'check if python is on PATH')).toBe('')
+    expect(criteriaFromAsk(installThenPath, 'coordinator').map((row) => row.kind)).toEqual([
+      'box-shell',
+      'box-shell',
+    ])
+    expect(criteriaFromAsk(installThenPath, 'coordinator').map((row) => row.work)).toEqual([
+      'install curl on the computer',
+      'check if python is on PATH',
+    ])
     expect(
-      nextMandateJob('coordinator', installThenPath, {
-        kind: 'box-shell',
-        goal: 'install curl on the computer',
-      }),
-    ).toEqual({ kind: 'box-shell', text: 'check if python is on PATH' })
-    expect(
-      nextMandateJob(
-        'code',
-        'look at marionette then implement the router patch in that checkout',
-        { kind: 'analyze', goal: 'look at marionette' },
+      criteriaFromAsk('look at marionette then implement the router patch in that checkout', 'code').map(
+        (row) => row.kind,
       ),
-    ).toEqual({ kind: 'implement', text: 'implement the router patch in that checkout' })
-    expect(
-      nextMandateJob('code', 'install curl on the computer', {
-        kind: 'box-shell',
-        goal: 'install curl on the computer',
-      }),
-    ).toBeNull()
+    ).toEqual(['analyze', 'implement'])
+    expect(criteriaFromAsk('install curl on the computer', 'code')).toEqual([
+      { label: 'shell', kind: 'box-shell', work: 'install curl on the computer' },
+    ])
   })
 
   test('a numbered GitHub issue is absorb work, not a home ping', () => {
@@ -225,17 +223,16 @@ describe('mouth vs job', () => {
       'merge dest to main',
       'ship a new release',
     ])
+    expect(criteriaFromAsk(ask, 'code').map((row) => row.kind)).toEqual([
+      'implement',
+      'promote',
+      'ship',
+    ])
     expect(jobKindForKit('code', firstAskStep(ask))).toBe('implement')
     expect(jobKindForKit('coordinator', firstAskStep(ask))).toBe('implement')
     expect(jobKindForKit('lookup', firstAskStep(ask))).toBe('analyze')
     expect(jobKindForKit('code', 'merge dest to main')).toBe('promote')
     expect(jobKindForKit('code', 'ship a new release')).toBe('ship')
-    expect(
-      nextMandateJob('code', ask, { kind: 'implement', goal: `absorb ${url}` }),
-    ).toEqual({ kind: 'promote', text: 'merge dest to main' })
-    expect(
-      nextMandateJob('code', ask, { kind: 'promote', goal: 'merge dest to main' }),
-    ).toEqual({ kind: 'ship', text: 'ship a new release' })
     expect(isPing(ask, staffWithSisters())).toBe(false)
     const marionette = {
       id: 'agent_m',
@@ -251,6 +248,54 @@ describe('mouth vs job', () => {
     ).toBe('analyze')
   })
 
+  test('a numbered pull with validated/absorbed/merged/new release compiles analyze first', () => {
+    const url = 'https://github.com/professorpalmer/marionette/pull/12'
+    const ask = `Here is a PR ${url} can we get it validated, absorbed, merged, new release?`
+    expect(looksLikeValidate(ask)).toBe(true)
+    expect(looksLikeFinishLine(ask)).toBe(true)
+    expect(looksLikePromote(ask)).toBe(true)
+    expect(looksLikeShip(ask)).toBe(true)
+    expect(criteriaFromAsk(ask, 'code').map((row) => ({ kind: row.kind, label: row.label }))).toEqual([
+      { kind: 'analyze', label: 'validate' },
+      { kind: 'implement', label: 'absorb' },
+      { kind: 'promote', label: 'merge' },
+      { kind: 'ship', label: 'ship' },
+    ])
+    expect(jobKindForKit('code', firstAskStep(ask))).toBe('analyze')
+    expect(
+      criteriaFromAsk(`absorb ${url}`, 'code').map((row) => row.kind),
+    ).toEqual(['implement'])
+  })
+
+  test('bare tag and incidental shipping are not a release', () => {
+    expect(looksLikeShip('look at the tag in package.json')).toBe(false)
+    expect(looksLikeShip('the feature is shipping next week')).toBe(false)
+    expect(looksLikeShip('we shipped yesterday')).toBe(false)
+    expect(looksLikeShip('the commit was tagged')).toBe(false)
+    expect(looksLikeShip('new release')).toBe(true)
+    expect(looksLikeShip('cut a release')).toBe(true)
+    expect(looksLikeShip('tag a release')).toBe(true)
+    expect(looksLikeShip('ship a new release')).toBe(true)
+    expect(looksLikeShip('ship')).toBe(true)
+    expect(jobKindForKit('code', 'look at the tag in package.json')).not.toBe('ship')
+    expect(jobKindForKit('code', 'the feature is shipping next week')).not.toBe('ship')
+    expect(criteriaFromAsk('look at the tag in package.json', 'code').some((row) => row.kind === 'ship')).toBe(
+      false,
+    )
+    expect(criteriaFromAsk('the feature is shipping next week', 'code').some((row) => row.kind === 'ship')).toBe(
+      false,
+    )
+  })
+
+  test('a pull URL plus ship a new release inserts promote before ship', () => {
+    const url = 'https://github.com/professorpalmer/marionette/pull/12'
+    const ask = `${url} ship a new release`
+    expect(looksLikeShip(ask)).toBe(true)
+    expect(looksLikePromote(ask)).toBe(false)
+    expect(splitAskSteps(ask)).toEqual([`absorb ${url}`, 'merge dest to main', 'ship a new release'])
+    expect(criteriaFromAsk(ask, 'code').map((row) => row.kind)).toEqual(['implement', 'promote', 'ship'])
+  })
+
   test('status asks are not new jobs; keepalive copy stays whitelisted', () => {
     expect(looksLikeJobStatusAsk('how did it go?')).toBe(true)
     expect(looksLikeJobStatusAsk("how's it going")).toBe(true)
@@ -258,6 +303,7 @@ describe('mouth vs job', () => {
     expect(looksLikeJobStatusAsk('Look up why Send stays Send in Automaton staff.')).toBe(false)
     expect(looksLikeJobStatusAsk('Kernel, the ledger replay breaks on the composer path.')).toBe(false)
     expect(isWhitelistedRunningStatus(STILL_RUNNING)).toBe(true)
+    expect(isWhitelistedRunningStatus('Waiting for required checks.')).toBe(true)
     expect(isWhitelistedRunningStatus('Still installing curl.')).toBe(true)
     expect(isWhitelistedRunningStatus('Done.')).toBe(false)
     expect(keepAliveStatus({ kind: 'analyze', goal: 'look up the ledger' })).toBe(STILL_RUNNING)

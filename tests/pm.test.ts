@@ -124,6 +124,42 @@ describe('puppetmaster spawn contract', () => {
     expect(prompt).toContain('onto dest')
     expect(prompt).toContain('Do not merge dest into main')
     expect(prompt).toContain('Do not tag a release')
+    expect(prompt).toContain('Staff host jobs')
+  })
+
+  test('PM prompts carry the original goal, unmet criteria, and evidence', () => {
+    const analyze = analyzePrompt({
+      id: 'job_val',
+      ownerAgentId: 'agent_m',
+      goal: 'validate https://github.com/professorpalmer/marionette/pull/12',
+      status: 'running',
+      kind: 'analyze',
+      objective:
+        'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?',
+      unmetCriteria: ['absorb', 'merge', 'ship'],
+      evidence: [],
+    })
+    expect(analyze).toContain('Original objective:')
+    expect(analyze).toContain('validated, absorbed, merged')
+    expect(analyze).toContain('Unmet criteria')
+    expect(analyze).toContain('absorb')
+    const absorb = implementPrompt({
+      id: 'job_abs',
+      ownerAgentId: 'agent_m',
+      goal: 'absorb https://github.com/professorpalmer/marionette/pull/12',
+      status: 'running',
+      kind: 'implement',
+      objective:
+        'Here is a PR https://github.com/professorpalmer/marionette/pull/12 can we get it validated, absorbed, merged, new release?',
+      unmetCriteria: ['merge', 'ship'],
+      evidence: ['dest checks are green.'],
+    })
+    expect(absorb).toContain('Original objective:')
+    expect(absorb).toContain('Prior evidence: dest checks are green.')
+    expect(absorb).toContain('Unmet criteria')
+    expect(absorb).toContain('merge')
+    expect(absorb).toContain('Do not merge dest into main')
+    expect(absorb).toContain('Do not tag a release')
   })
 
   test('implement run --config cwd is never the product checkout', () => {

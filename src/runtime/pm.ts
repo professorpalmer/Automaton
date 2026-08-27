@@ -167,6 +167,22 @@ function runGit(args: string[], cwd: string, env: NodeJS.ProcessEnv): void {
   }
 }
 
+function goalContextLines(job: JobHandle): string[] {
+  const lines: string[] = []
+  if (job.objective?.trim() && job.objective.trim() !== job.goal.trim()) {
+    lines.push(`Original objective: ${job.objective.trim()}`)
+  }
+  if (job.unmetCriteria && job.unmetCriteria.length > 0) {
+    lines.push(
+      `Unmet criteria (Staff-owned, not your job): ${job.unmetCriteria.join(', ')}.`,
+    )
+  }
+  if (job.evidence && job.evidence.length > 0) {
+    lines.push(`Prior evidence: ${job.evidence.join(' ')}`)
+  }
+  return lines
+}
+
 export function analyzePrompt(job: JobHandle): string {
   return [
     `You are a Puppetmaster analysis worker for the owner seat ${job.ownerAgentId}.`,
@@ -175,6 +191,7 @@ export function analyzePrompt(job: JobHandle): string {
     'Automaton is the staff app, not the default subject. Do not cite Automaton files (plane.json, AUTOMATON_MODEL, seat.py) unless this checkout is Automaton.',
     'Do not edit files. Do not print job ids.',
     'Produce one FINDING with a short claim the owner can speak aloud, grounded in files you opened.',
+    ...goalContextLines(job),
     `Request: ${job.goal}`,
   ].join(' ')
 }
@@ -222,15 +239,17 @@ export function writeAnalyzeConfig(input: {
 }
 
 export function implementPrompt(job: JobHandle): string {
-  const issue = parseGithubIssue(job.goal)
+  const issue = parseGithubIssue(job.goal) ?? (job.objective ? parseGithubIssue(job.objective) : null)
   const absorb = issue
-    ? ` Absorb GitHub ${issue.kind} ${issue.owner}/${issue.repo}#${issue.number} onto dest. Validate against the whole stack. Do not merge dest into main. Do not tag a release.`
+    ? `Absorb GitHub ${issue.kind} ${issue.owner}/${issue.repo}#${issue.number} onto dest. Validate against the whole stack.`
     : ''
   return [
     `You are a Puppetmaster implement worker for Automaton ${job.ownerAgentId}.`,
     'You are in an isolated git sandbox, not the live Automaton checkout.',
     'Implement the request. Do not print job ids.',
-    absorb.trim(),
+    absorb,
+    ...goalContextLines(job),
+    'Do not merge dest into main. Do not tag a release. Merge and ship are Staff host jobs, not this sandbox.',
     `Request: ${job.goal}`,
   ]
     .filter(Boolean)

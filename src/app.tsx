@@ -62,11 +62,13 @@ import {
   noteJobStatus,
   patchLiveAgent,
   queuePaths,
+  dispatchableJobs,
   runningJobs,
   send,
   setActive,
   setDraft,
   stopJob,
+  waitJobExternal,
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
@@ -95,6 +97,7 @@ function emptySeed(): Session {
     activeAgentId: 'staff',
     threads: emptyThreads(DEFAULT_AGENTS),
     jobs: [],
+    goals: [],
     pendingFanout: null,
   }
 }
@@ -194,7 +197,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }, [store, mouthEpoch])
 
   useEffect(() => {
-    for (const job of runningJobs(session)) {
+    for (const job of dispatchableJobs(session)) {
       let pmIdentity = job.pmJobId
       void ensureDispatched(
         job,
@@ -226,6 +229,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           },
           onFail: (spoken) => {
             setSession((current) => failJob(current, job.id, spoken))
+          },
+          onWaitingExternal: () => {
+            setSession((current) => waitJobExternal(current, job.id))
           },
         },
         session.jobs,

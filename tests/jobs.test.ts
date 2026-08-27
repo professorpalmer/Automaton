@@ -3,7 +3,7 @@ import { spawnSync } from 'node:child_process'
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { JobHandle } from '../src/domain'
+import { WAITING_CHECKS, type JobHandle } from '../src/domain'
 import {
   WATCH_UNAVAILABLE_GRACE,
   ensureDispatched,
@@ -45,11 +45,13 @@ function hooks() {
   const status: string[] = []
   const complete: string[] = []
   const fail: string[] = []
+  const waiting: string[] = []
   return {
     attached,
     status,
     complete,
     fail,
+    waiting,
     onAttached: (pmJobId: string) => {
       attached.push(pmJobId)
     },
@@ -61,6 +63,9 @@ function hooks() {
     },
     onFail: (spoken: string) => {
       fail.push(spoken)
+    },
+    onWaitingExternal: (spoken: string) => {
+      waiting.push(spoken)
     },
   }
 }
@@ -630,5 +635,74 @@ describe('land and ship dispatch', () => {
     )
     expect(h.complete).toEqual([])
     expect(h.fail).toEqual(['Need a version on dest before tagging.'])
+  })
+
+  test('waiting promote retries without completing or failing early', async () => {
+    let calls = 0
+    const sleeps: number[] = []
+    const h = hooks()
+    await ensureDispatched(
+      job({
+        id: 'job_land_wait',
+        ownerAgentId: 'agent_m',
+        kind: 'promote',
+        goal: 'merge dest to main',
+      }),
+      h,
+      [],
+      {
+        spawn: async () => {
+          throw new Error('pm must not start')
+        },
+        externalWaitMs: 0,
+        sleep: async (ms) => {
+          sleeps.push(ms)
+        },
+        promote: (item) => {
+          calls += 1
+          if (calls < 3) {
+            if (calls > 1) expect(item.lastNote).toBe(WAITING_CHECKS)
+            return { ok: false, spoken: WAITING_CHECKS, waitingExternal: true }
+          }
+          expect(item.lastNote).toBe(WAITING_CHECKS)
+          return { ok: true, spoken: 'dev and main are equal.' }
+        },
+      },
+    )
+    expect(calls).toBe(3)
+    expect(sleeps).toContain(0)
+    expect(h.waiting).toEqual([WAITING_CHECKS, WAITING_CHECKS])
+    expect(h.status).toEqual([WAITING_CHECKS])
+    expect(h.complete).toEqual(['dev and main are equal.'])
+    expect(h.fail).toEqual([])
+  })
+
+  test('restarted running promote dispatches again and converges', async () => {
+    const handle = job({
+      id: 'job_land_restart',
+      ownerAgentId: 'agent_m',
+      kind: 'promote',
+      goal: 'merge dest to main',
+    })
+    let calls = 0
+    const first = hooks()
+    await ensureDispatched(handle, first, [], {
+      externalWaitMs: 0,
+      sleep: async () => {},
+      promote: () => {
+        calls += 1
+        if (calls === 1) return { ok: false, spoken: WAITING_CHECKS, waitingExternal: true }
+        return { ok: true, spoken: 'dev and main are equal.' }
+      },
+    })
+    expect(first.fail).toEqual([])
+    expect(handle.status).toBe('running')
+    resetJobsForTests()
+    const second = hooks()
+    await ensureDispatched(handle, second, [], {
+      promote: () => ({ ok: true, spoken: 'dev and main are equal.' }),
+    })
+    expect(second.complete).toEqual(['dev and main are equal.'])
+    expect(second.fail).toEqual([])
   })
 })

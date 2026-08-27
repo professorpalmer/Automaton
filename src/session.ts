@@ -3,6 +3,10 @@ import {
   type AgentId,
   type DeskHandoff,
   type FeedItem,
+  type GoalCriterion,
+  type GoalCriterionDraft,
+  type GoalReceipt,
+  type GoalRun,
   type JobHandle,
   type MouthState,
   type Thread,
@@ -10,14 +14,17 @@ import {
   bindHomes,
   composerEnterBusy,
   createAgentNames,
+  criteriaFromAsk,
   deskHandoffInstruction,
   deskOpenAck,
   dispatchAck,
   dispatchTargets,
   dispatchWork,
   emptyThreads,
+  everyCriterionMet,
   firstAskStep,
-  foldAsk,
+  goalBlocker,
+  goalLaunchContext,
   homeAck,
   homeNote,
   issueWorkTargets,
@@ -28,19 +35,18 @@ import {
   looksLikeCodebaseAsk,
   looksLikeJobStatusAsk,
   looksLikeSourceAsk,
-  MANDATE_MAX_STEPS,
   mentionedAgentIds,
   needsFanoutConfirm,
   nextId,
-  nextMandateJob,
+  nextUnmetCriterion,
   parseDeskUrl,
   parseGithubIssue,
-  remainingAsk,
   renameAck,
   renameAgents,
   returnBeat,
   runningStatusNote,
   sanitizeSpeak,
+  sessionGoals,
   visibleAgents,
 } from './domain'
 import { kitForAgent } from './runtime/profile'
@@ -50,9 +56,27 @@ export type Session = {
   activeAgentId: AgentId
   threads: Record<AgentId, Thread>
   jobs: JobHandle[]
+  goals?: GoalRun[]
   pendingFanout: { text: string; targets: AgentId[] } | null
   deskOpen?: { agentId: AgentId; url: string } | null
   deskHandoff?: DeskHandoff | null
+}
+
+/** Old snapshots omit goals and may still carry a worker mandate. */
+export function normalizeSession(session: Session): Session {
+  const threads: Record<AgentId, Thread> = {}
+  for (const [id, row] of Object.entries(session.threads ?? {})) {
+    if (!row) continue
+    const leftover = { ...row } as Thread & { mandate?: unknown }
+    delete leftover.mandate
+    threads[id] = leftover
+  }
+  return {
+    ...session,
+    threads,
+    jobs: Array.isArray(session.jobs) ? session.jobs : [],
+    goals: sessionGoals(session.goals),
+  }
 }
 
 function thread(session: Session, id: AgentId): Thread {
@@ -154,9 +178,10 @@ export function dropLiveAgent(session: Session, agentId: AgentId): Session {
   const threads = { ...session.threads }
   delete threads[agentId]
   const jobs = session.jobs.filter((job) => job.ownerAgentId !== agentId)
+  const goals = sessionGoals(session.goals).filter((goal) => goal.ownerAgentId !== agentId)
   const activeAgentId =
     session.activeAgentId === agentId ? (agents[0]?.id ?? '') : session.activeAgentId
-  return { ...session, agents, threads, jobs, activeAgentId }
+  return { ...session, agents, threads, jobs, goals, activeAgentId }
 }
 
 export function patchLiveAgent(session: Session, agent: Agent): Session {
@@ -200,22 +225,6 @@ function productNames(session: Session): string[] {
   return visibleAgents(session.agents)
     .filter((row) => row.id !== 'staff')
     .map((row) => row.name)
-}
-
-function alreadyRanJob(
-  session: Session,
-  ownerAgentId: AgentId,
-  kind: JobHandle['kind'],
-  goal: string,
-): boolean {
-  const folded = foldAsk(goal)
-  return session.jobs.some(
-    (row) =>
-      row.ownerAgentId === ownerAgentId &&
-      row.kind === kind &&
-      row.status !== 'running' &&
-      foldAsk(row.goal) === folded,
-  )
 }
 
 function stamped(
@@ -465,24 +474,71 @@ function deliverTo(
     next = speak(next, agentId, runningStatusNote(running), focused)
     return wakeMouth(next, agentId, 'working')
   }
-  const step = firstAskStep(text)
-  const kind = ping ? null : jobKindForKit(kitForAgent(agentId), step, prior, products)
+  const kit = kitForAgent(agentId)
+  const source = parseGithubIssue(mandateText) ? mandateText : text
+  const drafts = ping ? [] : criteriaFromAsk(source, kit, prior, products)
+  const step = drafts[0]?.work ?? firstAskStep(text)
+  const kind = ping ? null : (drafts[0]?.kind ?? jobKindForKit(kit, step, prior, products))
   if (kind) {
     next = speak(next, agentId, ackLine(agent?.name ?? 'Agent'), focused)
     next = wakeMouth(next, agentId, 'ack')
-    const handle: JobHandle = {
-      id: nextId('job'),
-      ownerAgentId: agentId,
-      goal: jobGoal(step, prior, kind),
-      status: 'running',
-      kind,
-    }
-    next = { ...next, jobs: [...next.jobs, handle] }
-    next = setThread(next, agentId, { mandate: { text: mandateText, steps: 1 }, mouth: 'working' })
-    return wakeMouth(next, agentId, 'working')
+    const rows = drafts.length > 0 ? drafts : [{ label: kind, kind, work: step }]
+    return openGoalRun(next, agentId, focused, mandateText, rows, prior)
   }
-  next = setThread(next, agentId, { mandate: undefined })
   return wakeMouth(next, agentId, 'answer')
+}
+
+function putGoal(session: Session, goal: GoalRun): Session {
+  const goals = sessionGoals(session.goals)
+  const hit = goals.findIndex((row) => row.id === goal.id)
+  if (hit < 0) return { ...session, goals: [...goals, goal] }
+  return { ...session, goals: goals.map((row) => (row.id === goal.id ? goal : row)) }
+}
+
+function openGoalRun(
+  session: Session,
+  ownerAgentId: AgentId,
+  focused: AgentId,
+  objective: string,
+  drafts: GoalCriterionDraft[],
+  prior: string,
+): Session {
+  const criteria: GoalCriterion[] = drafts.map((row, index) => ({
+    ...row,
+    id: nextId('crit'),
+    status: index === 0 ? 'running' : 'pending',
+  }))
+  const first = criteria[0]
+  if (!first) return wakeMouth(session, ownerAgentId, 'answer')
+  const goal: GoalRun = {
+    id: nextId('goal'),
+    text: objective,
+    coordinatorId: session.agents.some((agent) => agent.id === 'staff') ? 'staff' : focused,
+    ownerAgentId,
+    criteria,
+    receipts: [],
+    status: 'running',
+    activeCriterionId: first.id,
+  }
+  let next = putGoal(session, goal)
+  next = { ...next, jobs: [...next.jobs, criterionJob(goal, first, prior)] }
+  return wakeMouth(next, ownerAgentId, 'working')
+}
+
+function criterionJob(goal: GoalRun, criterion: GoalCriterion, prior: string): JobHandle {
+  const ctx = goalLaunchContext(goal, criterion)
+  return {
+    id: nextId('job'),
+    ownerAgentId: goal.ownerAgentId,
+    goal: jobGoal(criterion.work, prior, criterion.kind),
+    status: 'running',
+    kind: criterion.kind,
+    goalId: goal.id,
+    criterionId: criterion.id,
+    objective: ctx.objective,
+    unmetCriteria: ctx.unmetCriteria,
+    evidence: ctx.evidence,
+  }
 }
 
 function ackLine(name: string): string {
@@ -530,7 +586,8 @@ function inboundCoordinatorId(session: Session, agentId: AgentId): AgentId | nul
   const items = row.items
   let lastUser = -1
   for (let i = items.length - 1; i >= 0; i--) {
-    if (items[i]?.kind === 'msg' && items[i].from === 'user') {
+    const item = items[i]
+    if (item?.kind === 'msg' && item.from === 'user') {
       lastUser = i
       break
     }
@@ -580,59 +637,101 @@ export function attachPmJob(session: Session, jobId: string, pmJobId: string): S
   }
 }
 
-function closeMandateThenReturn(
+function matchingGoal(session: Session, job: JobHandle): GoalRun | undefined {
+  if (!job.goalId) return undefined
+  return sessionGoals(session.goals).find((row) => row.id === job.goalId)
+}
+
+function matchingCriterion(goal: GoalRun, job: JobHandle): GoalCriterion | undefined {
+  if (job.criterionId) return goal.criteria.find((row) => row.id === job.criterionId)
+  return goal.criteria.find((row) => row.status === 'running' && row.kind === job.kind)
+}
+
+function addReceipt(goal: GoalRun, criterionId: string, jobId: string, spoken: string, ok: boolean): GoalReceipt[] {
+  const receipt: GoalReceipt = {
+    id: nextId('rcpt'),
+    criterionId,
+    jobId,
+    spoken: sanitizeSpeak(spoken),
+    ok,
+    at: Date.now(),
+  }
+  return [...goal.receipts, receipt]
+}
+
+function markCriterion(goal: GoalRun, criterionId: string, status: GoalCriterion['status']): GoalRun {
+  return {
+    ...goal,
+    criteria: goal.criteria.map((row) => (row.id === criterionId ? { ...row, status } : row)),
+  }
+}
+
+function closeGoalThenReturn(
   session: Session,
+  goal: GoalRun,
   ownerId: AgentId,
   from: AgentId | null,
   spoken: string,
   focused: AgentId,
 ): Session {
-  const next = setThread(session, ownerId, { mandate: undefined, mouth: 'idle' })
-  return coordinatorReturn(next, from, ownerId, spoken, focused)
+  const next = putGoal(session, { ...goal, activeCriterionId: undefined })
+  return coordinatorReturn(wakeMouth(next, ownerId, 'idle'), from, ownerId, spoken, focused)
 }
 
-function continueMandate(
+function bookNextOrClose(
   session: Session,
-  job: JobHandle,
+  goal: GoalRun,
   spoken: string,
   focused: AgentId,
   from: AgentId | null,
-  afterFail = false,
 ): Session {
-  const row = thread(session, job.ownerAgentId)
-  const mandate = row.mandate
-  if (!mandate) return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
-  if (mandate.steps >= MANDATE_MAX_STEPS) {
-    return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  const prior = priorUserText(thread(session, goal.ownerAgentId).items)
+  const nextCrit = nextUnmetCriterion(goal)
+  if (!nextCrit) {
+    const complete =
+      everyCriterionMet(goal) ||
+      goal.criteria.every((row) => row.status === 'met' || row.status === 'skipped')
+    return closeGoalThenReturn(
+      session,
+      { ...goal, status: complete ? 'complete' : 'failed' },
+      goal.ownerAgentId,
+      from,
+      spoken,
+      focused,
+    )
   }
-  const prior = priorUserText(row.items)
-  const products = productNames(session)
-  let nextWork = nextMandateJob(
-    kitForAgent(job.ownerAgentId),
-    mandate.text,
-    job,
-    products,
-    prior,
-  )
-  if (afterFail && !remainingAsk(mandate.text, job.goal)) nextWork = null
-  if (!nextWork) return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
-  const goal = jobGoal(nextWork.text, prior, nextWork.kind)
-  if (alreadyRanJob(session, job.ownerAgentId, nextWork.kind, goal)) {
-    return closeMandateThenReturn(session, job.ownerAgentId, from, spoken, focused)
+  const running = {
+    ...markCriterion(goal, nextCrit.id, 'running'),
+    status: 'running' as const,
+    activeCriterionId: nextCrit.id,
   }
-  const handle: JobHandle = {
-    id: nextId('job'),
-    ownerAgentId: job.ownerAgentId,
-    goal,
-    status: 'running',
-    kind: nextWork.kind,
-  }
-  let next: Session = { ...session, jobs: [...session.jobs, handle] }
-  next = setThread(next, job.ownerAgentId, {
-    mandate: { ...mandate, steps: mandate.steps + 1 },
-    mouth: 'working',
-  })
-  return next
+  let next = putGoal(session, running)
+  next = { ...next, jobs: [...next.jobs, criterionJob(running, nextCrit, prior)] }
+  return wakeMouth(next, running.ownerAgentId, 'working')
+}
+
+function failGoal(
+  session: Session,
+  goal: GoalRun,
+  spoken: string,
+  focused: AgentId,
+): Session {
+  const failed = { ...goal, status: 'failed' as const, activeCriterionId: undefined }
+  let next = putGoal(session, failed)
+  next = wakeMouth(next, failed.ownerAgentId, 'idle')
+  if (failed.coordinatorId === failed.ownerAgentId || !next.threads[failed.coordinatorId]) return next
+  const name = next.agents.find((agent) => agent.id === failed.ownerAgentId)?.name ?? 'They'
+  next = speak(next, failed.coordinatorId, goalBlocker(name, spoken), focused)
+  return wakeMouth(next, failed.coordinatorId, 'idle')
+}
+
+export function waitJobExternal(session: Session, jobId: string): Session {
+  const job = session.jobs.find((item) => item.id === jobId)
+  if (!job || job.status !== 'running') return session
+  const goal = matchingGoal(session, job)
+  if (!goal || goal.status === 'waiting_external') return session
+  if (goal.status !== 'running' && goal.status !== 'planning') return session
+  return putGoal(session, { ...goal, status: 'waiting_external' })
 }
 
 export function completeJob(session: Session, jobId: string, spoken = 'Done.'): Session {
@@ -649,7 +748,16 @@ export function completeJob(session: Session, jobId: string, spoken = 'Done.'): 
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
-  return continueMandate(next, job, spoken, focused, from)
+  const goal = matchingGoal(next, job)
+  const criterion = goal ? matchingCriterion(goal, job) : undefined
+  if (!goal || !criterion) {
+    return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+  }
+  const reconciled = {
+    ...markCriterion(goal, criterion.id, 'met'),
+    receipts: addReceipt(goal, criterion.id, job.id, spoken, true),
+  }
+  return bookNextOrClose(next, reconciled, spoken, focused, from)
 }
 
 export function failJob(session: Session, jobId: string, spoken = "Didn't land."): Session {
@@ -666,7 +774,16 @@ export function failJob(session: Session, jobId: string, spoken = "Didn't land."
   next = wakeMouth(next, job.ownerAgentId, 'must_deliver')
   next = speak(next, job.ownerAgentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
-  return continueMandate(next, job, spoken, focused, from, true)
+  const goal = matchingGoal(next, job)
+  const criterion = goal ? matchingCriterion(goal, job) : undefined
+  if (!goal || !criterion) {
+    return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+  }
+  const failed = {
+    ...markCriterion(goal, criterion.id, 'failed'),
+    receipts: addReceipt(goal, criterion.id, job.id, spoken, false),
+  }
+  return failGoal(next, failed, spoken, focused)
 }
 
 export function stopJob(session: Session, jobId: string): Session {
@@ -678,12 +795,35 @@ export function stopJob(session: Session, jobId: string): Session {
       item.id === jobId ? { ...item, status: 'failed' as const } : item,
     ),
   }
-  next = setThread(next, job.ownerAgentId, { mandate: undefined, mouth: 'idle' })
-  return next
+  const goal = matchingGoal(next, job)
+  if (goal) {
+    next = putGoal(next, { ...goal, status: 'cancelled', activeCriterionId: undefined })
+  }
+  return wakeMouth(next, job.ownerAgentId, 'idle')
 }
 
 export function runningJobs(session: Session): JobHandle[] {
   return session.jobs.filter((job) => job.status === 'running')
+}
+
+function isHostLand(job: JobHandle): boolean {
+  return job.kind === 'promote' || job.kind === 'ship'
+}
+
+/** UI still lists every running job. Dispatch at most one host land per owner. */
+export function dispatchableJobs(session: Session): JobHandle[] {
+  const hostOwner = new Set<AgentId>()
+  const ready: JobHandle[] = []
+  for (const job of runningJobs(session)) {
+    if (!isHostLand(job)) {
+      ready.push(job)
+      continue
+    }
+    if (hostOwner.has(job.ownerAgentId)) continue
+    hostOwner.add(job.ownerAgentId)
+    ready.push(job)
+  }
+  return ready
 }
 
 export function ownerRunningJob(session: Session, agentId: AgentId): JobHandle | undefined {
