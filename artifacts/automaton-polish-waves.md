@@ -1,6 +1,6 @@
 # Automaton polish waves
 
-Wave 5 (this branch): skill import + progressive disclosure. Stop here.
+Wave 6 (this branch): unattended ≠ Auto + cache-stable compaction. Planned polish pack is done. Stop here.
 
 Chief of Staff is the only seeded mouth. `dropUnclaimedSeedSisters` stays. Do not seed Kernel or Research. Users spin up more automata via the Chief / factory (`addLiveAgent` / New agent). GPU tweens stay size / pos / opacity / radius. No glass window. Do not touch `pm.ts`, blob bake, I2/J2, Puppetmaster, or Marionette.
 
@@ -47,7 +47,7 @@ Merge / promote is a **widget**, not an auto-book. Secret-request is a card, not
 
 Do not add job ids to spoken lines unless the user asked.
 
-## 5. Skill import + progressive disclosure — THIS BRANCH
+## 5. Skill import + progressive disclosure — DONE
 
 Markdown-only. Disabled by default. Skip scripts. Pin URL + hash. Name regex is the path gate.
 
@@ -57,17 +57,21 @@ Markdown-only. Disabled by default. Skip scripts. Pin URL + hash. Name regex is 
 - Mouth catalog is name+description, budgeted (~15 skills / 4kB). Full body loads on match, pin, or `@name`. `disable-model-invocation` stays off the catalog; inspector pin / `@mention` is the slash-only path.
 - Do not dump every `SKILL.md` into every turn. Do not auto-fire imported skills. No skill recorder.
 
-## 6. Unattended ≠ Auto + cache-stable compaction
+## 6. Unattended ≠ Auto + cache-stable compaction — DONE
 
 Unattended is not Auto. Do not silently raise autonomy.
 
-Cache-stable compaction:
+- A turn with no user-authored kickoff (webhook / routine / peer-hop / intro) cannot use Auto. Those sources still paint an approval widget.
+- Auto still asks on destructive/sensitive (`.env`, `.ssh`, `rm -rf`, force-push). Regex is not the sandbox.
+- Dead broker denies. allowed-once ≠ Always-allow. Restart cancels in-flight pending.
 
-- Stable prefix so prompt cache can hit.
-- Last-3 screenshots only.
-- Prune every 25 turns.
+Cache-stable compaction (Sketch A): `artifacts/automaton-compaction-plan.md`.
 
-AG-UI-shaped **native** cards, not agent HTML. Compaction sketch: `artifacts/automaton-compaction-plan.md` (Sketch A). Do not inject the vault into every prompt.
+- Stable prefix (system + tools) → breakpoint → dynamic tail.
+- No timestamps / UUIDs / reordered tool JSON in the cached prefix. Volatile tool results stay in the tail.
+- Last-3 screenshots only. Prune every 25 turns, not every turn.
+- Client-side compact summarizes the middle on a cheap OpenRouter model. Custom instructions pin code, paths, decisions. System prompt stays cache-identical. No Claude `compact_*` API.
+- Query-first working set stays bounded. Native Wave 4 cards; no AG-UI runtime.
 
 ## Invariants for every later wave
 

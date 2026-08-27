@@ -285,6 +285,8 @@ describe('computer tool catalog', () => {
     expect(prefixHasTimestamp(prefix)).toBe(false)
     expect(prefix).toContain('DISPLAY :2')
     expect(prefix).toContain('Do not declare the Goal complete')
+    expect(prefix).not.toContain('open example.com')
+    expect(prefix).not.toContain('Task:')
   })
 })
 

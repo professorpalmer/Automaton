@@ -1,6 +1,7 @@
 import type { AgentKit } from '../domain'
 import { boxExec } from './box'
 import { browse } from './chrome'
+import { shouldPruneScreenshots, withCacheBreakpoint } from './compact'
 import {
   executeComputerBatch,
   stableComputerPrefix,
@@ -34,7 +35,7 @@ export type ComputerWorkerHooks = {
   onComplete: (spoken: string, screenshotPath?: string) => void
   onFail: (spoken: string) => void
   onOperatorHelp?: (instruction: string) => void
-  onHostApproval?: (prompt: string) => void
+  onHostApproval?: (prompt: string, action?: string) => void
 }
 
 export type ComputerWorkerInput = {
@@ -57,6 +58,7 @@ export type ComputerWorkerOutcome = {
   rounds: number
   operatorHelp?: boolean
   needsApproval?: boolean
+  action?: string
 }
 
 const started = new Set<string>()
@@ -102,7 +104,6 @@ export async function runComputerWorker(input: ComputerWorkerInput): Promise<Com
   const prefix = stableComputerPrefix({
     agentName: input.agentName,
     display: input.display,
-    goal: input.goal,
   })
   let turns: ComputerChatTurn[] = [
     { role: 'system', content: prefix },
@@ -116,7 +117,7 @@ export async function runComputerWorker(input: ComputerWorkerInput): Promise<Com
     for (let round = 0; round < maxRounds; round += 1) {
       rounds = round + 1
       leases.renew(input.display, holderId)
-      turns = trimScreenshots(turns)
+      if (shouldPruneScreenshots(rounds)) turns = trimScreenshots(turns)
       const reply = await input.chat(turns)
       if (reply.actions && reply.actions.length > 0) {
         const batch = await executeComputerBatch(reply.actions, ctx, input.seams)
@@ -146,6 +147,7 @@ export async function runComputerWorker(input: ComputerWorkerInput): Promise<Com
             screenshotPath: lastScreenshot(turns),
             rounds,
             needsApproval: true,
+            action: approval.action,
           }
         }
         if (batch.halted) {
@@ -187,7 +189,7 @@ export async function ensureComputerWorker(
       return
     }
     if (result.needsApproval) {
-      hooks.onHostApproval?.(result.spoken)
+      hooks.onHostApproval?.(result.spoken, result.action)
       return
     }
     if (result.ok) hooks.onComplete(result.spoken, result.screenshotPath)
@@ -199,7 +201,7 @@ export async function ensureComputerWorker(
   }
 }
 
-const OPENROUTER_COMPUTER_TOOLS = [
+export const OPENROUTER_COMPUTER_TOOLS = [
   { type: 'function', function: { name: 'box_shell', parameters: { type: 'object', properties: { command: { type: 'string' } } } } },
   { type: 'function', function: { name: 'box_read', parameters: { type: 'object', properties: { path: { type: 'string' } } } } },
   { type: 'function', function: { name: 'box_screenshot', parameters: { type: 'object', properties: {} } } },
@@ -244,10 +246,11 @@ export async function chatComputerOpenRouter(
   key: string,
   model = mouthModel(),
 ): Promise<{ text: string; actions?: ComputerToolCall[] }> {
-  const payload = messages.map((row) => ({
-    role: row.role === 'tool' ? 'user' : row.role,
+  const mapped = messages.map((row) => ({
+    role: (row.role === 'tool' ? 'user' : row.role) as 'system' | 'user' | 'assistant',
     content: row.content,
   }))
+  const payload = withCacheBreakpoint(mapped)
   const response = await connectorFetch(
     'openrouter',
     OPENROUTER_CHAT_PATH,

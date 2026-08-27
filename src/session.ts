@@ -71,6 +71,14 @@ import {
   needsOperatorHandoff,
 } from './runtime/computer-tools'
 import { knownConnectorId, writeConnectorSecret } from './runtime/connectors'
+import {
+  cancelPendingApprovals,
+  decideApproval,
+  unattendedApprovalWidget,
+  type ApprovalGrant,
+  type PendingApproval,
+  type TurnKickoff,
+} from './runtime/auto-approve'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -84,6 +92,8 @@ export type ComputerWorker = {
   screenshotPath?: string
   /** Set after the host widget. Host tools still never run silent. */
   hostAllowed?: boolean
+  /** Who started the turn that booked this worker. Unattended cannot Auto. */
+  kickoff?: TurnKickoff
 }
 
 export type Session = {
@@ -96,6 +106,12 @@ export type Session = {
   deskOpen?: { agentId: AgentId; url: string } | null
   deskHandoff?: DeskHandoff | null
   computerWorkers?: ComputerWorker[]
+  /** User opted into Auto. Off by default. Unattended still cannot use it. */
+  autoApprove?: boolean
+  /** In-process broker is alive. Missing means alive. Dead broker denies Auto. */
+  brokerAlive?: boolean
+  pendingApprovals?: PendingApproval[]
+  approvalGrants?: ApprovalGrant[]
 }
 
 /** Old snapshots omit goals and may still carry a worker mandate. */
@@ -161,8 +177,16 @@ export function idleOrphanMouths(session: Session): Session {
   }
   for (const id of Object.keys(next.threads)) {
     if (next.threads[id]?.computerBusy) next = setThread(next, id, { computerBusy: false })
+    const row = next.threads[id]
+    if (!row) continue
+    const items = row.items.map((item) =>
+      item.kind === 'widget' && item.status === 'open' && item.purpose === 'host'
+        ? { ...item, status: 'dismissed' as const }
+        : item,
+    )
+    next = setThread(next, id, { items })
   }
-  return next
+  return { ...next, pendingApprovals: cancelPendingApprovals(next.pendingApprovals ?? []) }
 }
 
 function append(session: Session, agentId: AgentId, item: FeedItem, focused: AgentId): Session {
@@ -692,6 +716,32 @@ export function hasUserMessage(session: Session, agentId: AgentId): boolean {
   return row.items.some((item) => item.kind === 'msg' && item.from === 'user')
 }
 
+export function turnKickoff(session: Session, agentId: AgentId): TurnKickoff {
+  const row = session.threads[agentId]
+  if (!row) return 'unknown'
+  if (row.mouth === 'intro') return 'intro'
+  const last = row.items.at(-1)
+  if (last?.kind === 'relay') return 'peer-hop'
+  if (last?.kind === 'msg' && last.from === 'user') return 'user'
+  if (hasUserMessage(session, agentId)) return 'user'
+  return 'unknown'
+}
+
+export function setAutoApprove(session: Session, enabled: boolean): Session {
+  return { ...session, autoApprove: enabled }
+}
+
+/** Webhook / routine / peer-hop still paint a widget. Auto cannot swallow them. */
+export function offerUnattendedApproval(
+  session: Session,
+  agentId: AgentId,
+  source: 'webhook' | 'routine' | 'peer-hop',
+  prompt?: string,
+): Session {
+  if (!session.threads[agentId]) return session
+  return emitWidgetItem(session, agentId, unattendedApprovalWidget(source, prompt), { purpose: 'ask' })
+}
+
 export function introTurnId(agentId: AgentId): string {
   return `intro:${agentId}`
 }
@@ -1115,6 +1165,7 @@ export function bookComputer(session: Session, ownerAgentId: AgentId, goal: stri
     display: displayForMouth(ownerAgentId),
     goal,
     status: 'running',
+    kickoff: turnKickoff(session, ownerAgentId),
   }
   let next = putComputer(session, worker)
   next = setComputerBusy(next, ownerAgentId, true)
@@ -1374,7 +1425,11 @@ function resolveHostWidget(session: Session, item: Extract<FeedItem, { kind: 'wi
   }
   const worker = (session.computerWorkers ?? []).find((row) => row.id === item.workerId)
   if (!worker || (worker.status !== 'waiting_operator' && worker.status !== 'running')) return session
-  let next = putComputer(session, { ...worker, status: 'running', hostAllowed: true })
+  const pendingApprovals = (session.pendingApprovals ?? []).filter((row) => row.workerId !== item.workerId)
+  let next = putComputer(
+    { ...session, pendingApprovals, autoApprove: session.autoApprove },
+    { ...worker, status: 'running', hostAllowed: true },
+  )
   next = setComputerBusy(next, worker.ownerAgentId, true)
   return next
 }
@@ -1402,11 +1457,46 @@ export function waitComputerHost(
   session: Session,
   workerId: string,
   prompt = HOST_APPROVAL_PROMPT,
+  action = '',
 ): Session {
   const worker = (session.computerWorkers ?? []).find((row) => row.id === workerId)
   if (!worker || worker.status !== 'running') return session
+  const kickoff = worker.kickoff ?? turnKickoff(session, worker.ownerAgentId)
+  const pending: PendingApproval = {
+    id: nextId('appr'),
+    workerId,
+    action: action || prompt,
+    kickoff,
+  }
+  const outcome = decideApproval({
+    action: pending.action,
+    kickoff,
+    autoEnabled: session.autoApprove === true,
+    brokerAlive: session.brokerAlive !== false,
+    grants: session.approvalGrants,
+  })
+  if (outcome.decision === 'deny') {
+    return failComputer(
+      { ...session, approvalGrants: outcome.grants, pendingApprovals: session.pendingApprovals ?? [] },
+      workerId,
+      'Not running that on your Mac.',
+    )
+  }
+  if (outcome.decision === 'auto') {
+    let next = putComputer(
+      { ...session, approvalGrants: outcome.grants },
+      { ...worker, status: 'running', hostAllowed: true },
+    )
+    next = setComputerBusy(next, worker.ownerAgentId, true)
+    return next
+  }
   let next = putComputer(session, { ...worker, status: 'waiting_operator', instruction: prompt })
   next = setComputerBusy(next, worker.ownerAgentId, true)
+  next = {
+    ...next,
+    approvalGrants: outcome.grants,
+    pendingApprovals: [...(next.pendingApprovals ?? []), pending],
+  }
   return emitWidgetItem(next, worker.ownerAgentId, hostApprovalWidget(prompt), {
     purpose: 'host',
     workerId,
