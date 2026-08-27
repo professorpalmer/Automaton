@@ -20,6 +20,11 @@ const SEED_DISPLAY: Record<string, number> = {
   research: 3,
 }
 
+/** Pure peek. Persistence still goes through assignDisplay at runtime. */
+export function displayForMouth(agentId: string): number {
+  return SEED_DISPLAY[agentId] ?? 1
+}
+
 export type MouthScreen = {
   agentId: string
   display: number
