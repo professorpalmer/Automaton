@@ -14,7 +14,7 @@ import {
   assessAsk,
   bindHomes,
   boundGoalEvidence,
-  composerEnterBusy,
+  shouldQueueSteer,
   createAgentNames,
   criteriaFromAsk,
   deskHandoffInstruction,
@@ -72,6 +72,8 @@ export function normalizeSession(session: Session): Session {
     if (!row) continue
     const leftover = { ...row } as Thread & { mandate?: unknown }
     delete leftover.mandate
+    leftover.steerQueue = Array.isArray(leftover.steerQueue) ? leftover.steerQueue : []
+    leftover.jobSteerQueue = Array.isArray(leftover.jobSteerQueue) ? leftover.jobSteerQueue : []
     threads[id] = leftover
   }
   return {
@@ -109,9 +111,11 @@ export function idleOrphanMouths(session: Session): Session {
       const name = next.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
       next = wakeMouth(next, id, 'idle')
       next = speak(next, id, returnBeat(name, last.text), next.activeAgentId)
+      next = finishBatch(next, id)
       continue
     }
     next = setThread(next, id, { mouth: 'idle' })
+    next = finishBatch(next, id)
   }
   return next
 }
@@ -132,6 +136,61 @@ export function setActive(session: Session, agentId: AgentId, introPlayedAt?: st
 export function setDraft(session: Session, text: string): Session {
   if (!session.threads[session.activeAgentId]) return session
   return setThread(session, session.activeAgentId, { draft: text })
+}
+
+function enqueueSteer(session: Session, text: string, attachmentIds: string[] = []): Session {
+  const active = session.activeAgentId
+  if (!session.threads[active]) return session
+  if (!text && attachmentIds.length === 0) return session
+  const current = thread(session, active).steerQueue ?? []
+  return setThread(session, active, {
+    draft: '',
+    pendingPaths: [],
+    steerQueue: [
+      ...current,
+      {
+        text,
+        attachmentIds: attachmentIds.length > 0 ? attachmentIds : undefined,
+      },
+    ],
+  })
+}
+
+function takeSteer(session: Session, agentId: AgentId): { session: Session; text: string; attachmentIds: string[] } | null {
+  const row = session.threads[agentId]
+  if (!row) return null
+  const queued = row.steerQueue ?? []
+  if (queued.length === 0) return null
+  const text = queued.map((line) => line.text).filter(Boolean).join('\n')
+  const attachmentIds = queued.flatMap((line) => line.attachmentIds ?? [])
+  const next = setThread(session, agentId, { steerQueue: [] })
+  if (!text && attachmentIds.length === 0) return { session: next, text: '', attachmentIds: [] }
+  return { session: next, text, attachmentIds }
+}
+
+/** Inject parked user words as the next turn once the mouth/tool batch is idle. Empty is a no-op. */
+export function drainSteer(session: Session, agentId: AgentId): Session {
+  const row = session.threads[agentId]
+  if (!row) return session
+  if (shouldQueueSteer(row.mouth, row.computerBusy === true)) return session
+  if (row.mouth !== 'idle') return session
+  const taken = takeSteer(session, agentId)
+  if (!taken) return session
+  if (!taken.text && taken.attachmentIds.length === 0) return taken.session
+  const focused = taken.session.activeAgentId
+  let next = taken.session.activeAgentId === agentId ? taken.session : { ...taken.session, activeAgentId: agentId }
+  next = send(next, taken.text, taken.attachmentIds)
+  if (focused !== agentId && next.threads[focused]) next = { ...next, activeAgentId: focused }
+  return next
+}
+
+function dropJobSteer(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  return setThread(session, agentId, { jobSteerQueue: [] })
+}
+
+function finishBatch(session: Session, agentId: AgentId): Session {
+  return drainSteer(session, agentId)
 }
 
 export function queuePaths(session: Session, paths: string[]): Session {
@@ -273,7 +332,10 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   const active = session.activeAgentId
   if (!active || !session.threads[active]) return session
   if (!text && attachmentIds.length === 0) return session
-  if (composerEnterBusy(thread(session, active).mouth)) return session
+  const row = thread(session, active)
+  if (shouldQueueSteer(row.mouth, row.computerBusy === true)) {
+    return enqueueSteer(session, text, attachmentIds)
+  }
 
   const roster = visibleAgents(session.agents)
   const kit = kitForAgent(active)
@@ -616,13 +678,15 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
   if (row.mouth === 'intro') {
     const line = sanitizeSpeak(spoken).trim()
     let next = line ? speak(session, agentId, line, focused) : session
-    return wakeMouth(next, agentId, 'idle')
+    next = wakeMouth(next, agentId, 'idle')
+    return finishBatch(next, agentId)
   }
   if (row.mouth !== 'answer') return session
   const from = inboundCoordinatorId(session, agentId)
   let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
   next = wakeMouth(next, agentId, 'idle')
-  return coordinatorReturn(next, from, agentId, spoken, focused)
+  next = coordinatorReturn(next, from, agentId, spoken, focused)
+  return finishBatch(next, agentId)
 }
 
 function inboundCoordinatorId(session: Session, agentId: AgentId): AgentId | null {
@@ -668,7 +732,8 @@ export function failMouth(session: Session, agentId: AgentId, spoken: string): S
   if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
     const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
     let next = wakeMouth(session, agentId, 'idle')
-    return speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
+    next = speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
+    return finishBatch(next, agentId)
   }
   return completeMouth(session, agentId, spoken)
 }
@@ -858,7 +923,9 @@ export function cancelGoal(session: Session, goalId: string): Session {
     ),
   }
   next = putGoal(next, cancelled)
-  return wakeMouth(next, goal.ownerAgentId, 'idle')
+  next = dropJobSteer(next, goal.ownerAgentId)
+  next = wakeMouth(next, goal.ownerAgentId, 'idle')
+  return finishBatch(next, goal.ownerAgentId)
 }
 
 export function completeJob(session: Session, jobId: string, spoken = 'Done.'): Session {
@@ -878,13 +945,15 @@ export function completeJob(session: Session, jobId: string, spoken = 'Done.'): 
   const goal = matchingGoal(next, job)
   const criterion = goal ? matchingCriterion(goal, job) : undefined
   if (!goal || !criterion) {
-    return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+    next = coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+    return finishBatch(next, job.ownerAgentId)
   }
   const reconciled = {
     ...markCriterion(goal, criterion.id, 'met'),
     receipts: addReceipt(goal, criterion.id, job.id, spoken, true),
   }
-  return bookNextOrClose(next, reconciled, spoken, focused, from)
+  next = bookNextOrClose(next, reconciled, spoken, focused, from)
+  return finishBatch(next, job.ownerAgentId)
 }
 
 export function failJob(session: Session, jobId: string, spoken = "Didn't land."): Session {
@@ -904,13 +973,15 @@ export function failJob(session: Session, jobId: string, spoken = "Didn't land."
   const goal = matchingGoal(next, job)
   const criterion = goal ? matchingCriterion(goal, job) : undefined
   if (!goal || !criterion) {
-    return coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+    next = coordinatorReturn(next, from, job.ownerAgentId, spoken, focused)
+    return finishBatch(next, job.ownerAgentId)
   }
   const failed = {
     ...markCriterion(goal, criterion.id, 'failed'),
     receipts: addReceipt(goal, criterion.id, job.id, spoken, false),
   }
-  return failGoal(next, failed, spoken, focused)
+  next = failGoal(next, failed, spoken, focused)
+  return finishBatch(next, job.ownerAgentId)
 }
 
 export function stopJob(session: Session, jobId: string): Session {
@@ -926,7 +997,9 @@ export function stopJob(session: Session, jobId: string): Session {
   if (goal) {
     next = putGoal(next, { ...goal, status: 'cancelled', activeCriterionId: undefined })
   }
-  return wakeMouth(next, job.ownerAgentId, 'idle')
+  next = dropJobSteer(next, job.ownerAgentId)
+  next = wakeMouth(next, job.ownerAgentId, 'idle')
+  return finishBatch(next, job.ownerAgentId)
 }
 
 export function runningJobs(session: Session): JobHandle[] {

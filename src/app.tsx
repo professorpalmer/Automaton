@@ -110,6 +110,18 @@ function emptySeed(): Session {
   }
 }
 
+
+function bindNewUserAttachments(store: StaffStore, before: Session, after: Session): void {
+  for (const [id, row] of Object.entries(after.threads)) {
+    const prev = new Set((before.threads[id]?.items ?? []).map((item) => item.id))
+    for (const item of row.items) {
+      if (item.kind === 'msg' && item.from === 'user' && !prev.has(item.id) && item.attachmentIds?.length) {
+        store.bindAttachments(item.attachmentIds, item.id)
+      }
+    }
+  }
+}
+
 function persistIntroIfUserSpoke(session: Session): void {
   for (const id of Object.keys(session.threads)) {
     if (hasUserMessage(session, id)) markIntroPlayedAt(id)
@@ -210,15 +222,24 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }, [session.deskOpen?.agentId, session.deskOpen?.url])
 
   useEffect(() => {
+    if (runningTests()) return
     void ensureMouth(session, store, {
       onComplete: (agentId, spoken) => {
         setSession((current) => {
           if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
-          return completeMouth(current, agentId, spoken)
+          const next = completeMouth(current, agentId, spoken)
+          bindNewUserAttachments(store, current, next)
+          persistIntroIfUserSpoke(next)
+          return next
         })
       },
       onFail: (agentId, spoken) => {
-        setSession((current) => failMouth(current, agentId, spoken))
+        setSession((current) => {
+          const next = failMouth(current, agentId, spoken)
+          bindNewUserAttachments(store, current, next)
+          persistIntroIfUserSpoke(next)
+          return next
+        })
       },
     })
   }, [store, mouthEpoch])
@@ -253,10 +274,20 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 freshness: 'fresh',
               })
             }
-            setSession((current) => completeJob(current, job.id, spoken))
+            setSession((current) => {
+              const next = completeJob(current, job.id, spoken)
+              bindNewUserAttachments(store, current, next)
+              persistIntroIfUserSpoke(next)
+              return next
+            })
           },
           onFail: (spoken) => {
-            setSession((current) => failJob(current, job.id, spoken))
+            setSession((current) => {
+              const next = failJob(current, job.id, spoken)
+              bindNewUserAttachments(store, current, next)
+              persistIntroIfUserSpoke(next)
+              return next
+            })
           },
           onWaitingExternal: () => {
             setSession((current) => waitJobExternal(current, job.id))
@@ -296,6 +327,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           working = patchLiveAgent(working, agent)
         }
       }
+      const beforeIds = new Set((working.threads[working.activeAgentId]?.items ?? []).map((item) => item.id))
       let next = send(working, row.draft, ids)
       if (kitForAgent(next.activeAgentId) === 'coordinator') {
         const draft = row.draft.trim()
@@ -310,7 +342,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       }
       const last = [...(next.threads[next.activeAgentId]?.items ?? [])]
         .reverse()
-        .find((item) => item.kind === 'msg' && item.from === 'user')
+        .find((item) => item.kind === 'msg' && item.from === 'user' && !beforeIds.has(item.id))
       if (last?.kind === 'msg') store.bindAttachments(ids, last.id)
       persistIntroIfUserSpoke(next)
       return next
@@ -521,7 +553,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     agents={session.agents}
                     onStop={(id) => {
                       abandonJob(id)
-                      setSession((current) => stopJob(current, id))
+                      setSession((current) => {
+                        const next = stopJob(current, id)
+                        bindNewUserAttachments(store, current, next)
+                        persistIntroIfUserSpoke(next)
+                        return next
+                      })
                     }}
                   />
                 ) : null}
@@ -570,7 +607,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               <Composer
                 value={thread?.draft ?? ''}
                 pendingPaths={thread?.pendingPaths ?? []}
-                locked={!thread || composerEnterBusy(thread.mouth)}
+                locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}

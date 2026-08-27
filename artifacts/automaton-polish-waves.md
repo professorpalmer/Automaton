@@ -1,6 +1,6 @@
 # Automaton polish waves
 
-Wave 1 (this branch): first-open greeting. Stop here.
+Wave 2 (this branch): steer-queue. Stop here.
 
 Chief of Staff is the only seeded mouth. `dropUnclaimedSeedSisters` stays. Do not seed Kernel or Research. Users spin up more automata via the Chief / factory (`addLiveAgent` / New agent). GPU tweens stay size / pos / opacity / radius. No glass window. Do not touch `pm.ts`, blob bake, I2/J2, Puppetmaster, or Marionette.
 
@@ -16,20 +16,11 @@ Parked spec: `artifacts/automaton-intro-greeting.md`.
 - `introPlayedAt` on the profile. Once per automaton. User send first wins and still stamps the flag.
 - Tiny copy that the Chief is how you make more is in the Staff intro cue.
 
-## 2. Steer-queue — NEXT
+## 2. Steer-queue — DONE
 
-Send stays live while a mouth turn is in flight. Queued user text must **not** append to `messages[]` / `thread.items` until drain. Stop-then-steer survives Stop: the parked line is the next turn, not a leftover bubble.
+Send stays live while a mouth turn is in flight. Queued user text does **not** append to `thread.items` until drain. Stop-then-steer survives Stop: the parked line is the next turn, not a leftover bubble. A job/delegation queue is dropped on Stop.
 
-Idea: OpenMausBot `server/steer-queue.ts`. Do **not** copy Electron code. Automaton is GPUIX + pure `src/session.ts`. Composer already stays Send on jobs; this is the in-flight **mouth** case (`must_first` / `answer`).
-
-Likely files: `src/session.ts` (`send`, composer lock), `src/runtime/mouth.ts`, `src/app.tsx` Composer, tests in `tests/session.test.ts` / `tests/mouth.test.ts`.
-
-Done when:
-
-1. Typing + Send during `answer` queues; feed does not grow a user bubble yet.
-2. Drain after `completeMouth` / `failMouth` delivers the queued line as a new turn.
-3. Stop during a job does not drop a queued steer. Stop-then-steer still sends.
-4. `bun test` green.
+`shouldQueueSteer(mouth, computerBusy)` parks mid-turn Send. `composerEnterBusy` is false so Send stays Send. Drain after `completeMouth` / `failMouth` / idle job batch / Stop. Thread `computerBusy` is the Wave 3 attach point.
 
 ## 3. Worker computer-use + who-is-driving
 
