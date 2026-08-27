@@ -1,6 +1,7 @@
 import type { Agent, AgentKit, Thread } from '../domain'
 import { imageDataUrl } from './attachments'
 import { formatWellKnown, listWellKnownProjects, type MachineProject } from './machine'
+import { skillPromptLayers, type SkillMeta } from './skills'
 
 export const TAIL = 8
 
@@ -189,6 +190,10 @@ export function systemPrompt(
     homeRepo?: string
     model?: string
     projects?: MachineProject[]
+    skills?: SkillMeta[]
+    skillIds?: string[]
+    query?: string
+    intro?: boolean
   },
 ): string {
   if (input?.kit === 'coordinator') {
@@ -206,6 +211,13 @@ export function systemPrompt(
     ].filter(Boolean)
     const standing = rules.trim()
     if (standing) parts.push(`Standing rules: ${standing}`)
+    const skills = skillPromptLayers({
+      skills: input.skills,
+      pinnedIds: input.skillIds,
+      query: input.query,
+      intro: input.intro,
+    })
+    if (skills.catalog) parts.push(skills.catalog.replace(/\n/g, ' '))
     return parts.join(' ')
   }
   const parts = [
@@ -223,6 +235,13 @@ export function systemPrompt(
   }
   const standing = rules.trim()
   if (standing) parts.push(`Standing rules: ${standing}`)
+  const skills = skillPromptLayers({
+    skills: input?.skills,
+    pinnedIds: input?.skillIds,
+    query: input?.query,
+    intro: input?.intro,
+  })
+  if (skills.catalog) parts.push(skills.catalog.replace(/\n/g, ' '))
   return parts.join(' ')
 }
 
@@ -269,7 +288,16 @@ export function buildWorkingSet(input: {
   projects?: MachineProject[]
   attachments?: { id: string; path: string; mime: string; kind: 'image' | 'file' }[]
   intro?: boolean
+  skills?: SkillMeta[]
+  skillIds?: string[]
+  query?: string
 }): ChatTurn[] {
+  const layers = skillPromptLayers({
+    skills: input.skills,
+    pinnedIds: input.skillIds,
+    query: input.query,
+    intro: input.intro,
+  })
   const system = {
     role: 'system' as const,
     content: systemPrompt(input.agent, input.rules, {
@@ -278,12 +306,19 @@ export function buildWorkingSet(input: {
       homeRepo: input.homeRepo,
       model: input.model,
       projects: input.projects,
+      skills: input.skills,
+      skillIds: input.skillIds,
+      query: input.query,
+      intro: input.intro,
     }),
   }
   if (input.intro) {
     return [system, { role: 'user', content: introUserCue(input.agent) }]
   }
   const messages: ChatTurn[] = [system]
+  if (layers.bodies) {
+    messages.push({ role: 'system', content: layers.bodies })
+  }
   if (input.claims.length > 0) {
     messages.push({
       role: 'system',

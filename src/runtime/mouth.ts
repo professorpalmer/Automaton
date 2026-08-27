@@ -5,6 +5,7 @@ import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from '
 import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
 import { kitForAgent, readProfile } from './profile'
+import { listSkills } from './skills'
 import { DEFAULT_SEAT_MODEL, mouthModel } from './plane'
 import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
@@ -188,16 +189,20 @@ export async function ensureMouth(
         continue
       }
       model = mouthModel()
+      const profile = readProfile(turn.agentId)
       const messages = buildWorkingSet({
         agent,
         thread: session.threads[turn.agentId],
         claims,
-        rules: readProfile(turn.agentId)?.rules,
+        rules: profile?.rules,
         kit: kitForAgent(turn.agentId),
         roster: session.agents,
-        homeRepo: readProfile(turn.agentId)?.homeRepo,
+        homeRepo: profile?.homeRepo,
         model,
         attachments: attached,
+        skills: listSkills(),
+        skillIds: profile?.skillIds ?? [],
+        query: turn.userText,
       })
       if (turn.mode === 'assess') {
         messages.push({ role: 'user', content: turn.userText })
@@ -264,16 +269,19 @@ async function speakIntro(
     return
   }
   const model = INTRO_MOUTH_MODEL
+  const profile = readProfile(agentId)
   const messages = buildWorkingSet({
     agent,
     thread: session.threads[agentId],
     claims: [],
-    rules: readProfile(agentId)?.rules,
+    rules: profile?.rules,
     kit: kitForAgent(agentId),
     roster: session.agents,
-    homeRepo: readProfile(agentId)?.homeRepo,
+    homeRepo: profile?.homeRepo,
     model,
     intro: true,
+    skills: listSkills(),
+    skillIds: profile?.skillIds ?? [],
   })
   let spoken = ''
   for (const candidate of candidates) {
