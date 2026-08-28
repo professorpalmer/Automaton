@@ -41,8 +41,10 @@ import {
   parseLocalHomes,
   parseBoxShellIntent,
   jobKindLabel,
+  mergePendingFeed,
   mentionedAgentIds,
   needsFanoutConfirm,
+  pendingSendItems,
   parseDeskUrl,
   deskOpenAck,
   deskHandoffInstruction,
@@ -646,5 +648,53 @@ describe('mouth vs job', () => {
     expect(asGoalBlockerSource(undefined)).toBe('staff')
     expect(asGoalBlockerSource('host')).toBe('host')
     expect(hydrateGoalBlocker(first.blocker)?.source).toBe('staff')
+  })
+})
+
+describe('pending send overlay', () => {
+  test('pendingSendItems is a user bubble plus cheap Telling ack', () => {
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...DEFAULT_AGENTS, marionette]
+    const items = pendingSendItems("What is Marionette's version up to now?", agents, 'staff')
+    expect(items.map((item) => (item.kind === 'msg' ? item.id : item.kind))).toEqual([
+      'feed-pending-user',
+      'feed-pending-ack',
+    ])
+    expect(items[0]).toMatchObject({
+      kind: 'msg',
+      from: 'user',
+      agentId: 'staff',
+      text: "What is Marionette's version up to now?",
+    })
+    expect(items[1]).toMatchObject({
+      kind: 'msg',
+      from: 'agent',
+      agentId: 'staff',
+      text: 'Telling Marionette.',
+    })
+  })
+
+  test('overlay plus session items de-dupe by agent and user text', () => {
+    const pending = pendingSendItems('hello from the right', DEFAULT_AGENTS, 'staff')
+    expect(pending).toHaveLength(1)
+    const sessionItems: FeedItem[] = [
+      { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: 'hello from the right' },
+      { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'On it.' },
+    ]
+    const overlay = {
+      agentId: 'staff' as const,
+      text: 'hello from the right',
+      ack: '',
+    }
+    expect(mergePendingFeed(sessionItems, overlay, 'staff')).toEqual(sessionItems)
+    expect(mergePendingFeed([], overlay, 'staff')).toHaveLength(1)
+    expect(mergePendingFeed([], overlay, 'kernel')).toEqual([])
   })
 })

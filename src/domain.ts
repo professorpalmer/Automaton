@@ -1344,6 +1344,75 @@ export function dispatchAck(
   return `${verb} ${names[0] ?? 'them'}.`
 }
 
+export const PENDING_USER_ID = 'feed-pending-user'
+export const PENDING_ACK_ID = 'feed-pending-ack'
+
+/** View-local Enter overlay. Not a session entity; no jobs, relays, or sister mouths. */
+export type PendingSendView = {
+  agentId: AgentId
+  text: string
+  ack: string
+}
+
+export function pendingSendAck(text: string, agents: Agent[], focused: AgentId): string {
+  const targets = dispatchTargets(text, agents, focused)
+  if (targets.length === 0) return ''
+  return dispatchAck(text, agents, targets, focused)
+}
+
+export function overlaySendItems(pending: PendingSendView): FeedItem[] {
+  const items: FeedItem[] = [
+    {
+      kind: 'msg',
+      id: PENDING_USER_ID,
+      from: 'user',
+      agentId: pending.agentId,
+      text: pending.text,
+    },
+  ]
+  if (pending.ack) {
+    items.push({
+      kind: 'msg',
+      id: PENDING_ACK_ID,
+      from: 'agent',
+      agentId: pending.agentId,
+      text: pending.ack,
+    })
+  }
+  return items
+}
+
+/** Cheap user bubble + Telling/Asking ack for the live Enter overlay. */
+export function pendingSendItems(text: string, agents: Agent[], focused: AgentId): FeedItem[] {
+  const trimmed = text.trim()
+  if (!trimmed) return []
+  return overlaySendItems({
+    agentId: focused,
+    text: trimmed,
+    ack: pendingSendAck(trimmed, agents, focused),
+  })
+}
+
+export function sessionCoversPending(items: FeedItem[], pending: PendingSendView): boolean {
+  return items.some(
+    (item) =>
+      item.kind === 'msg' &&
+      item.from === 'user' &&
+      item.agentId === pending.agentId &&
+      item.text === pending.text,
+  )
+}
+
+export function mergePendingFeed(
+  items: FeedItem[],
+  pending: PendingSendView | null,
+  activeAgentId: AgentId,
+): FeedItem[] {
+  if (!pending || pending.agentId !== activeAgentId) return items
+  if (sessionCoversPending(items, pending)) return items
+  return [...items, ...overlaySendItems(pending)]
+}
+
 export function returnBeat(name: string, spoken: string): string {
   const line = sanitizeSpeak(spoken)
   if (/\b(here|around|online|i am here)\b/i.test(line)) return `${name} is on the rail.`

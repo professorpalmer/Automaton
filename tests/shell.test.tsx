@@ -6,7 +6,15 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem } from '../src/domain'
+import {
+  DEFAULT_AGENTS,
+  emptyThreads,
+  mergePendingFeed,
+  pendingSendItems,
+  resetIdsForTests,
+  staffWithSisters,
+  type FeedItem,
+} from '../src/domain'
 import { Inspector, copyChord, cutChord, inspectorChord, pasteChord, quitChord, selectAllChord } from '../src/inspector'
 import { copiedInTests } from '../src/runtime/clipboard'
 import { createAgent } from '../src/runtime/factory'
@@ -15,16 +23,23 @@ import { openStaffStore } from '../src/runtime/store'
 import { T } from '../src/tokens'
 
 describe('onSend scheduling', () => {
-  test('finishSend is not coupled to persist/profile finish()', () => {
+  test('live Enter presents overlay then commits session after timeout', () => {
     const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     const start = src.indexOf('const onSend = () =>')
     const end = src.indexOf('const onAttach = () =>')
     expect(start).toBeGreaterThan(0)
     expect(end).toBeGreaterThan(start)
     const onSend = src.slice(start, end)
-    expect(onSend).toContain('queueMicrotask')
-    expect(onSend).toMatch(/setTimeout\(finish/)
+    expect(onSend).toContain('flushSync')
+    expect(onSend).toContain('presentOverlayFrame')
+    expect(onSend).toContain('setPendingSend')
+    expect(onSend).toMatch(/finishSend\(paintSend/)
+    expect(onSend).toMatch(/setTimeout\(/)
+    expect(onSend).not.toContain('queueMicrotask')
     expect(onSend).not.toMatch(/finishSend\(current\)\)\s*finish\(\)/)
+    expect(src).toContain('runningTests() ? seeded')
+    expect(onSend).toContain('runningTests()')
+    expect(onSend).toContain('shouldQueueSteer')
   })
 })
 
@@ -568,6 +583,46 @@ native('staff shell (GPUI native)', () => {
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(tree, 'composer-stop')).toBeTruthy()
     expect(findTestId(tree, 'send')).toBeTruthy()
+  })
+
+  test('pending overlay items pin as user plus Telling without jobs', () => {
+    const agents = [
+      ...DEFAULT_AGENTS,
+      { id: 'agent_mn', name: 'Marionette', title: '', description: '', color: '#777777', hidden: false },
+    ]
+    const overlay = {
+      agentId: 'staff' as const,
+      text: "What is Marionette's version up to now?",
+      ack: 'Telling Marionette.',
+    }
+    expect(pendingSendItems(overlay.text, agents, 'staff').map((item) => item.id)).toEqual([
+      'feed-pending-user',
+      'feed-pending-ack',
+    ])
+    const items = mergePendingFeed([], overlay, 'staff')
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={agents} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'feed-pending-user')).toBeTruthy()
+    expect(findTestId(tree, 'feed-pending-ack')).toBeTruthy()
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain("What is Marionette's version up to now?")
+    expect(painted).toContain('Telling Marionette.')
+    const covered = mergePendingFeed(
+      [
+        { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: "What is Marionette's version up to now?" },
+        { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'Telling Marionette.' },
+      ],
+      { agentId: 'staff', text: "What is Marionette's version up to now?", ack: 'Telling Marionette.' },
+      'staff',
+    )
+    expect(covered.map((item) => item.id)).toEqual(['item_1', 'item_2'])
   })
 
   test('Staff feed keeps Sent to and hides the sister line', () => {
