@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { desktopsRoot } from './computer'
 import { automatonHome } from './keys'
@@ -52,4 +52,49 @@ export function desktopPreview(agentId: string, home = automatonHome()): {
     dir: desktopDir(agentId, home),
     screen: existsSync(screen) ? screen : null,
   }
+}
+
+export type DeskSurface = 'host' | 'box'
+export type DeskViewport = { width: number; height: number }
+
+export function surfacePath(agentId: string, home = automatonHome()): string {
+  return join(desktopDir(agentId, home), 'surface')
+}
+
+export function viewportPath(agentId: string, home = automatonHome()): string {
+  return join(desktopDir(agentId, home), 'viewport.json')
+}
+
+export function readDeskSurface(agentId: string, home = automatonHome()): DeskSurface {
+  try {
+    const raw = readFileSync(surfacePath(agentId, home), 'utf8').trim()
+    return raw === 'host' ? 'host' : 'box'
+  } catch {
+    return 'box'
+  }
+}
+
+export function writeDeskSurface(agentId: string, surface: DeskSurface, home = automatonHome()): void {
+  ensureDesktop(agentId, home)
+  writeFileSync(surfacePath(agentId, home), `${surface}\n`)
+}
+
+export function readDeskViewport(agentId: string, home = automatonHome()): DeskViewport | null {
+  try {
+    const raw = JSON.parse(readFileSync(viewportPath(agentId, home), 'utf8')) as {
+      width?: unknown
+      height?: unknown
+    }
+    const width = typeof raw.width === 'number' ? raw.width : Number(raw.width)
+    const height = typeof raw.height === 'number' ? raw.height : Number(raw.height)
+    if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) return null
+    return { width, height }
+  } catch {
+    return null
+  }
+}
+
+export function writeDeskViewport(agentId: string, viewport: DeskViewport, home = automatonHome()): void {
+  ensureDesktop(agentId, home)
+  writeFileSync(viewportPath(agentId, home), `${JSON.stringify(viewport)}\n`)
 }

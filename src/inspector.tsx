@@ -6,9 +6,8 @@ import type { Agent, AgentKit } from './domain'
 import type { LedgerMetrics, StaffStore } from './runtime/store'
 import type { AgentProfile } from './runtime/profile'
 import { boxStatus, computerLabel } from './runtime/box'
-import { captureScreen } from './runtime/chrome'
+import { captureAgentDesk } from './runtime/chrome'
 import { mouthScreen } from './runtime/computer'
-import { captureDesk } from './runtime/desk'
 import { desktopPreview } from './runtime/desktop'
 import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
@@ -216,7 +215,7 @@ export function Inspector({
   const [frame, setFrame] = useState(0)
   const viewRef = useRef<{ id: number } | null>(null)
   const recapture = async () => {
-    const path = captureDesk(agent.id) ?? (await captureScreen(agent.id))
+    const path = await captureAgentDesk(agent.id)
     setScreen(path)
     if (path) setFrame((n) => n + 1)
   }

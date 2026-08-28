@@ -69,8 +69,12 @@ export function mapViewToDisplay(
 }
 
 /** GPUI events are window pixels. A missed origin still maps if the click was local to the view. */
-export function resolveDeskHit(view: ViewBox, click: Point): Point | null {
-  return mapViewToDisplay(view, click) ?? mapViewToDisplay({ ...view, x: 0, y: 0 }, click)
+export function resolveDeskHit(
+  view: ViewBox,
+  click: Point,
+  display = { width: BOX_DISPLAY_W, height: BOX_DISPLAY_H },
+): Point | null {
+  return mapViewToDisplay(view, click, display) ?? mapViewToDisplay({ ...view, x: 0, y: 0 }, click, display)
 }
 
 export function xdoButton(button?: number): number {
@@ -237,6 +241,10 @@ export function deskOpenUrlArgv(agentId: string, home = automatonHome()): string
 }
 
 /** GPUI caches decoded images by src path; a reused paint file stays visually stale. */
+export function uniqueDeskPaint(agentId: string, src: string, home = automatonHome()): string {
+  return paintPath(agentId, home, src)
+}
+
 function paintPath(agentId: string, home: string, src: string): string {
   paintSeq += 1
   const desk = desktopDir(agentId, home)

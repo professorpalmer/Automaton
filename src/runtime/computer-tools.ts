@@ -80,6 +80,44 @@ export function routeComputerSurface(text: string): 'box' | 'host' {
   return 'box'
 }
 
+export function captchaOrigin(url: string): boolean {
+  const raw = url.trim()
+  if (!raw) return false
+  const lower = raw.toLowerCase()
+  if (lower.includes('recaptcha')) return true
+  try {
+    const parsed = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`)
+    const host = parsed.host.toLowerCase()
+    const path = `${parsed.pathname}${parsed.search}`.toLowerCase()
+    if (path.includes('/sorry') || path.includes('recaptcha')) return true
+    if (host === 'google.com' || host.startsWith('www.google.') || host.startsWith('google.')) return true
+    if (host.endsWith('.google.com') || host.includes('.google.')) return true
+    if (host.includes('google') && (path.includes('search?q=') || parsed.searchParams.has('q'))) return true
+    return false
+  } catch {
+    return /(?:^|[/.])google\.|recaptcha|\/sorry/i.test(lower)
+  }
+}
+
+export function sorryPage(url: string, title = ''): boolean {
+  const hay = `${url} ${title}`.toLowerCase()
+  if (hay.includes('unusual traffic')) return true
+  if (hay.includes("i'm not a robot") || hay.includes('im not a robot')) return true
+  if (hay.includes('recaptcha')) return true
+  return /\/sorry(?:\/|\?|$|#)/.test(hay)
+}
+
+export function continueFromSorry(url: string, fallback: string): string {
+  try {
+    const parsed = new URL(url)
+    const cont = parsed.searchParams.get('continue')
+    if (cont && /^https?:\/\//i.test(cont)) return cont
+  } catch {
+    /* ignore */
+  }
+  return fallback
+}
+
 export function looksLikePasswordSite(text: string): boolean {
   const lower = text.toLowerCase()
   if (/\b(password|sign in|signin|log[\s-]?in|sso|2fa|captcha|otp)\b/.test(lower)) return true
@@ -98,9 +136,9 @@ export function looksLikePasswordSite(text: string): boolean {
 
 export function needsOperatorHandoff(url: string, text = ''): boolean {
   if (looksLikePasswordSite(text) || looksLikePasswordSite(url)) return true
+  if (captchaOrigin(url)) return true
   try {
     const host = new URL(url).host.toLowerCase()
-    if (host.includes('google')) return true
     if (host.includes('github') && /login/.test(url)) return true
   } catch {
     return false
@@ -179,7 +217,7 @@ export type ComputerToolSeams = {
   browse?: (agentId: string, url: string) => string | null | Promise<string | null>
   click?: (agentId: string, point: { x: number; y: number }) => boolean
   key?: (agentId: string, stroke: string) => boolean
-  screenshot?: (agentId: string) => string | null
+  screenshot?: (agentId: string) => string | null | Promise<string | null>
   readBox?: (path: string) => string | null
   copyIn?: (from: string, to: string) => boolean
   copyOut?: (from: string, to: string) => boolean
@@ -285,7 +323,7 @@ export async function executeComputerTool(
   }
 
   if (call.name === 'box_screenshot') {
-    const path = seams.screenshot?.(ctx.agentId) ?? null
+    const path = (await seams.screenshot?.(ctx.agentId)) ?? null
     if (!path) return { ok: false, spoken: 'Could not capture the screen.' }
     return { ok: true, spoken: 'Captured the screen.', screenshotPath: path }
   }

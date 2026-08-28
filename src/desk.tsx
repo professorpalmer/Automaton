@@ -1,9 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useGpuix } from '@gpuix/react'
 import { BOX_DISPLAY_H, BOX_DISPLAY_W } from './runtime/computer'
-import { ensureBrowser } from './runtime/chrome'
-import { captureDesk, captureDeskAsync, clickDesk, resolveDeskHit, sendDeskStroke, wheelDesk, deskStroke } from './runtime/desk'
-import { desktopPreview } from './runtime/desktop'
+import {
+  captureAgentDesk,
+  captureAgentDeskAsync,
+  clickAgentDesk,
+  ensureBrowser,
+  focusHostChrome,
+  hostDeskSeams,
+  readHostHandle,
+  sendAgentStroke,
+  wheelAgentDesk,
+} from './runtime/chrome'
+import { captureDesk, clickDesk, deskStroke, resolveDeskHit, sendDeskStroke, wheelDesk } from './runtime/desk'
+import { desktopPreview, readDeskSurface, readDeskViewport } from './runtime/desktop'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
 import { HIT, toneFill } from './ui'
@@ -29,7 +39,7 @@ export function applyDeskKey(
     return
   }
   const stroke = deskStroke(event)
-  if (stroke) (seams?.send ?? sendDeskStroke)(agentId, stroke)
+  if (stroke) (seams?.send ?? sendAgentStroke)(agentId, stroke)
 }
 
 function useDeskFrame(agentId: string, live: boolean) {
@@ -48,11 +58,15 @@ function useDeskFrame(agentId: string, live: boolean) {
   const recapture = () => {
     if (inflight.current) return
     if (runningTests()) {
+      if (readDeskSurface(agentId) === 'host') {
+        void Promise.resolve(captureAgentDesk(agentId)).then(applyCapture)
+        return
+      }
       applyCapture(captureDesk(agentId))
       return
     }
     inflight.current = true
-    captureDeskAsync(agentId, (path) => {
+    captureAgentDeskAsync(agentId, (path) => {
       inflight.current = false
       applyCapture(path)
     })
@@ -92,16 +106,20 @@ export function DeskStage({
   const { frames, recapture } = useDeskFrame(agentId, true)
   useEffect(() => {
     if (runningTests()) return
-    void ensureBrowser(agentId)
+    void ensureBrowser(agentId, undefined, hostDeskSeams(agentId))
+    const hosted = readHostHandle(agentId)
+    if (hosted) focusHostChrome(hosted.pid)
   }, [agentId])
   const hitView = (event: { x?: number; y?: number }) => {
     const id = viewRef.current?.id
     if (typeof id !== 'number' || typeof event.x !== 'number' || typeof event.y !== 'number') return null
     const box = renderer.getElementBounds?.(id)
     if (!box || box.length < 4 || box[2] <= 0 || box[3] <= 0) return null
+    const display = readDeskViewport(agentId) ?? { width: BOX_DISPLAY_W, height: BOX_DISPLAY_H }
     return resolveDeskHit(
       { x: box[0], y: box[1], width: box[2], height: box[3] },
       { x: event.x, y: event.y },
+      display,
     )
   }
   const focusView = () => {
@@ -113,7 +131,8 @@ export function DeskStage({
     if (event.isRightClick || event.button === 2) return
     const hit = hitView(event)
     if (!hit) return
-    clickDesk(agentId, hit, event.button)
+    if (readDeskSurface(agentId) === 'host') clickAgentDesk(agentId, hit, event.button)
+    else clickDesk(agentId, hit, event.button)
     recapture()
   }
   const onDeskMouseDown = (event: { x?: number; y?: number; button?: number; isRightClick?: boolean }) => {
@@ -141,14 +160,12 @@ export function DeskStage({
   const onDeskScroll = (event: { deltaY?: number }) => {
     const dy = event.deltaY ?? 0
     if (!dy) return
-    wheelDesk(
-      agentId,
-      {
-        x: Math.round(BOX_DISPLAY_W / 2),
-        y: Math.round(BOX_DISPLAY_H / 2),
-      },
-      dy,
-    )
+    const point = {
+      x: Math.round(BOX_DISPLAY_W / 2),
+      y: Math.round(BOX_DISPLAY_H / 2),
+    }
+    if (readDeskSurface(agentId) === 'host') wheelAgentDesk(agentId, point, dy)
+    else wheelDesk(agentId, point, dy)
   }
   if (!open) return null
   return (

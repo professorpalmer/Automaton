@@ -1,6 +1,6 @@
 import type { AgentKit } from '../domain'
 import { boxExec } from './box'
-import { browse } from './chrome'
+import { browse, captureAgentDesk, clickAgentDesk, keyAgentDesk } from './chrome'
 import { automatonHome } from './keys'
 import { shouldPruneScreenshots, withCacheBreakpoint } from './compact'
 import {
@@ -14,7 +14,6 @@ import {
   type ComputerToolSeams,
 } from './computer-tools'
 import { OPENROUTER_CHAT_PATH, connectorFetch } from './connector-client'
-import { clickDesk, captureDesk, keyDesk } from './desk'
 import { setWorkerDriving } from './driving'
 import { displayLeases, type DisplayLeases } from './lease'
 import { MOUTH_MAX_TOKENS } from './mouth'
@@ -237,9 +236,9 @@ export function liveComputerSeams(): ComputerToolSeams {
   return {
     boxExec: (argv, env) => boxExec(argv, env ?? {}),
     browse: (agentId, url) => browse(agentId, url, automatonHome(), { forceBox: true }),
-    click: (agentId, point) => clickDesk(agentId, point),
-    key: (agentId, stroke) => keyDesk(agentId, stroke),
-    screenshot: (agentId) => captureDesk(agentId),
+    click: (agentId, point) => clickAgentDesk(agentId, point),
+    key: (agentId, stroke) => keyAgentDesk(agentId, stroke),
+    screenshot: (agentId) => captureAgentDesk(agentId),
   }
 }
 
