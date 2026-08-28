@@ -9,6 +9,7 @@ import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlo
 import {
   DEFAULT_AGENTS,
   emptyThreads,
+  createPendingSendView,
   mergePendingFeed,
   pendingSendItems,
   resetIdsForTests,
@@ -34,12 +35,27 @@ describe('onSend scheduling', () => {
     expect(onSend).toContain('presentOverlayFrame')
     expect(onSend).toContain('setPendingSend')
     expect(onSend).toMatch(/finishSend\(paintSend/)
+    expect(onSend).toContain('createPendingSendView')
+    expect(onSend).toContain('userItemId')
+    expect(onSend).toContain('ackItemId')
+    expect(onSend).not.toContain('feed-pending-user')
     expect(onSend).toMatch(/setTimeout\(/)
     expect(onSend).not.toContain('queueMicrotask')
     expect(onSend).not.toMatch(/finishSend\(current\)\)\s*finish\(\)/)
     expect(src).toContain('runningTests() ? seeded')
     expect(onSend).toContain('runningTests()')
     expect(onSend).toContain('shouldQueueSteer')
+  })
+
+  test('Feed bubbles do not enter from opacity 0', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    const start = src.indexOf('export const Feed')
+    const end = src.indexOf('function GoalBlockerPanel')
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    const feed = src.slice(start, end)
+    expect(feed).not.toContain('initial={{ opacity: 0 }}')
+    expect(feed).not.toMatch(/initial=\{\{\s*opacity:\s*0/)
   })
 })
 
@@ -590,16 +606,16 @@ native('staff shell (GPUI native)', () => {
       ...DEFAULT_AGENTS,
       { id: 'agent_mn', name: 'Marionette', title: '', description: '', color: '#777777', hidden: false },
     ]
-    const overlay = {
-      agentId: 'staff' as const,
-      text: "What is Marionette's version up to now?",
-      ack: 'Telling Marionette.',
-    }
-    expect(pendingSendItems(overlay.text, agents, 'staff').map((item) => item.id)).toEqual([
-      'feed-pending-user',
-      'feed-pending-ack',
+    resetIdsForTests()
+    const overlay = createPendingSendView("What is Marionette's version up to now?", agents, 'staff')
+    expect(overlay.userItemId).not.toBe('feed-pending-user')
+    expect(overlay.ackItemId).not.toBe('feed-pending-ack')
+    expect(pendingSendItems(overlay.text, agents, 'staff').map((item) => item.id)).not.toEqual([
+      overlay.userItemId,
+      overlay.ackItemId,
     ])
     const items = mergePendingFeed([], overlay, 'staff')
+    expect(items.map((item) => item.id)).toEqual([overlay.userItemId, overlay.ackItemId])
     const { render, renderer } = createTestRoot()
     render(
       <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
@@ -608,21 +624,24 @@ native('staff shell (GPUI native)', () => {
     )
     renderer.flush()
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
-    expect(findTestId(tree, 'feed-pending-user')).toBeTruthy()
-    expect(findTestId(tree, 'feed-pending-ack')).toBeTruthy()
+    expect(findTestId(tree, 'bubble-mine')).toBeTruthy()
+    expect(findTestId(tree, 'bubble-theirs')).toBeTruthy()
+    expect(findTestId(tree, `msg-${overlay.userItemId}`)).toBeTruthy()
+    expect(findTestId(tree, `msg-${overlay.ackItemId}`)).toBeTruthy()
+    expect(findTestId(tree, 'feed-pending-user')).toBeFalsy()
     expect(findTestId(tree, 'job-strip')).toBeFalsy()
     const painted = renderer.getPaintedText().join(' ')
     expect(painted).toContain("What is Marionette's version up to now?")
     expect(painted).toContain('Telling Marionette.')
     const covered = mergePendingFeed(
       [
-        { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: "What is Marionette's version up to now?" },
-        { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'Telling Marionette.' },
+        { kind: 'msg', id: overlay.userItemId, from: 'user', agentId: 'staff', text: overlay.text },
+        { kind: 'msg', id: overlay.ackItemId, from: 'agent', agentId: 'staff', text: overlay.ack },
       ],
-      { agentId: 'staff', text: "What is Marionette's version up to now?", ack: 'Telling Marionette.' },
+      overlay,
       'staff',
     )
-    expect(covered.map((item) => item.id)).toEqual(['item_1', 'item_2'])
+    expect(covered.map((item) => item.id)).toEqual([overlay.userItemId, overlay.ackItemId])
   })
 
   test('Staff feed keeps Sent to and hides the sister line', () => {

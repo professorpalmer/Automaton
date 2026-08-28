@@ -213,10 +213,11 @@ export function idleOrphanMouths(session: Session): Session {
   return { ...next, pendingApprovals: cancelPendingApprovals(next.pendingApprovals ?? []) }
 }
 
-function append(session: Session, agentId: AgentId, item: FeedItem, focused: AgentId): Session {
+function append(session: Session, agentId: AgentId, item: FeedItem, focused: AgentId, id?: string): Session {
   const current = thread(session, agentId)
   const unread = agentId === focused ? 0 : current.unread + 1
-  return setThread(session, agentId, { items: [...current.items, item], unread })
+  const nextItem = id ? { ...item, id } : item
+  return setThread(session, agentId, { items: [...current.items, nextItem], unread })
 }
 
 export function setActive(session: Session, agentId: AgentId, introPlayedAt?: string | null): Session {
@@ -414,10 +415,11 @@ function stamped(
   agentId: AgentId,
   text: string,
   attachmentIds?: string[],
+  id?: string,
 ): FeedItem {
   return {
     kind: 'msg',
-    id: nextId('item'),
+    id: id ?? nextId('item'),
     from,
     agentId,
     text,
@@ -426,8 +428,8 @@ function stamped(
   }
 }
 
-function speak(session: Session, agentId: AgentId, text: string, focused: AgentId): Session {
-  return append(session, agentId, stamped('agent', agentId, text), focused)
+function speak(session: Session, agentId: AgentId, text: string, focused: AgentId, id?: string): Session {
+  return append(session, agentId, stamped('agent', agentId, text, undefined, id), focused)
 }
 
 function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Session {
@@ -500,8 +502,19 @@ export function finishSend(session: Session): Session {
   return next
 }
 
+/** Overlay ids handed to paintSend so user/ack update in place. Relays still mint new ids. */
+export type PresentHandoff = {
+  userItemId?: string
+  ackItemId?: string
+}
+
 /** User bubble, cleared draft, cheap ack, Sent-to relays. No jobs or sqlite. */
-export function paintSend(session: Session, raw: string, attachmentIds: string[] = []): Session {
+export function paintSend(
+  session: Session,
+  raw: string,
+  attachmentIds: string[] = [],
+  present?: PresentHandoff,
+): Session {
   const text = raw.trim()
   const active = session.activeAgentId
   if (!active || !session.threads[active]) return session
@@ -526,7 +539,7 @@ export function paintSend(session: Session, raw: string, attachmentIds: string[]
     const homes = bindHomes(text, visibleAgents(agents))
     const issueWork = parseGithubIssue(text) != null
     if (created.length > 0 || renamed.length > 0 || (homes.length > 0 && !issueWork)) {
-      return coordinatorSetup({ ...session, agents }, text, created, homes, renamed, roster, attachmentIds)
+      return coordinatorSetup({ ...session, agents }, text, created, homes, renamed, roster, attachmentIds, false, present)
     }
     if (homes.length > 0 && issueWork) {
       return coordinatorSetup(
@@ -538,6 +551,7 @@ export function paintSend(session: Session, raw: string, attachmentIds: string[]
         roster,
         attachmentIds,
         true,
+        present,
       )
     }
   }
@@ -554,16 +568,16 @@ export function paintSend(session: Session, raw: string, attachmentIds: string[]
   }
   const next: Session = { ...session, pendingFanout: null, deskOpen: null, deskHandoff: null }
   if (kit === 'coordinator' && named.length > 0) {
-    return coordinatorDispatch(next, body, named, attachmentIds, inherited)
+    return coordinatorDispatch(next, body, named, attachmentIds, inherited, present)
   }
   if (named.length > 1) {
-    return fanout(next, body, named)
+    return fanout(next, body, named, present)
   }
   if (kit === 'coordinator' && named.length === 0) {
     const url = parseDeskUrl(body)
-    if (url) return coordinatorDeskOpen(next, body, url, attachmentIds)
+    if (url) return coordinatorDeskOpen(next, body, url, attachmentIds, present)
   }
-  return paintDirect(next, named[0] ?? active, body, active, attachmentIds)
+  return paintDirect(next, named[0] ?? active, body, active, attachmentIds, false, body, present)
 }
 
 /** Tests and non-Enter callers still book jobs in the same call. */
@@ -579,8 +593,9 @@ function paintDirect(
   attachmentIds: string[] = [],
   ping = false,
   mandateText = text,
+  present?: PresentHandoff,
 ): Session {
-  const item = stamped('user', agentId, text, attachmentIds)
+  const item = stamped('user', agentId, text, attachmentIds, present?.userItemId)
   let next = append(session, agentId, item, focused)
   next = setThread(next, agentId, {
     draft: agentId === focused ? '' : thread(next, agentId).draft,
@@ -607,11 +622,12 @@ function coordinatorDeskOpen(
   text: string,
   url: string,
   attachmentIds: string[] = [],
+  present?: PresentHandoff,
 ): Session {
   const focused = session.activeAgentId
-  let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
+  let next = append(session, focused, stamped('user', focused, text, attachmentIds, present?.userItemId), focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
-  next = speak(next, focused, deskOpenAck(url), focused)
+  next = speak(next, focused, deskOpenAck(url), focused, present?.ackItemId)
   if (needsOperatorHandoff(url, text)) {
     next = wakeMouth(next, focused, 'idle')
     return {
@@ -633,15 +649,16 @@ function coordinatorSetup(
   before: Agent[],
   attachmentIds: string[] = [],
   continueWork = false,
+  present?: PresentHandoff,
 ): Session {
   const focused = session.activeAgentId
   const binds = homes.filter((row) => row.agentId !== focused)
   const roster = visibleAgents(session.agents)
   const targets = continueWork ? issueWorkTargets(text, roster, focused) : []
   if (continueWork && targets.length === 0) {
-    return paintDirect(session, focused, text, focused, attachmentIds, false, text)
+    return paintDirect(session, focused, text, focused, attachmentIds, false, text, present)
   }
-  let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
+  let next = append(session, focused, stamped('user', focused, text, attachmentIds, present?.userItemId), focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'idle' })
   const spoken = [
     names.length > 0 ? `Created ${joinAnd(names)}.` : '',
@@ -651,7 +668,7 @@ function coordinatorSetup(
   ]
     .filter(Boolean)
     .join(' ')
-  next = speak(next, focused, spoken || 'Done.', focused)
+  next = speak(next, focused, spoken || 'Done.', focused, present?.ackItemId)
   if (continueWork) {
     next = markPendingHops(next, focused, targets)
     const deliveries: PendingDelivery[] = []
@@ -731,16 +748,17 @@ function coordinatorDispatch(
   targets: AgentId[],
   attachmentIds: string[],
   workText = text,
+  present?: PresentHandoff,
 ): Session {
   const focused = session.activeAgentId
   const work = dispatchWork(workText, visibleAgents(session.agents))
   const inherited = workText !== text
   const note = inherited ? workText : work.note
   const ping = inherited ? false : work.ping
-  const item = stamped('user', focused, text, attachmentIds)
+  const item = stamped('user', focused, text, attachmentIds, present?.userItemId)
   let next = append(session, focused, item, focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'idle' })
-  next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
+  next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused, present?.ackItemId)
   next = markPendingHops(next, focused, targets)
   const deliveries: PendingDelivery[] = []
   for (const target of targets) {
@@ -765,16 +783,16 @@ function coordinatorDispatch(
   return mergePending(next, { deliveries, idle: focused })
 }
 
-function fanout(session: Session, text: string, targets: AgentId[]): Session {
+function fanout(session: Session, text: string, targets: AgentId[], present?: PresentHandoff): Session {
   const focused = session.activeAgentId
   let next = append(
     session,
     focused,
-    stamped('user', focused, text),
+    stamped('user', focused, text, undefined, present?.userItemId),
     focused,
   )
   next = setThread(next, focused, { draft: '', mouth: 'idle' })
-  next = speak(next, focused, 'Telling the others.', focused)
+  next = speak(next, focused, 'Telling the others.', focused, present?.ackItemId)
   next = markPendingHops(next, focused, targets)
   const note = staffParaphrase(text)
   const deliveries: PendingDelivery[] = []

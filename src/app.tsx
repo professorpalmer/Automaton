@@ -9,12 +9,10 @@ import {
   emptyThreads,
   isMouthBusy,
   lastSpoken,
+  createPendingSendView,
   mergePendingFeed,
   nextId,
-  pendingSendAck,
   previousPaintedFeedItem,
-  PENDING_ACK_ID,
-  PENDING_USER_ID,
   sameFeedVoice,
   sessionCoversPending,
   shouldQueueSteer,
@@ -512,17 +510,20 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     carry.draft = thread.draft
     carry.agentId = session.activeAgentId
     carry.ids = carry.paths.map(() => nextId('att'))
-    const overlay: PendingSendView = {
-      agentId: carry.agentId,
-      text,
-      ack: pendingSendAck(text, session.agents, carry.agentId),
-    }
+    const overlay = createPendingSendView(text, session.agents, carry.agentId)
     flushSync(() => {
       setPendingSend(overlay)
     })
     presentOverlayFrame(renderer)
     setTimeout(() => {
-      setSession((current) => finishSend(paintSend(current, carry.draft, carry.ids)))
+      setSession((current) =>
+        finishSend(
+          paintSend(current, carry.draft, carry.ids, {
+            userItemId: overlay.userItemId,
+            ackItemId: overlay.ack ? overlay.ackItemId : undefined,
+          }),
+        ),
+      )
       finish()
     }, 0)
   }
@@ -1742,21 +1743,8 @@ export const Feed = forwardRef<FeedApi, {
                 alignItems: 'flex-start',
               }}
             >
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: clockDuration(T.motion.enter), ease: 'easeOut' }}
-            >
             <div
-              testId={
-                item.id === PENDING_USER_ID
-                  ? PENDING_USER_ID
-                  : item.id === PENDING_ACK_ID
-                    ? PENDING_ACK_ID
-                    : mine
-                      ? 'bubble-mine'
-                      : 'bubble-theirs'
-              }
+              testId={mine ? 'bubble-mine' : 'bubble-theirs'}
               style={{
                 maxWidth: T.feed.max,
                 backgroundColor: selectedIds.has(item.id) ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
@@ -1812,7 +1800,6 @@ export const Feed = forwardRef<FeedApi, {
               ) : null}
               {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
-            </motion.div>
             {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
             </div>
             ) : null}
