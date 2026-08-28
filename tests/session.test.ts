@@ -29,6 +29,7 @@ import {
   setActive,
   setDraft,
   stopJob,
+  stopMouth,
   waitComputerOperator,
   waitJobExternal,
   waitJobUser,
@@ -423,7 +424,18 @@ describe('teammate session', () => {
         (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Puppetmaster.',
       ),
     ).toBe(true)
-    expect(s.threads.agent_pm.mouth).toBe('answer')
+    const ackAt = s.threads.staff.items.findIndex(
+      (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Puppetmaster.',
+    )
+    const sentAt = s.threads.staff.items.findIndex(
+      (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_pm',
+    )
+    expect(ackAt).toBeGreaterThanOrEqual(0)
+    expect(sentAt).toBeGreaterThan(ackAt)
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.ownerAgentId).toBe('agent_pm')
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    expect(s.threads.agent_pm.mouth).toBe('working')
     expect(
       s.threads.agent_pm.items.some(
         (item) => item.kind === 'agent_note' && item.fromId === 'staff',
@@ -477,11 +489,81 @@ describe('teammate session', () => {
         (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_pm',
       ),
     ).toBe(true)
-    expect(s.threads.agent_mn.mouth).toBe('answer')
-    expect(s.threads.agent_pm.mouth).toBe('answer')
+    expect(s.jobs).toHaveLength(2)
+    expect(s.jobs.map((job) => job.ownerAgentId).sort()).toEqual(['agent_mn', 'agent_pm'])
+    expect(s.jobs.every((job) => job.kind === 'analyze')).toBe(true)
+    expect(s.threads.agent_mn.mouth).toBe('working')
+    expect(s.threads.agent_pm.mouth).toBe('working')
     expect(s.threads.agent_mn.items.some((item) => item.kind === 'agent_note')).toBe(true)
     expect(s.threads.agent_pm.items.some((item) => item.kind === 'agent_note')).toBe(true)
     expect(s.threads.staff.mouth).not.toBe('answer')
+    const ackAt = s.threads.staff.items.findIndex(
+      (item) =>
+        item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Marionette and Puppetmaster.',
+    )
+    const sentAt = s.threads.staff.items.findIndex((item) => item.kind === 'relay' && item.lane === 'sent')
+    expect(ackAt).toBeGreaterThanOrEqual(0)
+    expect(sentAt).toBeGreaterThan(ackAt)
+  })
+
+  test('two sister returns wait then one Chief assess of both answers', () => {
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const puppetmaster = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette, puppetmaster]
+    resetIdsForTests()
+    let s = send(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      'check Puppetmaster and Marionette for prs or open issues',
+    )
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.jobs).toHaveLength(2)
+    const first = s.jobs.find((job) => job.ownerAgentId === 'agent_pm')
+    const second = s.jobs.find((job) => job.ownerAgentId === 'agent_mn')
+    expect(first && second).toBeTruthy()
+    s = completeJob(s, first!.id, 'Puppetmaster has 2 open PRs.')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(s)).toEqual([])
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text.includes('finished.'),
+      ),
+    ).toBe(false)
+    s = completeJob(s, second!.id, 'Marionette has 1 open issue.')
+    expect(s.threads.staff.mouth).toBe('answer')
+    const pending = pendingMouthTurns(s)
+    expect(pending).toHaveLength(1)
+    expect(pending[0]?.agentId).toBe('staff')
+    expect(pending[0]?.mode).toBe('assess')
+    expect(pending[0]?.userText).toContain('Puppetmaster answered:')
+    expect(pending[0]?.userText).toContain('Puppetmaster has 2 open PRs.')
+    expect(pending[0]?.userText).toContain('Marionette answered:')
+    expect(pending[0]?.userText).toContain('Marionette has 1 open issue.')
+    expect(pending[0]?.userText).not.toMatch(/finished\./)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && /finished\./.test(item.text),
+      ),
+    ).toBe(false)
   })
 
   test('Staff two-name lookup dispatches without a fan-out card', () => {
@@ -1596,6 +1678,22 @@ describe('steer-queue', () => {
     expect(composerEnterBusy(s.threads.staff.mouth)).toBe(false)
     expect(shouldQueueSteer(s.threads.staff.mouth)).toBe(true)
     expect(isMouthBusy(s.threads.staff.mouth)).toBe(true)
+  })
+
+  test('composer-stop idles mouth and leaves the steer queue parked', () => {
+    let s = send(fresh(), 'hello staff')
+    expect(s.threads.staff.mouth).toBe('answer')
+    expect(pendingMouthTurns(s)).toHaveLength(1)
+    s = send(s, 'also check the pin')
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'also check the pin' }])
+    s = stopMouth(s, 'staff')
+    expect(s.threads.staff.mouth).toBe('idle')
+    expect(pendingMouthTurns(s)).toEqual([])
+    expect(s.threads.staff.steerQueue).toEqual([{ text: 'also check the pin' }])
+    const users = s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    expect(users).toHaveLength(1)
+    if (users[0]?.kind === 'msg') expect(users[0].text).toBe('hello staff')
+    expect(shouldQueueSteer(s.threads.staff.mouth)).toBe(false)
   })
 
   test('mid-turn Send parks off the transcript until drain', () => {

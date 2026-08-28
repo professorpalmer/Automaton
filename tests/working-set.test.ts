@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, SISTER_AGENTS, staffWithSisters } from '../src/domain'
-import { looksLikeInspect, looksLikeLiveCheck, looksLikeRepoAsk } from '../src/domain'
+import { assessAsk, looksLikeInspect, looksLikeLiveCheck, looksLikeRepoAsk } from '../src/domain'
 import {
   buildWorkingSet,
   claimTaskKey,
@@ -28,6 +28,10 @@ describe('mouth working set', () => {
     expect(queryFirst('do we have any PRs or open issues?', [issue])).toBeNull()
     expect(looksLikeInspect('check the ledger replay in Automaton staff.')).toBe(true)
     expect(queryFirst('check the ledger replay in Automaton staff.', [issue])).toBeNull()
+    expect(looksLikeLiveCheck(assessAsk('Marionette', 'There are 2 open PRs and 1 open issue.'))).toBe(
+      false,
+    )
+    expect(queryFirst('check Puppetmaster and Marionette for prs or open issues', [issue])).toBeNull()
   })
 
   test('live-check working set drops claim texts and does not tell the mouth to use them', () => {
@@ -57,6 +61,37 @@ describe('mouth working set', () => {
     expect(blob).not.toContain('If recalled claims answer the user')
     expect(String(messages[0]?.content)).toContain('A look is already booked')
     expect(String(messages[0]?.content)).toContain('Do not answer from memory or transcript about GitHub, PRs, or issues.')
+  })
+
+  test('assess working set keeps sister spoken and is not a live-check cue', () => {
+    resetIdsForTests()
+    const thread = emptyThreads(DEFAULT_AGENTS).staff
+    const spoken = 'Marionette has 2 open PRs and 1 open issue.'
+    const query = assessAsk('Marionette', spoken)
+    thread.items = [
+      {
+        kind: 'msg',
+        id: 'item_1',
+        from: 'user',
+        agentId: 'staff',
+        text: 'check Puppetmaster and Marionette for prs or open issues',
+      },
+    ]
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread,
+      claims: [{ ownerAgentId: 'agent_mn', text: spoken }],
+      kit: 'coordinator',
+      roster: staffWithSisters(),
+      projects: [],
+      query,
+      mode: 'assess',
+    })
+    const blob = JSON.stringify(messages)
+    expect(looksLikeLiveCheck(query)).toBe(false)
+    expect(blob).not.toContain('A look is already booked')
+    expect(blob).toContain('Recalled claims')
+    expect(blob).toContain(spoken)
   })
 
   test('query-first restates a stored claim with no inference', () => {

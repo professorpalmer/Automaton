@@ -11,7 +11,7 @@ import {
   type JobHandle,
   type MouthState,
   type Thread,
-  assessAsk,
+  assessAsks,
   bindHomes,
   boundGoalEvidence,
   shouldQueueSteer,
@@ -123,6 +123,7 @@ export function normalizeSession(session: Session): Session {
     delete leftover.mandate
     leftover.steerQueue = Array.isArray(leftover.steerQueue) ? leftover.steerQueue : []
     leftover.jobSteerQueue = Array.isArray(leftover.jobSteerQueue) ? leftover.jobSteerQueue : []
+    leftover.pendingHops = Array.isArray(leftover.pendingHops) ? leftover.pendingHops : []
     threads[id] = leftover
   }
   return {
@@ -396,6 +397,39 @@ function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Sessi
   return setThread(session, agentId, { mouth })
 }
 
+function markPendingHops(session: Session, coordinatorId: AgentId, hops: AgentId[]): Session {
+  return setThread(session, coordinatorId, {
+    pendingHops: hops.filter((id) => id !== coordinatorId),
+  })
+}
+
+function dropPendingHop(session: Session, coordinatorId: AgentId, ownerId: AgentId): Session {
+  if (!session.threads[coordinatorId]) return session
+  const hops = (thread(session, coordinatorId).pendingHops ?? []).filter((id) => id !== ownerId)
+  return setThread(session, coordinatorId, { pendingHops: hops })
+}
+
+function fromRelaysAfterLastAgent(items: FeedItem[]): Extract<FeedItem, { kind: 'relay' }>[] {
+  let start = 0
+  for (let i = 0; i < items.length; i += 1) {
+    const item = items[i]
+    if (item?.kind === 'msg' && item.from === 'agent') start = i + 1
+  }
+  return items.slice(start).filter(
+    (item): item is Extract<FeedItem, { kind: 'relay' }> => item.kind === 'relay' && item.lane === 'from',
+  )
+}
+
+function maybeWakeAssess(session: Session, coordinatorId: AgentId): Session {
+  if (!session.threads[coordinatorId]) return session
+  const row = thread(session, coordinatorId)
+  if (row.mouth !== 'idle') return session
+  if ((row.pendingHops ?? []).length > 0) return session
+  const last = row.items.at(-1)
+  if (last?.kind !== 'relay' || last.lane !== 'from') return session
+  return wakeMouth(session, coordinatorId, 'answer')
+}
+
 /** User send on the focused mouth. Jobs do not lock other mouths. */
 export function send(session: Session, raw: string, attachmentIds: string[] = []): Session {
   const text = raw.trim()
@@ -507,6 +541,7 @@ function coordinatorSetup(
     .join(' ')
   next = speak(next, focused, spoken || 'Done.', focused)
   if (continueWork) {
+    next = markPendingHops(next, focused, targets)
     for (const target of targets) {
       if (target === focused) continue
       next = appendRelay(next, focused, 'sent', target, text, focused)
@@ -520,6 +555,11 @@ function coordinatorSetup(
     }
     return wakeMouth(next, focused, 'idle')
   }
+  next = markPendingHops(
+    next,
+    focused,
+    binds.map((bind) => bind.agentId),
+  )
   for (const bind of binds) {
     const note = homeNote(bind.slug)
     next = appendRelay(next, focused, 'sent', bind.agentId, note, focused)
@@ -562,6 +602,7 @@ function coordinatorDispatch(
   let next = append(session, focused, item, focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
+  next = markPendingHops(next, focused, targets)
   const note = work.note
   for (const target of targets) {
     if (target === focused) continue
@@ -587,6 +628,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
   )
   next = setThread(next, focused, { draft: '', mouth: 'ack' })
   next = speak(next, focused, 'Telling the others.', focused)
+  next = markPendingHops(next, focused, targets)
   const note = staffParaphrase(text)
   for (const target of targets) {
     if (target === focused) continue
@@ -772,10 +814,14 @@ export function pendingMouthTurns(
       continue
     }
     if (last?.kind === 'relay' && last.lane === 'from') {
-      const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
+      const relays = fromRelaysAfterLastAgent(row.items)
+      const rows = (relays.length > 0 ? relays : [last]).map((item) => ({
+        name: session.agents.find((agent) => agent.id === item.peerId)?.name ?? 'They',
+        spoken: item.text,
+      }))
       pending.push({
         agentId: row.agentId,
-        userText: assessAsk(name, last.text),
+        userText: assessAsks(rows),
         itemId: last.id,
         mode: 'assess',
       })
@@ -843,13 +889,19 @@ function coordinatorReturn(
   focused: AgentId,
 ): Session {
   if (!from || from === ownerId || !session.threads[from]) return session
-  const name = session.agents.find((agent) => agent.id === ownerId)?.name ?? 'They'
   const cleaned = sanitizeSpeak(spoken)
   let next = appendRelay(session, from, 'from', ownerId, cleaned, focused)
-  if (thread(next, from).mouth !== 'idle') {
-    return speak(next, from, returnBeat(name, cleaned), focused)
-  }
-  return wakeMouth(next, from, 'answer')
+  next = dropPendingHop(next, from, ownerId)
+  if (thread(next, from).mouth === 'answer') return next
+  return maybeWakeAssess(next, from)
+}
+
+/** Idle an in-flight mouth turn. Leaves the steer queue parked. Does not drain. */
+export function stopMouth(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  const mouth = thread(session, agentId).mouth
+  if (mouth !== 'answer' && mouth !== 'intro') return session
+  return setThread(session, agentId, { mouth: 'idle' })
 }
 
 export function failMouth(session: Session, agentId: AgentId, spoken: string): Session {
@@ -967,7 +1019,9 @@ function failGoal(
   if (failed.coordinatorId === failed.ownerAgentId || !next.threads[failed.coordinatorId]) return next
   const name = next.agents.find((agent) => agent.id === failed.ownerAgentId)?.name ?? 'They'
   next = speak(next, failed.coordinatorId, goalBlocker(name, spoken), focused)
-  return wakeMouth(next, failed.coordinatorId, 'idle')
+  next = dropPendingHop(next, failed.coordinatorId, failed.ownerAgentId)
+  next = wakeMouth(next, failed.coordinatorId, 'idle')
+  return maybeWakeAssess(next, failed.coordinatorId)
 }
 
 export function waitJobExternal(session: Session, jobId: string): Session {
@@ -1060,6 +1114,11 @@ export function cancelGoal(session: Session, goalId: string): Session {
   next = putGoal(next, cancelled)
   next = dropJobSteer(next, goal.ownerAgentId)
   next = wakeMouth(next, goal.ownerAgentId, 'idle')
+  const from = inboundCoordinatorId(next, goal.ownerAgentId)
+  if (from) {
+    next = dropPendingHop(next, from, goal.ownerAgentId)
+    next = maybeWakeAssess(next, from)
+  }
   return finishBatch(next, goal.ownerAgentId)
 }
 
@@ -1134,6 +1193,11 @@ export function stopJob(session: Session, jobId: string): Session {
   }
   next = dropJobSteer(next, job.ownerAgentId)
   next = wakeMouth(next, job.ownerAgentId, 'idle')
+  const from = inboundCoordinatorId(next, job.ownerAgentId)
+  if (from) {
+    next = dropPendingHop(next, from, job.ownerAgentId)
+    next = maybeWakeAssess(next, from)
+  }
   return finishBatch(next, job.ownerAgentId)
 }
 

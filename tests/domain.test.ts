@@ -200,6 +200,12 @@ describe('mouth vs job', () => {
     expect(looksLikeLiveCheck('what did Kernel find about ledger replay')).toBe(false)
     expect(looksLikeLiveCheck('remember the Kernel finding about ledger replay')).toBe(false)
     expect(jobKindForKit('coordinator', 'what did Kernel find about ledger replay')).toBeNull()
+    expect(jobKindForKit('blank', 'do we have any PRs or open issues?')).toBe('analyze')
+    expect(jobKindForKit('blank', 'Check for open PRs')).toBe('analyze')
+    expect(jobKindForKit('blank', 'Kernel, the mention insert breaks undo on the composer.')).toBeNull()
+    const assess = assessAsk('Marionette', 'There are 2 open PRs and 1 open issue.')
+    expect(looksLikeLiveCheck(assess)).toBe(false)
+    expect(assess).toContain('open PRs')
   })
 
   test('leftover then/and steps book the next job kind', () => {
