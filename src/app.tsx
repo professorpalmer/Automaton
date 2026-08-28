@@ -12,6 +12,7 @@ import {
   nextId,
   previousPaintedFeedItem,
   sameFeedVoice,
+  shouldQueueSteer,
   shouldShowFeedClock,
   feedClock,
   feedThinking,
@@ -100,6 +101,8 @@ import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { CHAT_THEME, T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
+import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
+import { mouthModelFor } from './runtime/plane'
 
 type Pane = 'none' | 'inspector' | 'settings'
 type RailMenuAt = { id: string; x: number; y: number }
@@ -161,6 +164,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
   })
   const [pane, setPane] = useState<Pane>('none')
+  const [planeTick, setPlaneTick] = useState(0)
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
@@ -519,6 +523,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         <Rail
           session={session}
           width={railWidth}
+          planeTick={planeTick}
           onSelect={(id) => {
             if (skipSelect.current) {
               skipSelect.current = false
@@ -680,6 +685,8 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 value={thread?.draft ?? ''}
                 pendingPaths={thread?.pendingPaths ?? []}
                 locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
+                queueing={Boolean(thread && shouldQueueSteer(thread.mouth, thread.computerBusy === true))}
+                queued={thread?.steerQueue.length ?? 0}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
@@ -688,7 +695,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               />
             </div>
           </div>
-          <SlidePane testId="inspector-pane" open={pane === 'inspector' && Boolean(active)}>
+          <SlidePane testId="inspector-pane" open={pane === 'inspector' && Boolean(active)} width={T.inspector.width}>
             {pane === 'inspector' && active ? (
               <Inspector
                 agent={active}
@@ -716,8 +723,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               />
             ) : null}
           </SlidePane>
-          <SlidePane testId="settings-pane" open={pane === 'settings'}>
-            {pane === 'settings' ? <Settings metrics={metrics} onClose={() => setPane('none')} /> : null}
+          <SlidePane testId="settings-pane" open={pane === 'settings'} width={T.inspector.settings}>
+            {pane === 'settings' ? (
+              <Settings
+                metrics={metrics}
+                agents={visibleAgents(session.agents)}
+                onClose={() => setPane('none')}
+                onPlaneChange={() => setPlaneTick((n) => n + 1)}
+              />
+            ) : null}
           </SlidePane>
         </div>
       </div>
@@ -830,7 +844,7 @@ function RailMenu({
         backgroundColor: T.raised,
         borderWidth: T.stroke.hairline,
         borderColor: T.border,
-        borderRadius: T.radius.sm,
+        borderRadius: T.radius.md,
         paddingTop: T.space.xs,
         paddingBottom: T.space.xs,
         pointerEvents: 'auto',
@@ -936,6 +950,7 @@ function GearMark() {
 function Rail({
   session,
   width,
+  planeTick = 0,
   onSelect,
   onCreate,
   onMenu,
@@ -943,11 +958,13 @@ function Rail({
 }: {
   session: Session
   width: number
+  planeTick?: number
   onSelect: (id: string) => void
   onCreate: () => void
   onMenu: (id: string, event: { x?: number; y?: number }) => void
   onSettings: () => void
 }) {
+  void planeTick
   const agents = session.agents.filter((agent) => !agent.hidden)
   const compact = railIsCompact(width)
   const rowPad = compact ? T.space.xs : T.space.md
@@ -978,6 +995,9 @@ function Rail({
       {agents.map((agent, index) => {
         const row = session.threads[agent.id]
         const selected = agent.id === session.activeAgentId
+        const pin = mouthModelFor(agent.id)
+        const family = modelFamily(pin)
+        const at = row ? lastItemAt(row.items) : null
         return (
           <div
             key={agent.id}
@@ -989,15 +1009,17 @@ function Rail({
               alignSelf: compact ? 'center' : 'stretch',
               paddingLeft: rowPad,
               paddingRight: rowPad,
-              paddingTop: T.space.sm,
-              paddingBottom: T.space.sm,
+              paddingTop: compact ? T.space.sm : T.space.md,
+              paddingBottom: compact ? T.space.sm : T.space.md,
               marginLeft: rowMargin,
               marginRight: rowMargin,
-              marginBottom: T.space.xxs,
-              borderRadius: T.radius.sm,
+              marginBottom: T.space.xs,
+              borderRadius: T.radius.md,
+              borderWidth: T.stroke.hairline,
+              borderColor: selected ? T.borderStrong : T.clear,
               ...HIT,
-              backgroundColor: selected ? T.selected : T.sidebar,
-              hover: { backgroundColor: T.selected },
+              backgroundColor: selected ? T.raised : T.clear,
+              hover: { backgroundColor: T.raised },
               active: { backgroundColor: T.selected },
             }}
             onClick={(event) => {
@@ -1026,16 +1048,32 @@ function Rail({
               index={index}
             />
             {compact ? null : (
-              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0, gap: T.space.xxs }}>
                 <div
                   style={{
-                    fontSize: T.type.md,
-                    color: T.text,
-                    whiteSpace: 'nowrap',
-                    textOverflow: 'ellipsis',
+                    display: 'flex',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    gap: T.space.sm,
+                    minWidth: 0,
                   }}
                 >
-                  {agent.name}
+                  <div
+                    style={{
+                      fontSize: T.type.md,
+                      color: T.text,
+                      whiteSpace: 'nowrap',
+                      textOverflow: 'ellipsis',
+                      flexGrow: 1,
+                      minWidth: 0,
+                    }}
+                  >
+                    {agent.name}
+                  </div>
+                  <Pill testId={`rail-model-${agent.id}`} label={family} />
+                  {at != null ? (
+                    <div style={{ fontSize: T.type.xs, color: T.ghost, flexShrink: 0 }}>{railClock(at)}</div>
+                  ) : null}
                 </div>
                 <SpokenLine text={row ? lastSpoken(row, agent.title) : agent.title} />
               </div>
@@ -1060,11 +1098,11 @@ function Rail({
           marginLeft: rowMargin,
           marginRight: rowMargin,
           marginBottom: T.space.xxs,
-          borderRadius: T.radius.sm,
+          borderRadius: T.radius.md,
           minHeight: T.blob.slot,
           ...HIT,
-          backgroundColor: T.sidebar,
-          hover: { backgroundColor: T.selected },
+          backgroundColor: T.clear,
+          hover: { backgroundColor: T.raised },
         }}
         onClick={onCreate}
       >
@@ -1086,11 +1124,11 @@ function Rail({
           marginLeft: rowMargin,
           marginRight: rowMargin,
           marginBottom: T.space.md,
-          borderRadius: T.radius.sm,
+          borderRadius: T.radius.md,
           minHeight: T.blob.slot,
           ...HIT,
-          backgroundColor: T.sidebar,
-          hover: { backgroundColor: T.selected },
+          backgroundColor: T.clear,
+          hover: { backgroundColor: T.raised },
         }}
         onClick={onSettings}
       >
@@ -1135,7 +1173,7 @@ function Titlebar({
       <div testId="titlebar-brand" style={{ fontSize: T.type.md, color: T.text }}>
         {PRODUCT}
       </div>
-      <div testId="titlebar-name" style={{ fontSize: T.type.md, color: T.text }}>
+      <div testId="titlebar-name" style={{ fontSize: T.type.sm, color: T.secondary }}>
         {name}
       </div>
     </div>
@@ -1164,13 +1202,15 @@ function SpokenLine({ text }: { text: string }) {
 function SlidePane({
   open,
   testId,
+  width: paneWidth = T.inspector.width,
   children,
 }: {
   open: boolean
   testId: string
+  width?: number
   children: React.ReactNode
 }) {
-  const width = open ? T.inspector.width : 0
+  const width = open ? paneWidth : 0
   return (
     <div
       testId={testId}
@@ -1191,7 +1231,7 @@ function SlidePane({
           overflow: 'hidden',
         }}
       >
-        <div style={{ width: T.inspector.width, height: '100%', minHeight: 0 }}>{children}</div>
+        <div style={{ width: paneWidth, height: '100%', minHeight: 0 }}>{children}</div>
       </motion.div>
     </div>
   )
@@ -1361,8 +1401,8 @@ function ThinkingRow() {
         paddingLeft: T.feed.gutter,
         paddingRight: T.feed.gutter,
         fontSize: T.type.md,
-        lineHeight: T.line.md,
-        color: T.tertiary,
+        lineHeight: T.line.lg,
+        color: T.ghost,
       }}
     >
       {thinkingDots(step)}
@@ -1422,8 +1462,21 @@ export function Feed({
       style={feedScrollStyle}
     >
       {items.length === 0 ? (
-        <div testId="feed-empty" style={{ color: T.tertiary, fontSize: T.type.md, ...feedLane }}>
-          Start shipping. No strings attached.
+        <div
+          testId="feed-empty"
+          style={{
+            ...feedLane,
+            paddingTop: T.space.hero,
+            paddingBottom: T.space.hero,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: T.space.sm,
+          }}
+        >
+          <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.secondary }}>
+            Start shipping. No strings attached.
+          </div>
+          <div style={{ fontSize: T.type.sm, color: T.ghost }}>Pick a mouth on the rail. Words go here.</div>
         </div>
       ) : null}
       {items.map((item, index) => {
@@ -1543,14 +1596,16 @@ export function Feed({
               style={{
                 maxWidth: T.feed.max,
                 backgroundColor: mine ? T.selected : T.composer,
-                borderRadius: T.radius.lg,
+                borderRadius: T.radius.xl,
+                borderWidth: mine ? T.stroke.none : T.stroke.hairline,
+                borderColor: mine ? T.clear : T.border,
                 paddingTop: T.feed.padY,
                 paddingBottom: T.feed.padY,
                 paddingLeft: T.feed.padX,
                 paddingRight: T.feed.padX,
                 fontSize: T.type.md,
-                lineHeight: T.line.md,
-                minHeight: T.line.md,
+                lineHeight: T.line.lg,
+                minHeight: T.line.lg,
                 color: T.text,
               }}
               onMouseDown={(event) => {
@@ -1644,23 +1699,9 @@ export function JobStrip({
             }}
           >
             <div style={{ fontSize: T.type.sm, color: T.secondary, flexGrow: 1 }}>{label}</div>
-            <div
-              testId={`stop-${job.id}`}
-              style={{
-                paddingLeft: T.space.sm,
-                paddingRight: T.space.sm,
-                paddingTop: T.space.xs,
-                paddingBottom: T.space.xs,
-                borderRadius: T.radius.sm,
-                backgroundColor: T.raised,
-                fontSize: T.type.xs,
-                color: T.text,
-                ...HIT,
-              }}
-              onClick={() => onStop(job.id)}
-            >
+            <Chip testId={`stop-${job.id}`} tone="ghost" onClick={() => onStop(job.id)}>
               Stop
-            </div>
+            </Chip>
           </div>
         )
       })}
@@ -1689,54 +1730,26 @@ function GoalBlockerPanel({
         marginLeft: T.space.xl,
         marginRight: T.space.xl,
         marginBottom: T.space.sm,
-        padding: T.space.md,
-        borderRadius: T.radius.md,
+        padding: T.space.lg,
+        borderRadius: T.radius.lg,
         backgroundColor: T.raised,
         borderWidth: T.stroke.hairline,
         borderColor: T.border,
         display: 'flex',
         flexDirection: 'column',
-        gap: T.space.sm,
+        gap: T.space.md,
       }}
     >
       <div style={{ fontSize: T.type.xs, color: T.secondary }}>Waiting on you</div>
       <div style={{ fontSize: T.type.sm, color: T.text }}>{context}</div>
       <div style={{ fontSize: T.type.sm, color: T.secondary }}>{goal.blocker?.reason}</div>
       <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
-        <div
-          testId="goal-blocker-retry"
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: T.inverse,
-            color: T.onInverse,
-            fontSize: T.type.sm,
-            ...HIT,
-          }}
-          onClick={onRetry}
-        >
+        <Chip testId="goal-blocker-retry" tone="action" onClick={onRetry}>
           Retry
-        </div>
-        <div
-          testId="goal-blocker-cancel"
-          style={{
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.xs,
-            paddingBottom: T.space.xs,
-            borderRadius: T.radius.sm,
-            backgroundColor: T.raised,
-            color: T.text,
-            fontSize: T.type.sm,
-            ...HIT,
-          }}
-          onClick={onCancel}
-        >
+        </Chip>
+        <Chip testId="goal-blocker-cancel" tone="ghost" onClick={onCancel}>
           Cancel goal
-        </div>
+        </Chip>
       </div>
     </div>
   )
@@ -1746,6 +1759,8 @@ function Composer({
   value,
   pendingPaths,
   locked,
+  queueing = false,
+  queued = 0,
   onChange,
   onAttach,
   onPaste,
@@ -1755,6 +1770,8 @@ function Composer({
   value: string
   pendingPaths: string[]
   locked: boolean
+  queueing?: boolean
+  queued?: number
   onChange: (value: string) => void
   onAttach: () => void
   onPaste: () => void
@@ -1762,6 +1779,8 @@ function Composer({
   onSend: () => void
 }) {
   const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
+  const steer =
+    queued > 0 ? `${queued} queued` : queueing ? 'Send queues until this turn ends' : null
   return (
     <div
       style={{
@@ -1782,11 +1801,11 @@ function Composer({
           width: '100%',
           maxWidth: T.layout.contentMax,
           backgroundColor: T.composer,
-          borderRadius: T.radius.lg,
+          borderRadius: T.radius.xl,
           borderWidth: T.stroke.hairline,
           borderColor: T.border,
-          paddingTop: T.space.sm,
-          paddingBottom: T.space.sm,
+          paddingTop: T.space.md,
+          paddingBottom: T.space.md,
         }}
       >
         {pendingPaths.length > 0 ? (
@@ -1886,7 +1905,7 @@ function Composer({
               paddingRight: T.space.md,
               paddingTop: T.space.control,
               paddingBottom: T.space.control,
-              borderRadius: T.radius.sm,
+              borderRadius: T.radius.md,
               backgroundColor: T.raised,
               color: T.text,
               fontSize: T.type.sm,
@@ -1906,13 +1925,12 @@ function Composer({
           <div
             testId="send"
             style={{
-              paddingLeft: T.space.md,
-              paddingRight: T.space.md,
+              paddingLeft: T.space.lg,
+              paddingRight: T.space.lg,
               paddingTop: T.space.control,
               paddingBottom: T.space.control,
-              borderRadius: T.radius.sm,
-              backgroundColor: ready ? T.inverse : T.raised,
-              color: ready ? T.onInverse : T.ghost,
+              borderRadius: T.radius.md,
+              ...toneFill('action', ready),
               fontSize: T.type.sm,
               ...HIT,
               cursor: ready ? 'pointer' : 'default',
@@ -1926,6 +1944,20 @@ function Composer({
             Send
           </div>
         </div>
+        {steer ? (
+          <div
+            testId="steer-hint"
+            style={{
+              paddingLeft: T.space.md,
+              paddingRight: T.space.md,
+              paddingTop: T.space.sm,
+              fontSize: T.type.xs,
+              color: T.ghost,
+            }}
+          >
+            {steer}
+          </div>
+        ) : null}
       </div>
     </div>
   )
