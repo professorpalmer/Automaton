@@ -15,6 +15,7 @@ import { automatonHome } from './runtime/keys'
 import { importSkillFromUrl, listSkills, setSkillEnabled } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
 import { CHAT_THEME, T } from './tokens'
+import { Chip, FIELD_STYLE, MENU_STYLE, menuItemStyle } from './ui'
 
 const SECRET = /sk-[a-zA-Z0-9_-]{8,}|Bearer\s+\S+|OPENROUTER_API_KEY\s*=\s*\S+/gi
 const SPOKEN_JOB = /\bjob_[A-Za-z0-9]+\b/g
@@ -124,38 +125,8 @@ export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId
   )
 }
 
-const MARK_FIELD = {
-  width: '100%' as const,
-  fontSize: T.type.sm,
-  color: T.text,
-  backgroundColor: T.composer,
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  borderRadius: T.radius.sm,
-  paddingLeft: T.space.sm,
-  paddingRight: T.space.sm,
-  paddingTop: T.space.xs,
-  paddingBottom: T.space.xs,
-}
-
-const MARK_ITEM = {
-  paddingLeft: T.space.sm,
-  paddingRight: T.space.sm,
-  paddingTop: T.space.xs,
-  paddingBottom: T.space.xs,
-  fontSize: T.type.sm,
-}
-
-const MARK_MENU = {
-  maxHeight: T.layout.menuMax,
-  overflowY: 'scroll' as const,
-  backgroundColor: T.raised,
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  borderRadius: T.radius.sm,
-  paddingTop: T.space.xs,
-  paddingBottom: T.space.xs,
-}
+const MARK_FIELD = FIELD_STYLE
+const MARK_MENU = MENU_STYLE
 
 function uniqueChoices(current: string, catalog: readonly string[]): string[] {
   const out: string[] = []
@@ -239,14 +210,14 @@ export function Inspector({
         alignSelf: 'stretch',
         display: 'flex',
         flexDirection: 'column',
-        backgroundColor: T.raised,
+        backgroundColor: T.canvas,
         borderLeftWidth: T.stroke.hairline,
         borderLeftColor: T.border,
-        paddingLeft: T.space.lg,
-        paddingRight: T.space.lg,
-        paddingTop: T.space.md,
-        paddingBottom: T.space.lg,
-        gap: T.space.md,
+        paddingLeft: T.space.xl,
+        paddingRight: T.space.xl,
+        paddingTop: T.space.lg,
+        paddingBottom: T.space.xl,
+        gap: T.space.xl,
         overflowX: 'hidden',
         overflowY: 'scroll',
       }}
@@ -269,8 +240,8 @@ export function Inspector({
               backgroundColor: T.composer,
               borderWidth: T.stroke.hairline,
               borderColor: T.border,
-              borderRadius: T.radius.sm,
-              paddingLeft: T.space.sm,
+              borderRadius: T.radius.md,
+              paddingLeft: T.space.md,
               paddingRight: T.space.sm,
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
@@ -302,7 +273,9 @@ export function Inspector({
               width: '100%',
               height: T.desk.viewH,
               backgroundColor: T.canvas,
-              borderRadius: T.radius.sm,
+              borderRadius: T.radius.md,
+              borderWidth: T.stroke.hairline,
+              borderColor: T.border,
               overflow: 'hidden',
               cursor: 'pointer',
               pointerEvents: 'auto',
@@ -341,20 +314,10 @@ export function Inspector({
             )}
           </div>
           <div style={{ fontSize: T.type.xs, color: T.secondary }}>{`${agent.name}'s screen`}</div>
-          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: T.space.xs }}>
-            <div
+          <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm }}>
+            <Chip
               testId="desk-control"
-              style={{
-                paddingLeft: T.space.sm,
-                paddingRight: T.space.sm,
-                paddingTop: T.space.xxs,
-                paddingBottom: T.space.xxs,
-                borderRadius: T.radius.sm,
-                backgroundColor: controlling ? T.inverse : T.raised,
-                color: controlling ? T.onInverse : T.text,
-                fontSize: T.type.xs,
-                ...HIT,
-              }}
+              tone={controlling ? 'primary' : 'ghost'}
               onClick={() => {
                 onTakeControl?.()
                 void recapture()
@@ -362,27 +325,17 @@ export function Inspector({
               onScroll={passWheel}
             >
               {controlling ? 'Release' : 'Take control'}
-            </div>
-            <div
+            </Chip>
+            <Chip
               testId="desktop-refresh"
-              style={{
-                paddingLeft: T.space.sm,
-                paddingRight: T.space.sm,
-                paddingTop: T.space.xxs,
-                paddingBottom: T.space.xxs,
-                borderRadius: T.radius.sm,
-                backgroundColor: T.raised,
-                fontSize: T.type.xs,
-                color: T.text,
-                ...HIT,
-              }}
+              tone="ghost"
               onClick={() => {
                 void recapture()
               }}
               onScroll={passWheel}
             >
               Refresh
-            </div>
+            </Chip>
           </div>
         </div>
       </Section>
@@ -419,11 +372,7 @@ export function Inspector({
                       key={item}
                       value={item}
                       testId={`inspector-mark-shape-${item}`}
-                      style={(state) => ({
-                        ...MARK_ITEM,
-                        backgroundColor: state.highlighted || state.selected ? T.inverse : T.clear,
-                        color: state.highlighted || state.selected ? T.onInverse : T.text,
-                      })}
+                      style={(state) => menuItemStyle(state)}
                     >
                       {item}
                     </ComboboxItem>
@@ -454,11 +403,7 @@ export function Inspector({
                       key={item}
                       value={item}
                       testId={`inspector-mark-color-${item}`}
-                      style={(state) => ({
-                        ...MARK_ITEM,
-                        backgroundColor: state.highlighted || state.selected ? T.inverse : T.clear,
-                        color: state.highlighted || state.selected ? T.onInverse : T.text,
-                      })}
+                      style={(state) => menuItemStyle(state)}
                     >
                       {item}
                     </ComboboxItem>
@@ -518,8 +463,8 @@ export function Inspector({
               backgroundColor: T.composer,
               borderWidth: T.stroke.hairline,
               borderColor: T.border,
-              borderRadius: T.radius.sm,
-              paddingLeft: T.space.sm,
+              borderRadius: T.radius.md,
+              paddingLeft: T.space.md,
               paddingRight: T.space.sm,
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
@@ -556,20 +501,9 @@ export function Inspector({
               onScroll={passWheel}
               onChange={(event) => setImportUrl(event.value ?? '')}
             />
-            <div
+            <Chip
               testId="skill-import"
-              style={{
-                alignSelf: 'flex-start',
-                paddingLeft: T.space.sm,
-                paddingRight: T.space.sm,
-                paddingTop: T.space.xxs,
-                paddingBottom: T.space.xxs,
-                borderRadius: T.radius.sm,
-                backgroundColor: T.raised,
-                fontSize: T.type.xs,
-                color: T.text,
-                ...HIT,
-              }}
+              tone="ghost"
               onClick={() => {
                 const url = importUrl.trim()
                 if (!url) return
@@ -586,7 +520,7 @@ export function Inspector({
               onScroll={passWheel}
             >
               Import
-            </div>
+            </Chip>
             {importNote ? (
               <div testId="skill-import-note" style={{ fontSize: T.type.xs, color: T.tertiary }}>
                 {importNote}
@@ -677,39 +611,22 @@ export function PaneHeader({
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: title ? 'space-between' : 'flex-end',
         flexShrink: 0,
       }}
     >
-      <div style={{ fontSize: T.type.sm, color: T.secondary }}>{title}</div>
-      <div
-        testId={closeId}
-        style={{
-          paddingLeft: T.space.sm,
-          paddingRight: T.space.sm,
-          paddingTop: T.space.xs,
-          paddingBottom: T.space.xs,
-          borderRadius: T.radius.sm,
-          backgroundColor: T.raised,
-          fontSize: T.type.sm,
-          color: T.text,
-          cursor: 'pointer',
-          pointerEvents: 'auto',
-          userSelect: 'none',
-        }}
-        onClick={onClose}
-        onScroll={onScroll}
-      >
+      {title ? <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.text }}>{title}</div> : null}
+      <Chip testId={closeId} tone="ghost" onClick={onClose} onScroll={onScroll}>
         X
-      </div>
+      </Chip>
     </div>
   )
 }
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
-      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{title}</div>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      <div style={{ fontSize: T.type.xs, color: T.ghost }}>{title}</div>
       {children}
     </div>
   )

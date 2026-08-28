@@ -6,6 +6,7 @@ import { captureDesk, captureDeskAsync, clickDesk, resolveDeskHit, sendDeskStrok
 import { desktopPreview } from './runtime/desktop'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
+import { HIT, toneFill } from './ui'
 import { quitChord } from './inspector'
 import { quitAutomaton } from './runtime/quit'
 
@@ -184,17 +185,15 @@ export function DeskStage({
         <div
           testId="desk-release"
           style={{
-            paddingLeft: T.space.sm,
-            paddingRight: T.space.sm,
-            paddingTop: T.space.xxs,
-            paddingBottom: T.space.xxs,
-            borderRadius: T.radius.sm,
-            backgroundColor: T.inverse,
-            color: T.onInverse,
-            fontSize: T.type.xs,
+            paddingLeft: T.space.md,
+            paddingRight: T.space.md,
+            paddingTop: T.space.control,
+            paddingBottom: T.space.control,
+            borderRadius: T.radius.md,
+            ...toneFill('ghost'),
+            fontSize: T.type.sm,
             pointerEvents: 'auto',
-            cursor: 'pointer',
-            userSelect: 'none',
+            ...HIT,
           }}
           onMouseDown={(event) => {
             if (event.isRightClick || event.button === 2) return
@@ -210,7 +209,9 @@ export function DeskStage({
           flexGrow: 1,
           minHeight: T.desk.stageMinH,
           backgroundColor: T.raised,
-          borderRadius: T.radius.sm,
+          borderRadius: T.radius.lg,
+          borderWidth: T.stroke.hairline,
+          borderColor: T.border,
           overflow: 'hidden',
         }}
       >
