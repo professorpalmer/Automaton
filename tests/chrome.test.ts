@@ -4,11 +4,13 @@ import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import {
   browse,
+  captureAgentDesk,
   captureScreen,
   chromeAvailable,
   chromeBinary,
   chromeLaunch,
   chromeMode,
+  clickAgentDesk,
   devtoolsPath,
   ensureBrowser,
   goToUrl,
@@ -19,8 +21,16 @@ import {
   boxProfileLockRmArgv,
   type ChromeSeams,
 } from '../src/runtime/chrome'
+import { captchaOrigin, continueFromSorry, sorryPage } from '../src/runtime/computer-tools'
 import { BOX_NAME, boxChromeDebugPort } from '../src/runtime/computer'
-import { desktopDir, desktopPreview, ensureDesktop, teardownDesktop } from '../src/runtime/desktop'
+import {
+  desktopDir,
+  desktopPreview,
+  ensureDesktop,
+  readDeskSurface,
+  teardownDesktop,
+  writeDeskSurface,
+} from '../src/runtime/desktop'
 
 const TINY_PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -236,6 +246,160 @@ describe('browser helper', () => {
         },
       }),
     ).toBe(false)
+    rmSync(home, { recursive: true, force: true })
+  })
+})
+
+describe('captcha origin', () => {
+  test('covers google search and sorry URLs, not github.com', () => {
+    expect(captchaOrigin('https://www.google.com/search?q=nvidia+stock+futures')).toBe(true)
+    expect(captchaOrigin('https://google.com/search?q=nvidia')).toBe(true)
+    expect(captchaOrigin('https://www.google.com/sorry/index?continue=https://www.google.com/search?q=n')).toBe(true)
+    expect(captchaOrigin('https://www.google.com/recaptcha/api.js')).toBe(true)
+    expect(captchaOrigin('https://github.com/professorpalmer/Automaton')).toBe(false)
+    expect(captchaOrigin('https://example.com')).toBe(false)
+  })
+
+  test('sorryPage is unusual traffic / recaptcha /sorry', () => {
+    expect(sorryPage('https://www.google.com/sorry/index', 'Our systems have detected unusual traffic')).toBe(true)
+    expect(sorryPage('https://www.google.com/search?q=n', "I'm not a robot")).toBe(true)
+    expect(sorryPage('https://example.com', 'Example Domain')).toBe(false)
+    expect(
+      continueFromSorry(
+        'https://www.google.com/sorry/index?continue=https://www.google.com/search?q=nvidia+stock+futures',
+        'https://www.google.com/',
+      ),
+    ).toBe('https://www.google.com/search?q=nvidia stock futures')
+  })
+})
+
+describe('host desk for captcha', () => {
+  const running = { docker: () => ({ status: 0, text: 'true\n' }) }
+
+  test('forceBox + google URL is host when a Mac binary exists', () => {
+    expect(
+      chromeMode({
+        binary: '/fake/Google Chrome',
+        forceBox: true,
+        url: 'https://www.google.com/search?q=nvidia+stock+futures',
+        box: running,
+      }),
+    ).toBe('host')
+  })
+
+  test('forceBox still boxes non-google URLs', () => {
+    expect(
+      chromeMode({
+        binary: '/fake/Google Chrome',
+        forceBox: true,
+        url: 'https://example.com',
+        box: running,
+      }),
+    ).toBe('box')
+    expect(
+      chromeMode({
+        binary: '/fake/Google Chrome',
+        forceBox: true,
+        box: running,
+      }),
+    ).toBe('box')
+  })
+
+  test('forceBox google browse opens host Chrome and records host surface', async () => {
+    const home = tmpHome()
+    const spawned: string[] = []
+    const seen: string[] = []
+    const dest = await browse('staff', 'https://www.google.com/search?q=nvidia+stock+futures', home, {
+      binary: '/fake/Google Chrome',
+      forceBox: true,
+      box: running,
+      pickPort: () => 9333,
+      spawn: (bin) => {
+        spawned.push(bin)
+        return { pid: 88 }
+      },
+      waitReady: async () => {},
+      navigate: async (_port, url) => {
+        seen.push(url)
+      },
+      capturePng: async () => TINY_PNG,
+      alive: () => true,
+      kill: () => {},
+    })
+    expect(spawned).toEqual(['/fake/Google Chrome'])
+    expect(seen).toEqual(['https://www.google.com/search?q=nvidia+stock+futures'])
+    expect(readDeskSurface('staff', home)).toBe('host')
+    expect(dest && existsSync(dest)).toBe(true)
+    teardownBrowserDesktop('staff', home, { kill: () => {} })
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('desk routes capture and clicks to host when surface is host', async () => {
+    const home = tmpHome()
+    const clicks: Array<{ x: number; y: number }> = []
+    const seams: ChromeSeams = {
+      binary: '/fake/Google Chrome',
+      forceBox: true,
+      pickPort: () => 9555,
+      spawn: () => ({ pid: 77 }),
+      waitReady: async () => {},
+      capturePng: async () => TINY_PNG,
+      clickPage: async (_port, point) => {
+        clicks.push(point)
+        return true
+      },
+      alive: () => true,
+      kill: () => {},
+    }
+    await ensureBrowser('staff', home, { ...seams, forceBox: false })
+    writeDeskSurface('staff', 'host', home)
+    const dest = await captureAgentDesk('staff', home, seams)
+    expect(dest).toBeTruthy()
+    expect(dest).toContain(`paint-${process.pid}-`)
+    expect(existsSync(dest!)).toBe(true)
+    expect(clickAgentDesk('staff', { x: 40, y: 80 }, 0, home, seams)).toBe(true)
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(clicks).toEqual([{ x: 40, y: 80 }])
+    writeDeskSurface('staff', 'box', home)
+    const boxShot = await captureAgentDesk('staff', home, {
+      ...seams,
+      box: { docker: () => ({ status: 0, text: 'false\n' }) },
+    })
+    expect(boxShot).toBeNull()
+    teardownBrowserDesktop('staff', home, seams)
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('box sorry page flips browse onto host Chrome', async () => {
+    const home = tmpHome()
+    const spawned: string[] = []
+    const seen: string[] = []
+    const dest = await browse('staff', 'https://example.com', home, {
+      binary: '/fake/Google Chrome',
+      forceBox: true,
+      box: running,
+      pickPort: () => 9666,
+      spawn: (bin) => {
+        spawned.push(bin)
+        return { pid: spawned.length + 10 }
+      },
+      waitReady: async () => {},
+      navigate: async (_port, url) => {
+        seen.push(url)
+      },
+      pageInfo: async () => ({
+        url: 'https://www.google.com/sorry/index?continue=https://www.google.com/search?q=nvidia+stock+futures',
+        title: 'unusual traffic',
+      }),
+      capturePng: async () => TINY_PNG,
+      alive: () => true,
+      kill: () => {},
+    })
+    expect(seen).toContain('https://example.com')
+    expect(seen).toContain('https://www.google.com/search?q=nvidia stock futures')
+    expect(readDeskSurface('staff', home)).toBe('host')
+    expect(dest && existsSync(dest)).toBe(true)
+    teardownBrowserDesktop('staff', home, { kill: () => {} })
     rmSync(home, { recursive: true, force: true })
   })
 })

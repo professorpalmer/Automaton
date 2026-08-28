@@ -7,13 +7,26 @@ import { runningTests } from './test-env'
 import { boxChromeAlive, boxChromeWindowReady, ensureScreen, fitBoxChrome, stopBoxChrome } from './screen'
 import {
   BOX_CHROME,
+  BOX_DISPLAY_H,
+  BOX_DISPLAY_W,
   BOX_NAME,
   boxChromeDebugPort,
   boxProfileDir,
   mouthScreen,
 } from './computer'
-import { browserDir, desktopDir, ensureDesktop, screenPath, teardownDesktop, clearBoxProfileLocks } from './desktop'
-import { captureDesk, openDeskUrl } from './desk'
+import { captchaOrigin, continueFromSorry, sorryPage } from './computer-tools'
+import { captureDesk, captureDeskAsync, clickDesk, openDeskUrl, sendDeskStroke, uniqueDeskPaint, wheelDesk, type DeskStroke, type Point } from './desk'
+import {
+  browserDir,
+  clearBoxProfileLocks,
+  desktopDir,
+  ensureDesktop,
+  readDeskSurface,
+  screenPath,
+  teardownDesktop,
+  writeDeskSurface,
+  writeDeskViewport,
+} from './desktop'
 import { automatonHome } from './keys'
 
 export function boxProfileLockRmArgv(agentId: string): string[] {
@@ -35,6 +48,13 @@ export type ChromeSeams = {
   box?: BoxSeams
   /** Worker xdotool clicks stay on box Chrome. Interactive browse prefers host. */
   forceBox?: boolean
+  /** When set, captcha origins ignore forceBox and use host Chrome. */
+  url?: string
+  pageInfo?: (port: number) => Promise<{ url: string; title: string } | null>
+  clickPage?: (port: number, point: Point, button?: number) => Promise<boolean>
+  keyPage?: (port: number, stroke: DeskStroke) => Promise<boolean>
+  wheelPage?: (port: number, point: Point, deltaY: number) => Promise<boolean>
+  viewport?: (port: number) => Promise<{ width: number; height: number } | null>
 }
 
 const CANDIDATES = [
@@ -62,7 +82,8 @@ export function chromeAvailable(seams?: ChromeSeams, home = automatonHome()): bo
 }
 
 export function chromeMode(seams?: ChromeSeams, home = automatonHome()): 'box' | 'host' | 'none' {
-  if (seams?.forceBox) return boxStatus(home, seams.box).running ? 'box' : 'none'
+  const captcha = Boolean(seams?.url && captchaOrigin(seams.url))
+  if (seams?.forceBox && !captcha) return boxStatus(home, seams.box).running ? 'box' : 'none'
   if (chromeBinary(seams)) return 'host'
   if (boxStatus(home, seams?.box).running) return 'box'
   return 'none'
@@ -168,8 +189,11 @@ export function devtoolsPath(agentId: string, home = automatonHome()): string {
   return join(desktopDir(agentId, home), 'devtools.json')
 }
 
-export function readHandle(agentId: string, home = automatonHome()): ChromeHandle | null {
-  const path = devtoolsPath(agentId, home)
+export function hostDevtoolsPath(agentId: string, home = automatonHome()): string {
+  return join(desktopDir(agentId, home), 'host-devtools.json')
+}
+
+function parseHandle(path: string): ChromeHandle | null {
   if (!existsSync(path)) return null
   try {
     const raw = JSON.parse(readFileSync(path, 'utf8')) as {
@@ -189,8 +213,21 @@ export function readHandle(agentId: string, home = automatonHome()): ChromeHandl
   }
 }
 
+export function readHandle(agentId: string, home = automatonHome()): ChromeHandle | null {
+  return parseHandle(devtoolsPath(agentId, home))
+}
+
+export function readHostHandle(agentId: string, home = automatonHome()): ChromeHandle | null {
+  const hosted = parseHandle(hostDevtoolsPath(agentId, home))
+  if (hosted) return hosted
+  const current = readHandle(agentId, home)
+  return current?.via === 'host' ? current : null
+}
+
 function writeHandle(agentId: string, handle: ChromeHandle, home: string): void {
-  writeFileSync(devtoolsPath(agentId, home), `${JSON.stringify(handle)}\n`)
+  const body = `${JSON.stringify(handle)}\n`
+  writeFileSync(devtoolsPath(agentId, home), body)
+  if (handle.via === 'host') writeFileSync(hostDevtoolsPath(agentId, home), body)
 }
 
 function defaultAlive(pid: number): boolean {
@@ -305,6 +342,117 @@ async function defaultNavigate(port: number, url: string): Promise<void> {
   await cdp(wsUrl, 'Page.navigate', { url })
 }
 
+export async function defaultPageInfo(port: number): Promise<{ url: string; title: string } | null> {
+  if (runningTests()) return null
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(800) })
+    if (!response.ok) return null
+    const pages = (await response.json()) as { type?: string; url?: string; title?: string }[]
+    const page = pages.find((row) => row.type === 'page') ?? pages[0]
+    if (!page) return null
+    return { url: page.url ?? '', title: page.title ?? '' }
+  } catch {
+    return null
+  }
+}
+
+async function defaultViewport(port: number): Promise<{ width: number; height: number } | null> {
+  try {
+    const wsUrl = await pageWs(port)
+    const result = await cdp(wsUrl, 'Page.getLayoutMetrics')
+    const css = result.cssVisualViewport as { clientWidth?: number; clientHeight?: number } | undefined
+    const width = Number(css?.clientWidth)
+    const height = Number(css?.clientHeight)
+    if (width > 1 && height > 1) return { width: Math.round(width), height: Math.round(height) }
+  } catch {
+    /* headed Chrome may still take a screenshot */
+  }
+  return null
+}
+
+function mouseButton(button?: number): 'left' | 'middle' | 'right' {
+  if (button === 2) return 'right'
+  if (button === 1) return 'middle'
+  return 'left'
+}
+
+export async function clickPage(port: number, point: Point, button = 0): Promise<boolean> {
+  try {
+    const wsUrl = await pageWs(port)
+    const btn = mouseButton(button)
+    await cdp(wsUrl, 'Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: point.x,
+      y: point.y,
+      button: btn,
+      clickCount: 1,
+    })
+    await cdp(wsUrl, 'Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: point.x,
+      y: point.y,
+      button: btn,
+      clickCount: 1,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
+const HOST_KEYS: Record<string, string> = {
+  Return: 'Enter',
+  BackSpace: 'Backspace',
+  Delete: 'Delete',
+  Escape: 'Escape',
+  Tab: 'Tab',
+  space: ' ',
+  Up: 'ArrowUp',
+  Down: 'ArrowDown',
+  Left: 'ArrowLeft',
+  Right: 'ArrowRight',
+}
+
+export async function keyPage(port: number, stroke: DeskStroke): Promise<boolean> {
+  try {
+    const wsUrl = await pageWs(port)
+    if (stroke.via === 'type') {
+      await cdp(wsUrl, 'Input.insertText', { text: stroke.value })
+      return true
+    }
+    const parts = stroke.value.split('+')
+    const base = parts.at(-1) ?? ''
+    let modifiers = 0
+    if (parts.includes('alt')) modifiers |= 1
+    if (parts.includes('ctrl')) modifiers |= 2
+    if (parts.includes('meta') || parts.includes('cmd')) modifiers |= 4
+    if (parts.includes('shift')) modifiers |= 8
+    const key = HOST_KEYS[base] ?? base
+    await cdp(wsUrl, 'Input.dispatchKeyEvent', { type: 'keyDown', key, modifiers })
+    await cdp(wsUrl, 'Input.dispatchKeyEvent', { type: 'keyUp', key, modifiers })
+    return true
+  } catch {
+    return false
+  }
+}
+
+export async function wheelPage(port: number, point: Point, deltaY: number): Promise<boolean> {
+  if (!deltaY) return false
+  try {
+    const wsUrl = await pageWs(port)
+    await cdp(wsUrl, 'Input.dispatchMouseEvent', {
+      type: 'mouseWheel',
+      x: point.x,
+      y: point.y,
+      deltaX: 0,
+      deltaY,
+    })
+    return true
+  } catch {
+    return false
+  }
+}
+
 export async function goToUrl(
   mode: 'box' | 'host',
   port: number,
@@ -351,7 +499,18 @@ export async function ensureBrowser(
     boxExec(boxProfileLockRmArgv(agentId), {}, seams.box)
     clearBoxProfileLocks(agentId, home)
   }
-  if (existing && alive(existing.pid) && existing.via !== 'box') return existing
+  if (mode === 'host') {
+    const hosted = readHostHandle(agentId, home)
+    if (hosted && alive(hosted.pid)) {
+      try {
+        await (seams.waitReady ?? defaultWaitReady)(hosted.port)
+      } catch {
+        /* CDP click can still wait */
+      }
+      writeHandle(agentId, hosted, home)
+      return hosted
+    }
+  }
   const pick = seams.pickPort ?? defaultPickPort
   const port = mode === 'box' ? wantedPort : await pick()
   const launch = chromeLaunch({
@@ -401,8 +560,26 @@ export function stopBrowser(agentId: string, home = automatonHome(), seams: Chro
   } else if (handle) {
     const kill = seams.kill ?? defaultKill
     kill(handle.pid)
+    const hostPath = hostDevtoolsPath(agentId, home)
+    if (existsSync(hostPath)) unlinkSync(hostPath)
   }
   if (existsSync(path)) unlinkSync(path)
+}
+
+function rememberViewport(agentId: string, home: string, bytes: Uint8Array, view: { width: number; height: number } | null): void {
+  if (view && view.width > 1 && view.height > 1) {
+    writeDeskViewport(agentId, view, home)
+    return
+  }
+  if (bytes.length >= 24) {
+    const width = (bytes[16]! << 24) | (bytes[17]! << 16) | (bytes[18]! << 8) | bytes[19]!
+    const height = (bytes[20]! << 24) | (bytes[21]! << 16) | (bytes[22]! << 8) | bytes[23]!
+    if (width > 8 && height > 8) {
+      writeDeskViewport(agentId, { width, height }, home)
+      return
+    }
+  }
+  writeDeskViewport(agentId, { width: BOX_DISPLAY_W, height: BOX_DISPLAY_H }, home)
 }
 
 export async function captureScreen(
@@ -421,13 +598,19 @@ export async function captureScreen(
     const bytes = await capture(handle.port)
     const dest = screenPath(agentId, home)
     writeFileSync(dest, bytes)
+    const view = seams.viewport
+      ? await seams.viewport(handle.port)
+      : runningTests()
+        ? null
+        : await defaultViewport(handle.port)
+    rememberViewport(agentId, home, bytes, view)
     return dest
   } catch {
     return null
   }
 }
 
-/** Bring Automaton host Chrome forward. Cannot blit that window onto the box desk PNG. */
+/** Bring Automaton host Chrome forward so a captcha solve lands on this profile. */
 export function focusHostChrome(pid: number): boolean {
   if (runningTests() || process.platform !== 'darwin' || pid <= 1) return false
   const result = spawnSync(
@@ -447,12 +630,114 @@ export async function browse(
   home = automatonHome(),
   seams: ChromeSeams = {},
 ): Promise<string | null> {
-  const mode = chromeMode(seams, home)
-  const handle = await ensureBrowser(agentId, home, seams)
+  const effective: ChromeSeams = { ...seams, url }
+  const mode = chromeMode(effective, home)
+  const handle = await ensureBrowser(agentId, home, effective)
   if (!handle) return null
-  if (!(await goToUrl(mode, handle.port, agentId, url, home, seams))) return null
-  if (mode === 'host') focusHostChrome(handle.pid)
-  return captureScreen(agentId, home, seams)
+  if (!(await goToUrl(mode, handle.port, agentId, url, home, effective))) return null
+  if (mode === 'host') {
+    writeDeskSurface(agentId, 'host', home)
+    focusHostChrome(handle.pid)
+    return captureScreen(agentId, home, effective)
+  }
+  writeDeskSurface(agentId, 'box', home)
+  const info = await (effective.pageInfo ?? defaultPageInfo)(handle.port)
+  if (info && sorryPage(info.url, info.title) && chromeBinary(effective)) {
+    const next = continueFromSorry(info.url, url)
+    return browse(agentId, next, home, { ...seams, forceBox: false })
+  }
+  return captureScreen(agentId, home, effective)
+}
+
+function hostPort(agentId: string, home: string): number | null {
+  const handle = readHostHandle(agentId, home) ?? readHandle(agentId, home)
+  if (!handle || handle.port <= 0 || handle.via === 'box') return null
+  return handle.port
+}
+
+export async function captureAgentDesk(
+  agentId: string,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): Promise<string | null> {
+  if (readDeskSurface(agentId, home) === 'host') {
+    const path = await captureScreen(agentId, home, { ...seams, forceBox: false })
+    return path ? uniqueDeskPaint(agentId, path, home) : null
+  }
+  return captureDesk(agentId, home, { box: seams.box })
+}
+
+export function captureAgentDeskAsync(
+  agentId: string,
+  done: (path: string | null) => void,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): void {
+  if (readDeskSurface(agentId, home) === 'host') {
+    void captureAgentDesk(agentId, home, seams).then(done)
+    return
+  }
+  captureDeskAsync(agentId, done, home, { box: seams.box })
+}
+
+export function clickAgentDesk(
+  agentId: string,
+  point: Point,
+  button = 0,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): boolean {
+  if (readDeskSurface(agentId, home) !== 'host') {
+    return clickDesk(agentId, point, button, home, { box: seams.box })
+  }
+  const port = hostPort(agentId, home)
+  if (!port) return false
+  void (seams.clickPage ?? clickPage)(port, point, button)
+  return true
+}
+
+export function sendAgentStroke(
+  agentId: string,
+  stroke: DeskStroke,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): boolean {
+  if (readDeskSurface(agentId, home) !== 'host') {
+    return sendDeskStroke(agentId, stroke, home, { box: seams.box })
+  }
+  const port = hostPort(agentId, home)
+  if (!port) return false
+  void (seams.keyPage ?? keyPage)(port, stroke)
+  return true
+}
+
+export function keyAgentDesk(
+  agentId: string,
+  key: string,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): boolean {
+  return sendAgentStroke(agentId, { via: 'key', value: key }, home, seams)
+}
+
+export function wheelAgentDesk(
+  agentId: string,
+  point: Point,
+  deltaY: number,
+  home = automatonHome(),
+  seams: ChromeSeams = {},
+): boolean {
+  if (readDeskSurface(agentId, home) !== 'host') {
+    return wheelDesk(agentId, point, deltaY, home, { box: seams.box })
+  }
+  const port = hostPort(agentId, home)
+  if (!port) return false
+  void (seams.wheelPage ?? wheelPage)(port, point, deltaY)
+  return true
+}
+
+export function hostDeskSeams(agentId: string, home = automatonHome()): ChromeSeams {
+  return readDeskSurface(agentId, home) === 'host' ? {} : { forceBox: true }
 }
 
 export function teardownBrowserDesktop(

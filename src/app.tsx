@@ -54,7 +54,7 @@ import {
 } from './inspector'
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
-import { browse, ensureBrowser } from './runtime/chrome'
+import { browse, ensureBrowser, focusHostChrome, hostDeskSeams, readHostHandle } from './runtime/chrome'
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
 import { setHumanDriving } from './runtime/driving'
@@ -777,7 +777,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                       } catch {
                         /* fail open */
                       }
-                      if (!runningTests()) void ensureBrowser(agentId)
+                      if (!runningTests()) {
+                        void ensureBrowser(agentId, undefined, {
+                          ...hostDeskSeams(agentId),
+                          url: session.deskHandoff?.url,
+                        })
+                        const hosted = readHostHandle(agentId)
+                        if (hosted) focusHostChrome(hosted.pid)
+                      }
                     }
                   }}
                   onDismiss={() => setSession((current) => dismissDeskHandoff(current))}
@@ -855,7 +862,11 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                     } catch {
                       /* fail open: a harness hiccup must not brick the computer */
                     }
-                    if (next && !runningTests()) void ensureBrowser(active.id)
+                    if (next && !runningTests()) {
+                      void ensureBrowser(active.id, undefined, hostDeskSeams(active.id))
+                      const hosted = readHostHandle(active.id)
+                      if (hosted) focusHostChrome(hosted.pid)
+                    }
                     if (!next) {
                       setSession((current) => resumeComputer(current, active.id))
                     }
