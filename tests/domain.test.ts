@@ -446,6 +446,23 @@ describe('mouth vs job', () => {
     expect(
       dispatchTargets('Have Research look up why Kernel Send stays Send.', roster, 'staff'),
     ).toEqual(['research'])
+    const withMn = [
+      ...withPm,
+      { id: 'agent_mn', name: 'Marionette', title: '', description: '', color: '#777777', hidden: false },
+    ]
+    expect(dispatchTargets("What is Marionette's verison up to?", withMn, 'staff')).toEqual([
+      'agent_mn',
+    ])
+    expect(dispatchTargets("What is Marionette’s verison up to?", withMn, 'staff')).toEqual([
+      'agent_mn',
+    ])
+    expect(dispatchTargets('What is Marionette up to?', withMn, 'staff')).toEqual([])
+    expect(
+      dispatchTargets("What is Dugout's stack made up of?", [
+        ...withMn,
+        { id: 'agent_d', name: 'Dugout', title: '', description: '', color: '#777777', hidden: false },
+      ], 'staff'),
+    ).toEqual([])
   })
 
   test('create-automaton lines yield factory names', () => {

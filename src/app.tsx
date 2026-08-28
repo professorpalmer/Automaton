@@ -468,10 +468,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       return next
     })
     if (!runningTests()) {
-      setTimeout(() => {
+      queueMicrotask(() => {
         setSession((current) => finishSend(current))
-        finish()
-      }, 0)
+      })
+      setTimeout(finish, 0)
     }
   }
 

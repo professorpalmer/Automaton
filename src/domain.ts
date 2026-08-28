@@ -865,7 +865,7 @@ function stripAddressing(text: string, agents: Agent[]): string {
     .flatMap((agent) => nameAliases(agent))
     .sort((a, b) => b.length - a.length)
   for (const name of names) {
-    next = next.replace(new RegExp(`\\b${escapeRe(name)}\\b`, 'gi'), ' ')
+    next = next.replace(new RegExp(`\\b${escapeRe(name)}(?:['\u2019]s)?\\b`, 'gi'), ' ')
   }
   next = next.replace(/\b(can you|could you|would you|will you)\b/gi, ' ')
   next = next.replace(/\b(ask(?:\s+if)?|tell|have|ping|dispatch|see\s+if|check\s+if)\b/gi, ' ')
@@ -1024,9 +1024,27 @@ function namesAfterCue(slice: string, roster: Agent[]): AgentId[] {
   return found
 }
 
+/** Name's / Name’s is about that mouth, not a vocative "Name, …". */
+function possessiveAgentIds(text: string, roster: Agent[]): AgentId[] {
+  const found: AgentId[] = []
+  for (const agent of roster) {
+    for (const label of nameAliases(agent)) {
+      const re = new RegExp(`\\b${escapeRe(label)}['\u2019]s\\b`, 'i')
+      if (re.test(text) && !found.includes(agent.id)) found.push(agent.id)
+    }
+  }
+  return found
+}
+
 export function dispatchTargets(text: string, agents: Agent[], focused?: AgentId): AgentId[] {
   const roster = agents.filter((agent) => !agent.hidden)
   const found = mentionedAgentIds(text, roster)
+  const productNames = roster.map((agent) => agent.name)
+  if (!looksLikeCodebaseAsk(text, productNames)) {
+    for (const id of possessiveAgentIds(text, roster)) {
+      if (!found.includes(id)) found.push(id)
+    }
+  }
   const lower = text.toLowerCase()
   for (const match of lower.matchAll(new RegExp(`\\b(?:${DIRECT_ASK})\\b`, 'g'))) {
     const rest = lower.slice((match.index ?? 0) + match[0].length)

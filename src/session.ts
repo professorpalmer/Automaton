@@ -642,7 +642,7 @@ function coordinatorSetup(
     return paintDirect(session, focused, text, focused, attachmentIds, false, text)
   }
   let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
-  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
+  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'idle' })
   const spoken = [
     names.length > 0 ? `Created ${joinAnd(names)}.` : '',
     renameAck(before, renamed),
@@ -664,6 +664,7 @@ function coordinatorSetup(
         { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: text },
         focused,
       )
+      next = wakeSisterMouth(next, target, focused)
       deliveries.push({
         agentId: target,
         text,
@@ -690,6 +691,7 @@ function coordinatorSetup(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: bind.agentId, text: note },
       focused,
     )
+    next = wakeSisterMouth(next, bind.agentId, focused)
     deliveries.push({
       agentId: bind.agentId,
       text: note,
@@ -700,6 +702,11 @@ function coordinatorSetup(
     })
   }
   return mergePending(next, { deliveries, idle: focused })
+}
+
+function wakeSisterMouth(session: Session, agentId: AgentId, focused: AgentId): Session {
+  if (agentId === focused || !session.threads[agentId]) return session
+  return setThread(session, agentId, { mouth: 'must_first' })
 }
 
 function appendRelay(
@@ -732,7 +739,7 @@ function coordinatorDispatch(
   const ping = inherited ? false : work.ping
   const item = stamped('user', focused, text, attachmentIds)
   let next = append(session, focused, item, focused)
-  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
+  next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'idle' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
   next = markPendingHops(next, focused, targets)
   const deliveries: PendingDelivery[] = []
@@ -745,6 +752,7 @@ function coordinatorDispatch(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
+    next = wakeSisterMouth(next, target, focused)
     deliveries.push({
       agentId: target,
       text: note,
@@ -765,7 +773,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
     stamped('user', focused, text),
     focused,
   )
-  next = setThread(next, focused, { draft: '', mouth: 'ack' })
+  next = setThread(next, focused, { draft: '', mouth: 'idle' })
   next = speak(next, focused, 'Telling the others.', focused)
   next = markPendingHops(next, focused, targets)
   const note = staffParaphrase(text)
@@ -779,6 +787,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
+    next = wakeSisterMouth(next, target, focused)
     deliveries.push({
       agentId: target,
       text: note,
