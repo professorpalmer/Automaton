@@ -333,7 +333,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           role: 'worker',
           chat: async (messages) => {
             if (keys.length === 0) return { text: 'Need an OpenRouter key.' }
-            return chatComputerOpenRouter(messages, keys[0]!.key)
+            return chatComputerOpenRouter(messages, keys[0]!.key, undefined, worker.ownerAgentId)
           },
           seams: {
             ...liveComputerSeams(),

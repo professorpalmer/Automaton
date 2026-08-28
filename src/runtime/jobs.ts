@@ -226,6 +226,7 @@ function writeAnalyzeLaunch(job: JobHandle): { configPath: string; goalPath: str
     localId: job.id,
     instruction: analysisInstruction(analyzePrompt(job)),
     workerCwd: analyzeCwd(resolveJobCwd(job)),
+    ownerAgentId: job.ownerAgentId,
   })
 }
 
@@ -272,6 +273,7 @@ function writeImplementLaunch(job: JobHandle): { configPath: string; goalPath: s
     localId: job.id,
     instruction: implementInstruction(job),
     workerCwd: seedSandboxFromProduct(job.id, resolveJobCwd(job)),
+    ownerAgentId: job.ownerAgentId,
   })
 }
 

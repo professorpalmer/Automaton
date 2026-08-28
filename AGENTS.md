@@ -49,6 +49,7 @@ Invariants:
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
+- Provider maps are verified-or-none; no capture, no map.
 
 ## Safety
 
