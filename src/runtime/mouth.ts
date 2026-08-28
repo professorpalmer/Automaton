@@ -1,4 +1,4 @@
-import type { AgentId } from '../domain'
+import { looksLikeLiveCheck, type AgentId } from '../domain'
 import type { Session } from '../session'
 import { pendingMouthTurns } from '../session'
 import { OPENROUTER_CHAT_PATH, connectorFetch, type ConnectorFetchSeams } from './connector-client'
@@ -213,10 +213,11 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, "Couldn't speak.")
         continue
       }
-      const claims = turn.mode === 'assess' ? [] : store.recall(turn.userText)
+      const liveCheck = looksLikeLiveCheck(turn.userText)
+      const claims = turn.mode === 'assess' || liveCheck ? [] : store.recall(turn.userText)
       const attached = store.attachmentsForItem(turn.itemId)
       const hasVision = attached.some((row) => row.kind === 'image')
-      const recalled = turn.mode === 'assess' || hasVision ? null : queryFirst(turn.userText, claims)
+      const recalled = turn.mode === 'assess' || hasVision || liveCheck ? null : queryFirst(turn.userText, claims)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
         hooks.onComplete(turn.agentId, recalled)

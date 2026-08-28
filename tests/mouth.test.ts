@@ -72,6 +72,61 @@ describe('mouth sidecar', () => {
     expect(ledger.inferenceCalls).toBe(0)
   })
 
+  test('live check does not speak a stored issue claim', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-live-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'Issue #107 is still open on Puppetmaster.',
+      source: 'job',
+      jobId: 'job_107',
+      artifactKind: 'analyze',
+      freshness: 'fresh',
+    })
+    const before = store.listClaims().length
+    const agents = staffWithSisters()
+    const live = 'check Puppetmaster and Marionette for prs or open issues'
+    const session = {
+      agents,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(agents),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session.threads.staff.items = [
+      { kind: 'msg', id: 'item_live', from: 'user', agentId: 'staff', text: live },
+    ]
+    session.threads.staff.mouth = 'answer'
+    let spoken = ''
+    let calls = 0
+    let packed: { role: string; content: unknown }[] = []
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async (messages) => {
+        calls += 1
+        packed = messages
+        return 'Looking at the repos now.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(spoken).toBe('Looking at the repos now.')
+    expect(spoken).not.toContain('#107')
+    expect(JSON.stringify(packed)).not.toContain('Recalled claims')
+    expect(JSON.stringify(packed)).not.toContain('Issue #107')
+    expect(store.listClaims()).toHaveLength(before)
+  })
+
   test('name question spends a mouth call, not a stored claim', async () => {
     resetIdsForTests()
     resetMouthForTests()

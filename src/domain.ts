@@ -424,6 +424,14 @@ function namesAProduct(text: string, productNames: string[] = []): boolean {
   })
 }
 
+/** Live world-state: open PRs/issues, inspect, or current/latest status of a named product. Not recall. */
+export function looksLikeLiveCheck(text: string, productNames: string[] = []): boolean {
+  if (looksLikeRepoAsk(text) || looksLikeInspect(text)) return true
+  const lower = text.toLowerCase()
+  if (!/\b(?:current|latest)\s+status\b/.test(lower) && !/\bstatus of\b/.test(lower)) return false
+  return namesAProduct(text, productNames)
+}
+
 /** Code/docs about a machine checkout. Chat pings stay mouth. */
 export function looksLikeCodebaseAsk(
   text: string,
@@ -529,8 +537,7 @@ function wantsLook(
 ): boolean {
   return (
     looksLikeLookup(text) ||
-    looksLikeRepoAsk(text) ||
-    looksLikeInspect(text) ||
+    looksLikeLiveCheck(text, productNames) ||
     looksLikeFileAsk(text) ||
     looksLikeCodebaseAsk(text, productNames, implicitProduct) ||
     (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames, implicitProduct))
@@ -540,6 +547,7 @@ function wantsLook(
 function coordinatorLook(text: string, prior = '', productNames: string[] = []): boolean {
   return (
     looksLikeExplicitLookup(text) ||
+    looksLikeLiveCheck(text, productNames) ||
     looksLikeCodebaseAsk(text, productNames) ||
     (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames))
   )
@@ -830,8 +838,7 @@ function remainderIsWork(text: string): boolean {
     looksLikePromote(text) ||
     looksLikeShip(text) ||
     looksLikeFinishLine(text) ||
-    looksLikeRepoAsk(text) ||
-    looksLikeInspect(text)
+    looksLikeLiveCheck(text)
   ) {
     return true
   }

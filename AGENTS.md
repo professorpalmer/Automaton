@@ -50,6 +50,7 @@ Invariants:
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
 - Provider maps are verified-or-none; no capture, no map.
+- Live world-state books analyze; claims are recall-only.
 
 ## Safety
 

@@ -1,15 +1,64 @@
 import { describe, expect, test } from 'bun:test'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, SISTER_AGENTS, staffWithSisters } from '../src/domain'
+import { looksLikeInspect, looksLikeLiveCheck, looksLikeRepoAsk } from '../src/domain'
 import {
   buildWorkingSet,
   claimTaskKey,
   INTRO_CUE,
   introFallback,
+  looksLikeRecallRequest,
   queryFirst,
   TAIL,
 } from '../src/runtime/working-set.ts'
 
 describe('mouth working set', () => {
+  test('live check misses queryFirst even when a numbered issue claim exists', () => {
+    const issue = {
+      ownerAgentId: 'kernel',
+      text: 'Issue #107 is still open on Puppetmaster.',
+      taskKey: claimTaskKey({ ownerAgentId: 'kernel', kind: 'analyze', goal: 'open issues' }),
+      artifactKind: 'analyze' as const,
+      freshness: 'fresh' as const,
+    }
+    const check = 'check Puppetmaster and Marionette for prs or open issues'
+    expect(looksLikeLiveCheck(check)).toBe(true)
+    expect(looksLikeRecallRequest(check)).toBe(false)
+    expect(queryFirst(check, [issue])).toBeNull()
+    expect(looksLikeRepoAsk('do we have any PRs or open issues?')).toBe(true)
+    expect(queryFirst('do we have any PRs or open issues?', [issue])).toBeNull()
+    expect(looksLikeInspect('check the ledger replay in Automaton staff.')).toBe(true)
+    expect(queryFirst('check the ledger replay in Automaton staff.', [issue])).toBeNull()
+  })
+
+  test('live-check working set drops claim texts and does not tell the mouth to use them', () => {
+    resetIdsForTests()
+    const thread = emptyThreads(DEFAULT_AGENTS).staff
+    thread.items = [
+      {
+        kind: 'msg',
+        id: 'item_1',
+        from: 'user',
+        agentId: 'staff',
+        text: 'check Puppetmaster and Marionette for prs or open issues',
+      },
+    ]
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread,
+      claims: [{ ownerAgentId: 'kernel', text: 'Issue #107 is still open on Puppetmaster.' }],
+      kit: 'coordinator',
+      roster: staffWithSisters(),
+      projects: [],
+      query: 'check Puppetmaster and Marionette for prs or open issues',
+    })
+    const blob = JSON.stringify(messages)
+    expect(blob).not.toContain('Recalled claims')
+    expect(blob).not.toContain('Issue #107')
+    expect(blob).not.toContain('If recalled claims answer the user')
+    expect(String(messages[0]?.content)).toContain('A look is already booked')
+    expect(String(messages[0]?.content)).toContain('Do not answer from memory or transcript about GitHub, PRs, or issues.')
+  })
+
   test('query-first restates a stored claim with no inference', () => {
     expect(
       queryFirst('what did Kernel find', [
@@ -17,6 +66,8 @@ describe('mouth working set', () => {
         { ownerAgentId: 'kernel', text: 'The ledger replay is deterministic.' },
       ]),
     ).toBe('The ledger replay is deterministic.')
+    expect(looksLikeRecallRequest('what did Kernel find about ledger replay')).toBe(true)
+    expect(looksLikeLiveCheck('what did Kernel find about ledger replay')).toBe(false)
     expect(queryFirst('Hello, what is your name?', [{ ownerAgentId: 'staff', text: 'x' }])).toBeNull()
     expect(
       queryFirst('what did Research find', [
