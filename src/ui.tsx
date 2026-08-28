@@ -21,6 +21,19 @@ export const FIELD_STYLE = {
   paddingBottom: T.space.sm,
 }
 
+/** Single-line clip. GPUIX text wrap otherwise stacks a long slug into a column. */
+export const CLIP = {
+  minWidth: 0,
+  overflow: 'hidden' as const,
+  whiteSpace: 'nowrap' as const,
+  textOverflow: 'ellipsis' as const,
+}
+
+export const FIELD_LINE_STYLE = {
+  ...FIELD_STYLE,
+  ...CLIP,
+}
+
 export const CARD_STYLE = {
   padding: T.space.lg,
   borderRadius: T.radius.lg,
