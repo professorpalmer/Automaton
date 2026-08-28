@@ -23,7 +23,7 @@ import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import type { LedgerMetrics } from './runtime/store'
 import type { Agent } from './domain'
 import { visibleAgents } from './domain'
-import { CARD_STYLE, Chip, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
+import { CARD_STYLE, CLIP, Chip, FIELD_LINE_STYLE, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
 import { CHAT_THEME, T } from './tokens'
 
 export function openRouterPresence(): 'present' | 'missing' {
@@ -224,51 +224,11 @@ export function Settings({
                 gap: T.space.md,
               }}
             >
-              <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs, minWidth: 0, flexShrink: 0 }}>
-                <div style={{ fontSize: T.type.md, color: T.text }}>{agent.name}</div>
-                <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs, minWidth: 0, flexGrow: 1 }}>
+                <div style={{ fontSize: T.type.md, color: T.text, ...CLIP }}>{agent.name}</div>
+                <div style={{ fontSize: T.type.xs, color: T.tertiary, ...CLIP }}>
                   {agent.title || 'automaton'} · {modelFamily(pin)}
                 </div>
-              </div>
-              <div style={{ flexGrow: 1, minWidth: 0 }}>
-                <div testId={index === 0 ? 'settings-model' : undefined} style={{ fontSize: T.type.xs, color: T.ghost }}>
-                  {pin}
-                </div>
-                <Combobox
-                  items={ids}
-                  value={pin}
-                  onValueChange={(value) => {
-                    if (typeof value === 'string') pickModel(agent.id, value)
-                  }}
-                >
-                  <ComboboxInput
-                    testId={index === 0 ? 'settings-model-input' : `settings-seat-${agent.id}-model`}
-                    placeholder="Search models"
-                    theme={CHAT_THEME}
-                    style={FIELD_STYLE}
-                  />
-                  <ComboboxContent
-                    testId={index === 0 ? 'settings-model-menu' : `settings-seat-${agent.id}-menu`}
-                    style={MENU_STYLE}
-                  >
-                    <ComboboxList>
-                      {(item) => {
-                        const row = catalog.find((entry) => entry.id === item)
-                        return (
-                          <ComboboxItem
-                            key={item}
-                            value={item}
-                            testId={index === 0 ? `settings-model-item-${item}` : `settings-seat-${agent.id}-item-${item}`}
-                            style={(state) => menuItemStyle(state)}
-                          >
-                            {row?.name && row.name !== item ? `${row.name} · ${item}` : item}
-                          </ComboboxItem>
-                        )
-                      }}
-                    </ComboboxList>
-                    <ComboboxEmpty style={{ ...ITEM_PAD, color: T.tertiary }}>No matching model</ComboboxEmpty>
-                  </ComboboxContent>
-                </Combobox>
               </div>
               <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexShrink: 0 }}>
                 <Chip
@@ -283,6 +243,41 @@ export function Settings({
                 </Chip>
               </div>
             </div>
+            <Combobox
+              items={ids}
+              value={pin}
+              onValueChange={(value) => {
+                if (typeof value === 'string') pickModel(agent.id, value)
+              }}
+            >
+              <ComboboxInput
+                testId={index === 0 ? 'settings-model-input' : `settings-seat-${agent.id}-model`}
+                placeholder="Search models"
+                theme={CHAT_THEME}
+                style={FIELD_LINE_STYLE}
+              />
+              <ComboboxContent
+                testId={index === 0 ? 'settings-model-menu' : `settings-seat-${agent.id}-menu`}
+                style={MENU_STYLE}
+              >
+                <ComboboxList>
+                  {(item) => {
+                    const row = catalog.find((entry) => entry.id === item)
+                    return (
+                      <ComboboxItem
+                        key={item}
+                        value={item}
+                        testId={index === 0 ? `settings-model-item-${item}` : `settings-seat-${agent.id}-item-${item}`}
+                        style={(state) => menuItemStyle(state)}
+                      >
+                        {row?.name && row.name !== item ? `${row.name} · ${item}` : item}
+                      </ComboboxItem>
+                    )
+                  }}
+                </ComboboxList>
+                <ComboboxEmpty style={{ ...ITEM_PAD, color: T.tertiary }}>No matching model</ComboboxEmpty>
+              </ComboboxContent>
+            </Combobox>
             {note ? (
               <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{note}</div>
             ) : null}
