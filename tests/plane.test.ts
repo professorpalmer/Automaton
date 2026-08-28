@@ -6,10 +6,13 @@ import {
   DEFAULT_SEAT_MODEL,
   jobModel,
   mouthModel,
+  mouthModelFor,
   parsePlane,
   readPlane,
+  seatBinding,
   seatModel,
   writePlane,
+  writeSeatBinding,
 } from '../src/runtime/plane'
 
 function tmpHome(): string {
@@ -70,5 +73,27 @@ describe('seat plane', () => {
     expect(seatModel()).toBe(DEFAULT_SEAT_MODEL)
     if (prev === undefined) delete process.env.AUTOMATON_HOME
     else process.env.AUTOMATON_HOME = prev
+  })
+
+  test('seatBinding roundtrip; missing seat falls back to default', () => {
+    const home = tmpHome()
+    writePlane({ model: 'openai/gpt-4.1-mini' }, home)
+    writeSeatBinding('kernel', { model: 'x-ai/grok-4', effort: 'max', fast: false }, home)
+    expect(seatBinding('kernel', home)).toEqual({
+      model: 'x-ai/grok-4',
+      effort: 'max',
+      fast: false,
+    })
+    expect(seatBinding('staff', home)).toEqual({})
+    expect(mouthModelFor('kernel', home)).toBe('x-ai/grok-4')
+    expect(mouthModelFor('staff', home)).toBe('openai/gpt-4.1-mini')
+    expect(mouthModel(home)).toBe('openai/gpt-4.1-mini')
+    writePlane({ model: 'openai/gpt-4o-mini' }, home)
+    expect(seatBinding('kernel', home).model).toBe('x-ai/grok-4')
+    process.env.AUTOMATON_MODEL = 'openai/gpt-4o'
+    expect(mouthModelFor('kernel', home)).toBe('openai/gpt-4o')
+    process.env.AUTOMATON_MOUTH_MODEL = 'openai/gpt-4.1'
+    expect(mouthModelFor('kernel', home)).toBe('openai/gpt-4.1')
+    rmSync(home, { recursive: true, force: true })
   })
 })

@@ -17,7 +17,8 @@ import { clickDesk, captureDesk, keyDesk } from './desk'
 import { setWorkerDriving } from './driving'
 import { displayLeases, type DisplayLeases } from './lease'
 import { MOUTH_MAX_TOKENS } from './mouth'
-import { mouthModel } from './plane'
+import { mouthModel, mouthModelFor, seatBinding } from './plane'
+import { applyProviderReasoningControls } from './provider-maps'
 
 export const COMPUTER_ROUNDS = 24
 
@@ -244,32 +245,48 @@ export function liveComputerSeams(): ComputerToolSeams {
 export async function chatComputerOpenRouter(
   messages: ComputerChatTurn[],
   key: string,
-  model = mouthModel(),
+  model?: string,
+  ownerAgentId?: string,
 ): Promise<{ text: string; actions?: ComputerToolCall[] }> {
+  const bound =
+    (model && model.trim()) || (ownerAgentId ? mouthModelFor(ownerAgentId) : mouthModel())
   const mapped = messages.map((row) => ({
     role: (row.role === 'tool' ? 'user' : row.role) as 'system' | 'user' | 'assistant',
     content: row.content,
   }))
   const payload = withCacheBreakpoint(mapped)
+  const body: Record<string, unknown> = {
+    model: bound,
+    messages: payload,
+    max_tokens: MOUTH_MAX_TOKENS,
+    tools: OPENROUTER_COMPUTER_TOOLS,
+  }
+  if (ownerAgentId) {
+    const seat = seatBinding(ownerAgentId)
+    applyProviderReasoningControls(body, {
+      modelId: bound,
+      effort: seat.effort,
+      thinking: seat.thinking,
+      fast: seat.fast,
+      maxMode: seat.effort === 'max' || seat.effort === 'xhigh',
+    })
+  } else {
+    applyProviderReasoningControls(body, { modelId: bound })
+  }
   const response = await connectorFetch(
     'openrouter',
     OPENROUTER_CHAT_PATH,
     {
       method: 'POST',
-      body: JSON.stringify({
-        model,
-        messages: payload,
-        max_tokens: MOUTH_MAX_TOKENS,
-        tools: OPENROUTER_COMPUTER_TOOLS,
-      }),
+      body: JSON.stringify(body),
     },
     { bearer: key },
   )
   if (!response.ok) throw new Error(`openrouter ${response.status}`)
-  const body: unknown = await response.json()
+  const parsed: unknown = await response.json()
   const message =
-    body && typeof body === 'object' && 'choices' in body
-      ? (body as { choices?: { message?: { content?: string; tool_calls?: { function?: { name?: string; arguments?: string } }[] } }[] })
+    parsed && typeof parsed === 'object' && 'choices' in parsed
+      ? (parsed as { choices?: { message?: { content?: string; tool_calls?: { function?: { name?: string; arguments?: string } }[] } }[] })
           .choices?.[0]?.message
       : undefined
   const text = (message?.content ?? '').trim()

@@ -6,7 +6,8 @@ import { OPENROUTER_ID } from './connectors'
 import { listOpenRouterKeys, type ResolvedKey } from './keys'
 import { kitForAgent, readProfile } from './profile'
 import { listSkills } from './skills'
-import { DEFAULT_SEAT_MODEL, mouthModel } from './plane'
+import { DEFAULT_SEAT_MODEL, mouthModelFor, seatBinding, type SeatBinding } from './plane'
+import { applyProviderReasoningControls, type ProviderMapContext } from './provider-maps'
 import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
 import { applyCompact, compactRequestMessages, COMPACT_MODEL, shouldCompact, withCacheBreakpoint } from './compact'
@@ -30,12 +31,14 @@ export type MouthUsage = {
 export type ChatResult = {
   text: string
   usage?: MouthUsage
+  map?: string
 }
 
 export type ChatFn = (
   messages: ChatTurn[],
   key: string,
   model: string,
+  map?: ProviderMapContext,
 ) => Promise<string | ChatResult>
 
 const started = new Set<string>()
@@ -91,7 +94,7 @@ async function maybeCompactMessages(
   }
 }
 
-export function asChatResult(value: string | ChatResult): { text: string; usage: MouthUsage } {
+export function asChatResult(value: string | ChatResult): { text: string; usage: MouthUsage; map?: string } {
   if (typeof value === 'string') {
     return { text: value, usage: unknownUsage() }
   }
@@ -102,7 +105,27 @@ export function asChatResult(value: string | ChatResult): { text: string; usage:
       completionTokens: value.usage?.completionTokens ?? null,
       costUsd: value.usage?.costUsd ?? null,
     },
+    map: value.map,
   }
+}
+
+function mapContextFor(agentId: string): ProviderMapContext {
+  const seat: SeatBinding = seatBinding(agentId)
+  return {
+    effort: seat.effort,
+    thinking: seat.thinking,
+    fast: seat.fast,
+    maxMode: seat.effort === 'max' || seat.effort === 'xhigh',
+  }
+}
+
+async function liveMouthChat(
+  messages: ChatTurn[],
+  key: string,
+  model: string,
+  map?: ProviderMapContext,
+): Promise<ChatResult> {
+  return chatOpenRouter(messages, key, model, { map })
 }
 
 function asCount(value: unknown): number | null {
@@ -170,7 +193,7 @@ export async function ensureMouth(
   session: Session,
   store: StaffStore,
   hooks: MouthHooks,
-  chat: ChatFn = chatOpenRouter,
+  chat: ChatFn = liveMouthChat,
   keys?: ResolvedKey[],
 ): Promise<void> {
   for (const turn of pendingMouthTurns(session)) {
@@ -205,7 +228,7 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, 'Need an OpenRouter key.')
         continue
       }
-      model = mouthModel()
+      model = mouthModelFor(turn.agentId)
       const profile = readProfile(turn.agentId)
       const messages = buildWorkingSet({
         agent,
@@ -234,7 +257,7 @@ export async function ensureMouth(
         for (let attempt = 0; attempt < 2 && !spoken; attempt += 1) {
           try {
             inferenceAttempted = true
-            const result = asChatResult(await chat(packed, candidate.key, model))
+            const result = asChatResult(await chat(packed, candidate.key, model, mapContextFor(turn.agentId)))
             spoken = result.text
             usage = result.usage
             authRejected = false
@@ -315,35 +338,44 @@ async function speakIntro(
   hooks.onComplete(agentId, spoken || fallback)
 }
 
+export type ChatOpenRouterSeams = Pick<ConnectorFetchSeams, 'fetch' | 'home'> & {
+  map?: ProviderMapContext
+}
+
 export async function chatOpenRouter(
   messages: ChatTurn[],
   key: string,
   model: string,
-  seams?: Pick<ConnectorFetchSeams, 'fetch' | 'home'>,
+  seams?: ChatOpenRouterSeams,
 ): Promise<ChatResult> {
+  const body: Record<string, unknown> = {
+    model,
+    messages: withCacheBreakpoint(messages),
+    max_tokens: MOUTH_MAX_TOKENS,
+  }
+  const map = applyProviderReasoningControls(body, {
+    ...(seams?.map ?? {}),
+    modelId: seams?.map?.modelId ?? model,
+  })
   const response = await connectorFetch(
     OPENROUTER_ID,
     OPENROUTER_CHAT_PATH,
     {
       method: 'POST',
-      body: JSON.stringify({
-        model,
-        messages: withCacheBreakpoint(messages),
-        max_tokens: MOUTH_MAX_TOKENS,
-      }),
+      body: JSON.stringify(body),
     },
     { fetch: seams?.fetch, home: seams?.home, bearer: key },
   )
   if (!response.ok) {
     throw new Error(`openrouter ${response.status}`)
   }
-  const body: unknown = await response.json()
+  const parsed: unknown = await response.json()
   const text =
-    body && typeof body === 'object' && 'choices' in body
-      ? ((body as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
+    parsed && typeof parsed === 'object' && 'choices' in parsed
+      ? ((parsed as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
           ?.content ?? '')
           .trim()
       : ''
   if (!text) throw new Error('empty mouth')
-  return { text, usage: parseOpenRouterUsage(body) }
+  return { text, usage: parseOpenRouterUsage(parsed), map }
 }

@@ -4,7 +4,7 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
 import { parseGithubIssue, sanitizeSpeak, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
-import { DEFAULT_SEAT_MODEL, jobModel } from './plane'
+import { DEFAULT_SEAT_MODEL, jobModel, mouthModelFor } from './plane'
 
 export const PRODUCT_ROOT = resolve(import.meta.dir, '../..')
 export const JOB_ADAPTER = 'agentic'
@@ -211,6 +211,7 @@ export function writeAnalyzeConfig(input: {
   instruction: string
   workerCwd: string
   timeoutSeconds?: number
+  ownerAgentId?: string
 }): { configPath: string; goalPath: string } {
   const dir = join(homedir(), '.automaton', 'configs')
   mkdirSync(dir, { recursive: true })
@@ -230,6 +231,7 @@ export function writeAnalyzeConfig(input: {
           cwd,
           timeoutSeconds: timeout,
           mode: 'analyze',
+          ownerAgentId: input.ownerAgentId,
         }),
       },
     ],
@@ -273,6 +275,7 @@ export function writeImplementConfig(input: {
   instruction: string
   workerCwd: string
   timeoutSeconds?: number
+  ownerAgentId?: string
 }): { configPath: string; goalPath: string } {
   const workerCwd = assertSandboxCwd(input.workerCwd)
   const dir = join(homedir(), '.automaton', 'configs')
@@ -292,6 +295,7 @@ export function writeImplementConfig(input: {
           cwd: workerCwd,
           timeoutSeconds: timeout,
           mode: 'implement',
+          ownerAgentId: input.ownerAgentId,
         }),
       },
     ],
@@ -419,8 +423,11 @@ function agenticPayload(input: {
   cwd: string
   timeoutSeconds: number
   mode: 'analyze' | 'implement'
+  ownerAgentId?: string
 }): Record<string, unknown> {
-  const model = jobModel()
+  const model =
+    process.env.AUTOMATON_JOB_MODEL?.trim() ||
+    (input.ownerAgentId ? mouthModelFor(input.ownerAgentId) : jobModel())
   const pinned = jobRegistryId(model)
   ensureJobRegistry()
   const payload: Record<string, unknown> = {

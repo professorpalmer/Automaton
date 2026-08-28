@@ -189,8 +189,8 @@ describe('mouth sidecar', () => {
           spoken = text
         },
       },
-      async (_messages, key) => {
-        seen.push(key)
+      async (_messages, key, model) => {
+        seen.push(`${key}:${model}`)
         if (key === 'sk-or-dead') throw new Error('openrouter 401')
         return 'Staff.'
       },
@@ -199,7 +199,7 @@ describe('mouth sidecar', () => {
         { key: 'sk-or-live', source: 'marionette' },
       ],
     )
-    expect(seen).toEqual(['sk-or-dead', 'sk-or-live'])
+    expect(seen).toEqual([`sk-or-dead:${DEFAULT_MOUTH_MODEL}`, `sk-or-live:${DEFAULT_MOUTH_MODEL}`])
     expect(spoken).toBe('Staff.')
     expect(store.receipt(turn.itemId)?.inferenceAttempted).toBe(true)
   })
