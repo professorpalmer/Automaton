@@ -41,10 +41,12 @@ import {
   parseLocalHomes,
   parseBoxShellIntent,
   jobKindLabel,
+  createPendingSendView,
   mergePendingFeed,
   mentionedAgentIds,
   needsFanoutConfirm,
   pendingSendItems,
+  sessionCoversPending,
   parseDeskUrl,
   deskOpenAck,
   deskHandoffInstruction,
@@ -662,11 +664,13 @@ describe('pending send overlay', () => {
       hidden: false,
     }
     const agents = [...DEFAULT_AGENTS, marionette]
+    resetIdsForTests()
     const items = pendingSendItems("What is Marionette's version up to now?", agents, 'staff')
-    expect(items.map((item) => (item.kind === 'msg' ? item.id : item.kind))).toEqual([
-      'feed-pending-user',
-      'feed-pending-ack',
-    ])
+    expect(items).toHaveLength(2)
+    expect(items[0]?.id).toBe('item_1')
+    expect(items[1]?.id).toBe('item_2')
+    expect(items[0]?.id).not.toBe('feed-pending-user')
+    expect(items[1]?.id).not.toBe('feed-pending-ack')
     expect(items[0]).toMatchObject({
       kind: 'msg',
       from: 'user',
@@ -681,7 +685,30 @@ describe('pending send overlay', () => {
     })
   })
 
-  test('overlay plus session items de-dupe by agent and user text', () => {
+  test('pendingSendItems / overlay ids are unique per pending view', () => {
+    resetIdsForTests()
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: '',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...DEFAULT_AGENTS, marionette]
+    const first = pendingSendItems("What is Marionette's version up to now?", agents, 'staff')
+    const second = pendingSendItems("What is Marionette's version up to now?", agents, 'staff')
+    expect(first.map((item) => item.id)).toEqual(['item_1', 'item_2'])
+    expect(second.map((item) => item.id)).toEqual(['item_3', 'item_4'])
+    expect(new Set([...first, ...second].map((item) => item.id)).size).toBe(4)
+    const a = createPendingSendView('hello from the right', DEFAULT_AGENTS, 'staff')
+    const b = createPendingSendView('hello from the right', DEFAULT_AGENTS, 'staff')
+    expect(a.userItemId).not.toBe(b.userItemId)
+    expect(a.ackItemId).not.toBe(b.ackItemId)
+    expect(a.userItemId).not.toBe(a.ackItemId)
+  })
+
+  test('overlay plus session items de-dupe by id or by agent and user text', () => {
     const pending = pendingSendItems('hello from the right', DEFAULT_AGENTS, 'staff')
     expect(pending).toHaveLength(1)
     const sessionItems: FeedItem[] = [
@@ -692,9 +719,16 @@ describe('pending send overlay', () => {
       agentId: 'staff' as const,
       text: 'hello from the right',
       ack: '',
+      userItemId: 'overlay-user',
+      ackItemId: 'overlay-ack',
     }
     expect(mergePendingFeed(sessionItems, overlay, 'staff')).toEqual(sessionItems)
     expect(mergePendingFeed([], overlay, 'staff')).toHaveLength(1)
     expect(mergePendingFeed([], overlay, 'kernel')).toEqual([])
+    const handed: FeedItem[] = [
+      { kind: 'msg', id: overlay.userItemId, from: 'user', agentId: 'staff', text: 'hello from the right' },
+    ]
+    expect(sessionCoversPending(handed, overlay)).toBe(true)
+    expect(mergePendingFeed(handed, overlay, 'staff')).toEqual(handed)
   })
 })

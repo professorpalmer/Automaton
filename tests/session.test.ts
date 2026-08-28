@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { mkdirSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
+import { createPendingSendView, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import { writeProfile } from '../src/runtime/profile'
 import { queryFirst } from '../src/runtime/working-set'
 import { openStaffStore } from '../src/runtime/store'
@@ -547,6 +547,46 @@ describe('teammate session', () => {
       else process.env.AUTOMATON_HOME = prev
       rmSync(home, { recursive: true, force: true })
     }
+  })
+
+  test('paintSend writes overlay user and ack ids onto the presented msgs', () => {
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette]
+    resetIdsForTests()
+    const overlay = createPendingSendView("What is Marionette's version up to now?", agents, 'staff')
+    expect(overlay.userItemId).toBe('item_1')
+    expect(overlay.ackItemId).toBe('item_2')
+    expect(overlay.ack).toBe('Telling Marionette.')
+    const painted = paintSend(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      overlay.text,
+      [],
+      { userItemId: overlay.userItemId, ackItemId: overlay.ackItemId },
+    )
+    const user = painted.threads.staff.items.find((item) => item.kind === 'msg' && item.from === 'user')
+    const ack = painted.threads.staff.items.find((item) => item.kind === 'msg' && item.from === 'agent')
+    expect(user?.id).toBe(overlay.userItemId)
+    expect(ack?.id).toBe(overlay.ackItemId)
+    expect(ack && ack.kind === 'msg' ? ack.text : '').toBe('Telling Marionette.')
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_mn',
+      ),
+    ).toBe(true)
+    expect(painted.jobs).toHaveLength(0)
   })
 
   test('Staff see-if a factory mouth delivers to that thread, not a Staff OpenRouter turn', () => {

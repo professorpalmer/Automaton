@@ -1344,14 +1344,14 @@ export function dispatchAck(
   return `${verb} ${names[0] ?? 'them'}.`
 }
 
-export const PENDING_USER_ID = 'feed-pending-user'
-export const PENDING_ACK_ID = 'feed-pending-ack'
-
 /** View-local Enter overlay. Not a session entity; no jobs, relays, or sister mouths. */
 export type PendingSendView = {
   agentId: AgentId
   text: string
   ack: string
+  /** Minted at overlay present so paintSend can reuse the same native nodes. */
+  userItemId: string
+  ackItemId: string
 }
 
 export function pendingSendAck(text: string, agents: Agent[], focused: AgentId): string {
@@ -1360,11 +1360,23 @@ export function pendingSendAck(text: string, agents: Agent[], focused: AgentId):
   return dispatchAck(text, agents, targets, focused)
 }
 
+/** Overlay ids are unique per pending view. Never reuse a singleton feed-pending-* key. */
+export function createPendingSendView(text: string, agents: Agent[], focused: AgentId): PendingSendView {
+  const trimmed = text.trim()
+  return {
+    agentId: focused,
+    text: trimmed,
+    ack: pendingSendAck(trimmed, agents, focused),
+    userItemId: nextId('item'),
+    ackItemId: nextId('item'),
+  }
+}
+
 export function overlaySendItems(pending: PendingSendView): FeedItem[] {
   const items: FeedItem[] = [
     {
       kind: 'msg',
-      id: PENDING_USER_ID,
+      id: pending.userItemId,
       from: 'user',
       agentId: pending.agentId,
       text: pending.text,
@@ -1373,7 +1385,7 @@ export function overlaySendItems(pending: PendingSendView): FeedItem[] {
   if (pending.ack) {
     items.push({
       kind: 'msg',
-      id: PENDING_ACK_ID,
+      id: pending.ackItemId,
       from: 'agent',
       agentId: pending.agentId,
       text: pending.ack,
@@ -1386,14 +1398,11 @@ export function overlaySendItems(pending: PendingSendView): FeedItem[] {
 export function pendingSendItems(text: string, agents: Agent[], focused: AgentId): FeedItem[] {
   const trimmed = text.trim()
   if (!trimmed) return []
-  return overlaySendItems({
-    agentId: focused,
-    text: trimmed,
-    ack: pendingSendAck(trimmed, agents, focused),
-  })
+  return overlaySendItems(createPendingSendView(trimmed, agents, focused))
 }
 
 export function sessionCoversPending(items: FeedItem[], pending: PendingSendView): boolean {
+  if (items.some((item) => item.id === pending.userItemId)) return true
   return items.some(
     (item) =>
       item.kind === 'msg' &&
