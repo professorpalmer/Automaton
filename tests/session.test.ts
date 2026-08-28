@@ -26,6 +26,8 @@ import {
   noteJobStatus,
   pendingMouthTurns,
   queuePaths,
+  finishSend,
+  paintSend,
   send,
   setActive,
   setDraft,
@@ -396,6 +398,50 @@ describe('teammate session', () => {
         (item) => item.kind === 'agent_note' && item.fromId === 'staff' && item.text === 'The operator asked if you are around.',
       ),
     ).toBe(true)
+  })
+
+  test('paintSend shows the user bubble and Telling ack without booking jobs', () => {
+    const pm = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), pm]
+    resetIdsForTests()
+    const painted = paintSend(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      'Can you see if Puppetmaster has any open issues or PRs for us?',
+    )
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'user' && item.text.includes('Puppetmaster'),
+      ),
+    ).toBe(true)
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Puppetmaster.',
+      ),
+    ).toBe(true)
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_pm',
+      ),
+    ).toBe(true)
+    expect(painted.jobs).toHaveLength(0)
+    expect(painted.pendingSend?.deliveries).toHaveLength(1)
+    const flushed = finishSend(painted)
+    expect(flushed.jobs).toHaveLength(1)
+    expect(flushed.jobs[0]?.ownerAgentId).toBe('agent_pm')
+    expect(flushed.pendingSend).toBeUndefined()
   })
 
   test('Staff see-if a factory mouth delivers to that thread, not a Staff OpenRouter turn', () => {

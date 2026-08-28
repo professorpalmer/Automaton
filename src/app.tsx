@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { existsSync } from 'node:fs'
 import { motion, useGpuix } from '@gpuix/react'
 import {
@@ -78,10 +78,11 @@ import {
   patchLiveAgent,
   queuePaths,
   dispatchableJobs,
+  finishSend,
+  paintSend,
   resumeComputer,
   runningComputerWorkers,
   runningJobs,
-  send,
   setActive,
   setDraft,
   stopRun,
@@ -212,8 +213,6 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const thread = session.threads[session.activeAgentId]
   const jobs = runningJobs(session)
   const blocker = oldestWaitingUserGoal(session.goals)
-  const metrics = store.metrics()
-  const claims = store.listClaims()
   const profile = active ? readProfile(active.id) : null
   const sandboxHint = active ? kernelSandboxHint(active.id, profile?.kit) : null
   const mouthEpoch = Object.values(session.threads)
@@ -224,8 +223,20 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     setPane((current) => (current === 'inspector' ? 'none' : 'inspector'))
   }
 
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
-    store.save(session)
+    if (runningTests()) {
+      store.save(session)
+      return
+    }
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null
+      store.save(session)
+    }, 0)
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current)
+    }
   }, [store, session])
 
   useEffect(() => {
@@ -445,7 +456,8 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           }
         }
       }
-      const next = send(current, row.draft, carry.ids)
+      const painted = paintSend(current, row.draft, carry.ids)
+      const next = runningTests() ? finishSend(painted) : painted
       if (runningTests()) {
         const last = [...(next.threads[carry.agentId]?.items ?? [])]
           .reverse()
@@ -455,7 +467,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       }
       return next
     })
-    if (!runningTests()) setTimeout(finish, 0)
+    if (!runningTests()) {
+      setTimeout(() => {
+        setSession((current) => finishSend(current))
+        finish()
+      }, 0)
+    }
   }
 
   const onAttach = () => {
@@ -771,7 +788,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               <Inspector
                 agent={active}
                 profile={profile}
-                claims={claims}
+                claims={store.listClaims()}
                 sandboxHint={sandboxHint}
                 onClose={() => setPane('none')}
                 onPatch={onPatchProfile}
@@ -797,7 +814,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           <SlidePane testId="settings-pane" open={pane === 'settings'} width={T.inspector.settings}>
             {pane === 'settings' ? (
               <Settings
-                metrics={metrics}
+                metrics={store.metrics()}
                 agents={visibleAgents(session.agents)}
                 onClose={() => setPane('none')}
                 onPlaneChange={() => setPlaneTick((n) => n + 1)}
@@ -1528,9 +1545,6 @@ export const Feed = forwardRef<FeedApi, {
     setSelectedIds(new Set(feedMsgIds(items)))
   }
   useImperativeHandle(api, () => ({ selectAll, copy: copySelection }), [items, selectedIds])
-  useLayoutEffect(() => {
-    pinFeedTail(renderer, listRef.current, items, thinking)
-  }, [pin, items, renderer, thinking])
   useEffect(() => {
     pinFeedTail(renderer, listRef.current, items, thinking)
   }, [pin, items, renderer, thinking])

@@ -586,6 +586,34 @@ describe('staff sqlite store', () => {
     })
   })
 
+  test('save skips when session_json is unchanged and does not parse the prior snapshot', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-skip-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    let session = {
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(DEFAULT_AGENTS),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'Hello, what is your name?')
+    store.save(session)
+    const parse = JSON.parse
+    let parsed = 0
+    globalThis.JSON.parse = ((...args: Parameters<typeof JSON.parse>) => {
+      parsed += 1
+      return parse(...args)
+    }) as typeof JSON.parse
+    try {
+      store.save(session)
+      expect(parsed).toBe(0)
+    } finally {
+      globalThis.JSON.parse = parse
+    }
+    expect(store.load()?.threads.staff.items).toHaveLength(1)
+  })
+
   test('live remember ages prior owner+repo/taskKey claims and keeps the stale row', () => {
     const store = openStaffStore(join(tmpdir(), `automaton-store-age-${Date.now()}.sqlite`))
     store.remember({

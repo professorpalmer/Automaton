@@ -99,6 +99,23 @@ export type ComputerWorker = {
   kickoff?: TurnKickoff
 }
 
+export type PendingDelivery = {
+  agentId: AgentId
+  text: string
+  focused: AgentId
+  attachmentIds: string[]
+  ping: boolean
+  mandateText: string
+  skipUser?: boolean
+}
+
+/** Work that must not run on the Enter paint frame. */
+export type PendingSend = {
+  deliveries?: PendingDelivery[]
+  idle?: AgentId
+  book?: { ownerAgentId: AgentId; goal: string }
+}
+
 export type Session = {
   agents: Agent[]
   activeAgentId: AgentId
@@ -115,6 +132,8 @@ export type Session = {
   brokerAlive?: boolean
   pendingApprovals?: PendingApproval[]
   approvalGrants?: ApprovalGrant[]
+  /** Sister deliverTo / job booking queued until after paint. */
+  pendingSend?: PendingSend
 }
 
 /** Old snapshots omit goals and may still carry a worker mandate. */
@@ -138,6 +157,7 @@ export function normalizeSession(session: Session): Session {
       const blocker = hydrateGoalBlocker(goal.blocker)
       return blocker ? { ...goal, blocker } : goal
     }),
+    pendingSend: undefined,
   }
 }
 
@@ -447,8 +467,41 @@ function maybeWakeAssess(session: Session, coordinatorId: AgentId): Session {
   return wakeMouth(session, coordinatorId, 'answer')
 }
 
-/** User send on the focused mouth. Jobs do not lock other mouths. */
-export function send(session: Session, raw: string, attachmentIds: string[] = []): Session {
+function mergePending(session: Session, patch: PendingSend): Session {
+  const cur = session.pendingSend
+  const deliveries = [...(cur?.deliveries ?? []), ...(patch.deliveries ?? [])]
+  const idle = patch.idle ?? cur?.idle
+  const book = patch.book ?? cur?.book
+  if (deliveries.length === 0 && idle == null && book == null) {
+    return cur ? { ...session, pendingSend: undefined } : session
+  }
+  return { ...session, pendingSend: { deliveries, idle, book } }
+}
+
+/** Sister jobs, bookComputer, and idle-wake after the Enter paint frame. */
+export function finishSend(session: Session): Session {
+  const work = session.pendingSend
+  if (!work) return session
+  let next: Session = { ...session, pendingSend: undefined }
+  for (const row of work.deliveries ?? []) {
+    next = deliverTo(
+      next,
+      row.agentId,
+      row.text,
+      row.focused,
+      row.attachmentIds,
+      row.ping,
+      row.mandateText,
+      row.skipUser === true,
+    )
+  }
+  if (work.book) next = bookComputer(next, work.book.ownerAgentId, work.book.goal)
+  if (work.idle && next.threads[work.idle]) next = wakeMouth(next, work.idle, 'idle')
+  return next
+}
+
+/** User bubble, cleared draft, cheap ack, Sent-to relays. No jobs or sqlite. */
+export function paintSend(session: Session, raw: string, attachmentIds: string[] = []): Session {
   const text = raw.trim()
   const active = session.activeAgentId
   if (!active || !session.threads[active]) return session
@@ -510,7 +563,43 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
     const url = parseDeskUrl(body)
     if (url) return coordinatorDeskOpen(next, body, url, attachmentIds)
   }
-  return deliverTo(next, named[0] ?? active, body, active, attachmentIds)
+  return paintDirect(next, named[0] ?? active, body, active, attachmentIds)
+}
+
+/** Tests and non-Enter callers still book jobs in the same call. */
+export function send(session: Session, raw: string, attachmentIds: string[] = []): Session {
+  return finishSend(paintSend(session, raw, attachmentIds))
+}
+
+function paintDirect(
+  session: Session,
+  agentId: AgentId,
+  text: string,
+  focused: AgentId,
+  attachmentIds: string[] = [],
+  ping = false,
+  mandateText = text,
+): Session {
+  const item = stamped('user', agentId, text, attachmentIds)
+  let next = append(session, agentId, item, focused)
+  next = setThread(next, agentId, {
+    draft: agentId === focused ? '' : thread(next, agentId).draft,
+    pendingPaths: agentId === focused ? [] : thread(next, agentId).pendingPaths,
+    mouth: 'ack',
+  })
+  return mergePending(next, {
+    deliveries: [
+      {
+        agentId,
+        text,
+        focused,
+        attachmentIds,
+        ping,
+        mandateText,
+        skipUser: true,
+      },
+    ],
+  })
 }
 
 function coordinatorDeskOpen(
@@ -532,7 +621,7 @@ function coordinatorDeskOpen(
     }
   }
   next = { ...next, deskOpen: null, deskHandoff: null }
-  return bookComputer(next, focused, text)
+  return mergePending(next, { book: { ownerAgentId: focused, goal: text } })
 }
 
 function coordinatorSetup(
@@ -550,7 +639,7 @@ function coordinatorSetup(
   const roster = visibleAgents(session.agents)
   const targets = continueWork ? issueWorkTargets(text, roster, focused) : []
   if (continueWork && targets.length === 0) {
-    return deliverTo(session, focused, text, focused, attachmentIds, false, text)
+    return paintDirect(session, focused, text, focused, attachmentIds, false, text)
   }
   let next = append(session, focused, stamped('user', focused, text, attachmentIds), focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
@@ -565,6 +654,7 @@ function coordinatorSetup(
   next = speak(next, focused, spoken || 'Done.', focused)
   if (continueWork) {
     next = markPendingHops(next, focused, targets)
+    const deliveries: PendingDelivery[] = []
     for (const target of targets) {
       if (target === focused) continue
       next = appendRelay(next, focused, 'sent', target, text, focused)
@@ -574,15 +664,23 @@ function coordinatorSetup(
         { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: text },
         focused,
       )
-      next = deliverTo(next, target, text, focused, [], false, text)
+      deliveries.push({
+        agentId: target,
+        text,
+        focused,
+        attachmentIds: [],
+        ping: false,
+        mandateText: text,
+      })
     }
-    return wakeMouth(next, focused, 'idle')
+    return mergePending(next, { deliveries, idle: focused })
   }
   next = markPendingHops(
     next,
     focused,
     binds.map((bind) => bind.agentId),
   )
+  const deliveries: PendingDelivery[] = []
   for (const bind of binds) {
     const note = homeNote(bind.slug)
     next = appendRelay(next, focused, 'sent', bind.agentId, note, focused)
@@ -592,9 +690,16 @@ function coordinatorSetup(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: bind.agentId, text: note },
       focused,
     )
-    next = deliverTo(next, bind.agentId, note, focused, [], true)
+    deliveries.push({
+      agentId: bind.agentId,
+      text: note,
+      focused,
+      attachmentIds: [],
+      ping: true,
+      mandateText: note,
+    })
   }
-  return wakeMouth(next, focused, 'idle')
+  return mergePending(next, { deliveries, idle: focused })
 }
 
 function appendRelay(
@@ -630,6 +735,7 @@ function coordinatorDispatch(
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
   next = markPendingHops(next, focused, targets)
+  const deliveries: PendingDelivery[] = []
   for (const target of targets) {
     if (target === focused) continue
     next = appendRelay(next, focused, 'sent', target, note, focused)
@@ -639,9 +745,16 @@ function coordinatorDispatch(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
-    next = deliverTo(next, target, note, focused, [], ping, inherited ? workText : text)
+    deliveries.push({
+      agentId: target,
+      text: note,
+      focused,
+      attachmentIds: [],
+      ping,
+      mandateText: inherited ? workText : text,
+    })
   }
-  return wakeMouth(next, focused, 'idle')
+  return mergePending(next, { deliveries, idle: focused })
 }
 
 function fanout(session: Session, text: string, targets: AgentId[]): Session {
@@ -656,6 +769,7 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
   next = speak(next, focused, 'Telling the others.', focused)
   next = markPendingHops(next, focused, targets)
   const note = staffParaphrase(text)
+  const deliveries: PendingDelivery[] = []
   for (const target of targets) {
     if (target === focused) continue
     next = appendRelay(next, focused, 'sent', target, note, focused)
@@ -665,9 +779,16 @@ function fanout(session: Session, text: string, targets: AgentId[]): Session {
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
-    next = deliverTo(next, target, note, focused)
+    deliveries.push({
+      agentId: target,
+      text: note,
+      focused,
+      attachmentIds: [],
+      ping: false,
+      mandateText: note,
+    })
   }
-  return wakeMouth(next, focused, 'idle')
+  return mergePending(next, { deliveries, idle: focused })
 }
 
 function deliverTo(
@@ -678,14 +799,20 @@ function deliverTo(
   attachmentIds: string[] = [],
   ping = false,
   mandateText = text,
+  skipUser = false,
 ): Session {
-  const item = stamped('user', agentId, text, attachmentIds)
-  let next = append(session, agentId, item, focused)
-  next = setThread(next, agentId, {
-    draft: agentId === focused ? '' : thread(next, agentId).draft,
-    pendingPaths: agentId === focused ? [] : thread(next, agentId).pendingPaths,
-    mouth: 'must_first',
-  })
+  let next = session
+  if (!skipUser) {
+    const item = stamped('user', agentId, text, attachmentIds)
+    next = append(next, agentId, item, focused)
+    next = setThread(next, agentId, {
+      draft: agentId === focused ? '' : thread(next, agentId).draft,
+      pendingPaths: agentId === focused ? [] : thread(next, agentId).pendingPaths,
+      mouth: 'must_first',
+    })
+  } else {
+    next = setThread(next, agentId, { mouth: 'must_first' })
+  }
   const agent = next.agents.find((item) => item.id === agentId)
   const prior = priorUserText(thread(next, agentId).items)
   const products = productNames(next)
