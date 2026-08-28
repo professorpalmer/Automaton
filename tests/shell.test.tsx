@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
-import { App, Feed, JobStrip } from '../src/app'
+import { App, Composer, Feed, JobStrip } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
 import { Inspector, inspectorChord, pasteChord, quitChord } from '../src/inspector'
@@ -525,6 +525,30 @@ native('staff shell (GPUI native)', () => {
     expect(label?.children?.[0]?.text).toBe(
       'Kernel · shell · install curl on the computer · Still installing curl.',
     )
+  })
+
+  test('composer Stop chip shows while the mouth turn is live', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <Composer
+        value=""
+        pendingPaths={[]}
+        locked={false}
+        queueing
+        queued={1}
+        stopping
+        onChange={() => {}}
+        onAttach={() => {}}
+        onPaste={() => {}}
+        onDropPending={() => {}}
+        onSend={() => {}}
+        onStop={() => {}}
+      />,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'composer-stop')).toBeTruthy()
+    expect(findTestId(tree, 'send')).toBeTruthy()
   })
 
   test('Staff feed keeps Sent to and hides the sister line', () => {

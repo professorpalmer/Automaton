@@ -14,7 +14,7 @@ import {
 import { INTRO_CUE, introFallback } from '../src/runtime/working-set.ts'
 import { markIntroPlayedAt, readProfile, writeProfile } from '../src/runtime/profile.ts'
 import { openStaffStore } from '../src/runtime/store.ts'
-import { completeMouth, maybeIntro, pendingMouthTurns, send } from '../src/session'
+import { completeJob, completeMouth, maybeIntro, pendingMouthTurns, send } from '../src/session'
 
 describe('mouth sidecar', () => {
   test('stored finding answers without calling OpenRouter', async () => {
@@ -595,6 +595,68 @@ describe('mouth sidecar', () => {
     expect(lastUser).toContain("I'm here to assist you. How can I help?")
     expect(spoken).toBe('Research is online. What would you like the research automaton to run?')
     expect(spoken).not.toBe('The ledger replay is deterministic.')
+  })
+
+  test('assess of a sister PR answer is not treated as a live-check', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-assess-pr-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'Issue #107 is still open on Puppetmaster.',
+      source: 'job',
+      jobId: 'job_107',
+      artifactKind: 'analyze',
+      freshness: 'fresh',
+    })
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette]
+    let session = {
+      agents,
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(agents),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'check Marionette for prs or open issues')
+    const jobId = session.jobs[0]?.id
+    expect(jobId).toBeTruthy()
+    session = completeJob(session, jobId!, 'Marionette has 2 open PRs.')
+    const turn = pendingMouthTurns(session)[0]
+    expect(turn?.mode).toBe('assess')
+    expect(turn?.userText).toContain('Marionette answered:')
+    expect(turn?.userText).toContain('open PRs')
+    let spoken = ''
+    let packed: { role: string; content: unknown }[] = []
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async (messages) => {
+        packed = messages
+        return 'Marionette currently has two open pull requests.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(spoken).toBe('Marionette currently has two open pull requests.')
+    const blob = JSON.stringify(packed)
+    expect(blob).not.toContain('A look is already booked')
+    expect(blob).toContain('Marionette answered:')
+    expect(blob).toContain('Marionette has 2 open PRs.')
   })
 
   test('OpenRouter usage stays unknown when the provider omits it', () => {

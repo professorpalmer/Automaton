@@ -194,11 +194,13 @@ export function systemPrompt(
     skillIds?: string[]
     query?: string
     intro?: boolean
+    mode?: 'chat' | 'assess' | 'intro'
   },
 ): string {
   const query = input?.query ?? ''
   const productNames = (input?.projects ?? []).map((row) => row.name)
-  const liveCheck = looksLikeLiveCheck(query, productNames)
+  const liveCheck =
+    input?.mode !== 'assess' && input?.intro !== true && looksLikeLiveCheck(query, productNames)
   const recallOk = looksLikeRecallRequest(query) && !liveCheck
   const liveCue =
     'A look is already booked. Do not answer from memory or transcript about GitHub, PRs, or issues.'
@@ -307,6 +309,7 @@ export function buildWorkingSet(input: {
   skills?: SkillMeta[]
   skillIds?: string[]
   query?: string
+  mode?: 'chat' | 'assess' | 'intro'
 }): ChatTurn[] {
   const layers = skillPromptLayers({
     skills: input.skills,
@@ -326,6 +329,7 @@ export function buildWorkingSet(input: {
       skillIds: input.skillIds,
       query: input.query,
       intro: input.intro,
+      mode: input.mode,
     }),
   }
   if (input.intro) {
@@ -335,7 +339,8 @@ export function buildWorkingSet(input: {
   if (layers.bodies) {
     messages.push({ role: 'system', content: layers.bodies })
   }
-  const liveCheck = looksLikeLiveCheck(input.query ?? '')
+  const liveCheck =
+    input.mode !== 'assess' && input.intro !== true && looksLikeLiveCheck(input.query ?? '')
   if (input.claims.length > 0 && !liveCheck) {
     messages.push({
       role: 'system',

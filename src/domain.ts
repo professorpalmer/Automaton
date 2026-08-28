@@ -212,6 +212,8 @@ export type Thread = {
   jobSteerQueue: SteerLine[]
   /** Wave 3 computer-use sets this so Send queues instead of locking. */
   computerBusy?: boolean
+  /** Sister hops still out for this coordinator turn. Assess waits until empty. */
+  pendingHops: AgentId[]
 }
 
 export const STAFF_AGENT: Agent = {
@@ -426,6 +428,7 @@ function namesAProduct(text: string, productNames: string[] = []): boolean {
 
 /** Live world-state: open PRs/issues, inspect, or current/latest status of a named product. Not recall. */
 export function looksLikeLiveCheck(text: string, productNames: string[] = []): boolean {
+  if (text.includes('Deliver what that means in your own words')) return false
   if (looksLikeRepoAsk(text) || looksLikeInspect(text)) return true
   const lower = text.toLowerCase()
   if (!/\b(?:current|latest)\s+status\b/.test(lower) && !/\bstatus of\b/.test(lower)) return false
@@ -560,7 +563,9 @@ export function jobKindForKit(
   prior = '',
   productNames: string[] = [],
 ): JobKind | null {
-  if (kit === 'blank') return null
+  if (kit === 'blank') {
+    return looksLikeLiveCheck(text, productNames) ? 'analyze' : null
+  }
   if (looksLikeBoxShell(text)) return 'box-shell'
   const implicit = kit !== 'coordinator'
   if (kit === 'lookup') {
@@ -1283,7 +1288,18 @@ export function returnBeat(name: string, spoken: string): string {
 }
 
 export function assessAsk(name: string, spoken: string): string {
-  return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences. You are copy, not the scheduler.`
+  return assessAsks([{ name, spoken }])
+}
+
+/** One Chief assess of every sister return since the last spoken line. */
+export function assessAsks(rows: { name: string; spoken: string }[]): string {
+  if (rows.length === 0) return ''
+  if (rows.length === 1) {
+    const { name, spoken } = rows[0]
+    return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences. You are copy, not the scheduler.`
+  }
+  const answered = rows.map((row) => `${row.name} answered: ${row.spoken}`).join('\n')
+  return `${answered}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat their sentences. You are copy, not the scheduler.`
 }
 
 export function needsFanoutConfirm(mentioned: AgentId[]): boolean {
@@ -1302,6 +1318,7 @@ export function emptyThreads(agents: Agent[]): Record<AgentId, Thread> {
       unread: 0,
       steerQueue: [],
       jobSteerQueue: [],
+      pendingHops: [],
     }
   }
   return threads

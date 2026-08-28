@@ -34,7 +34,7 @@ import { copyTextToClipboard } from './runtime/clipboard'
 import { abandonJob, ensureDispatched } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
-import { ensureMouth } from './runtime/mouth'
+import { dropMouthStarts, ensureMouth } from './runtime/mouth'
 import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
@@ -62,6 +62,7 @@ import {
   completeMouth,
   hasUserMessage,
   maybeIntro,
+  pendingMouthTurns,
   confirmDeskHandoff,
   confirmFanout,
   dismissDeskHandoff,
@@ -82,6 +83,7 @@ import {
   setActive,
   setDraft,
   stopJob,
+  stopMouth,
   cancelGoal,
   retryGoal,
   waitComputerHost,
@@ -687,11 +689,21 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 queueing={Boolean(thread && shouldQueueSteer(thread.mouth, thread.computerBusy === true))}
                 queued={thread?.steerQueue.length ?? 0}
+                stopping={thread?.mouth === 'answer' || thread?.mouth === 'intro'}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
                 onDropPending={(path) => setSession((current) => dropPendingPath(current, path))}
                 onSend={onSend}
+                onStop={() => {
+                  const agentId = session.activeAgentId
+                  dropMouthStarts(
+                    pendingMouthTurns(session)
+                      .filter((turn) => turn.agentId === agentId)
+                      .map((turn) => turn.itemId),
+                  )
+                  setSession((current) => stopMouth(current, agentId))
+                }}
               />
             </div>
           </div>
@@ -1755,28 +1767,32 @@ function GoalBlockerPanel({
   )
 }
 
-function Composer({
+export function Composer({
   value,
   pendingPaths,
   locked,
   queueing = false,
   queued = 0,
+  stopping = false,
   onChange,
   onAttach,
   onPaste,
   onDropPending,
   onSend,
+  onStop,
 }: {
   value: string
   pendingPaths: string[]
   locked: boolean
   queueing?: boolean
   queued?: number
+  stopping?: boolean
   onChange: (value: string) => void
   onAttach: () => void
   onPaste: () => void
   onDropPending: (path: string) => void
   onSend: () => void
+  onStop?: () => void
 }) {
   const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
   const steer =
@@ -1922,26 +1938,33 @@ function Composer({
           >
             +
           </div>
-          <div
-            testId="send"
-            style={{
-              paddingLeft: T.space.lg,
-              paddingRight: T.space.lg,
-              paddingTop: T.space.control,
-              paddingBottom: T.space.control,
-              borderRadius: T.radius.md,
-              ...toneFill('action', ready),
-              fontSize: T.type.sm,
-              ...HIT,
-              cursor: ready ? 'pointer' : 'default',
-              hover: ready ? { opacity: T.blob.hover } : undefined,
-              active: ready ? { opacity: T.blob.active } : undefined,
-            }}
-            onClick={() => {
-              if (ready) onSend()
-            }}
-          >
-            Send
+          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
+            {stopping ? (
+              <Chip testId="composer-stop" tone="ghost" onClick={() => onStop?.()}>
+                Stop
+              </Chip>
+            ) : null}
+            <div
+              testId="send"
+              style={{
+                paddingLeft: T.space.lg,
+                paddingRight: T.space.lg,
+                paddingTop: T.space.control,
+                paddingBottom: T.space.control,
+                borderRadius: T.radius.md,
+                ...toneFill('action', ready),
+                fontSize: T.type.sm,
+                ...HIT,
+                cursor: ready ? 'pointer' : 'default',
+                hover: ready ? { opacity: T.blob.hover } : undefined,
+                active: ready ? { opacity: T.blob.active } : undefined,
+              }}
+              onClick={() => {
+                if (ready) onSend()
+              }}
+            >
+              Send
+            </div>
           </div>
         </div>
         {steer ? (

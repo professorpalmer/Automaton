@@ -47,6 +47,10 @@ export function resetMouthForTests(): void {
   started.clear()
 }
 
+export function dropMouthStarts(itemIds: Iterable<string>): void {
+  for (const id of itemIds) started.delete(id)
+}
+
 function openRouterStatus(error: unknown): number | null {
   const match = error instanceof Error ? error.message.match(/openrouter (\d{3})\b/) : null
   return match ? Number(match[1]) : null
@@ -213,8 +217,8 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, "Couldn't speak.")
         continue
       }
-      const liveCheck = looksLikeLiveCheck(turn.userText)
-      const claims = turn.mode === 'assess' || liveCheck ? [] : store.recall(turn.userText)
+      const liveCheck = turn.mode !== 'assess' && looksLikeLiveCheck(turn.userText)
+      const claims = liveCheck ? [] : store.recall(turn.userText)
       const attached = store.attachmentsForItem(turn.itemId)
       const hasVision = attached.some((row) => row.kind === 'image')
       const recalled = turn.mode === 'assess' || hasVision || liveCheck ? null : queryFirst(turn.userText, claims)
@@ -244,6 +248,7 @@ export async function ensureMouth(
         skills: listSkills(),
         skillIds: profile?.skillIds ?? [],
         query: turn.userText,
+        mode: turn.mode,
       })
       if (turn.mode === 'assess') {
         messages.push({ role: 'user', content: turn.userText })
