@@ -2,7 +2,7 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve, sep } from 'node:path'
-import { parseGithubIssue, sanitizeSpeak, type JobHandle } from '../domain'
+import { looksLikeLiveCheck, looksLikeRepoAsk, parseGithubIssue, sanitizeSpeak, type JobHandle } from '../domain'
 import { automatonHome, listOpenRouterKeys } from './keys'
 import { DEFAULT_SEAT_MODEL, jobModel, mouthModelFor } from './plane'
 
@@ -184,14 +184,20 @@ function goalContextLines(job: JobHandle): string[] {
   return lines
 }
 
+export const LIVE_GITHUB_LOOK =
+  'For GitHub PR and issue status, run `gh pr list` and `gh issue list --state open` on this checkout\'s GitHub remote. Do not use local `git status`, leftover absorb branches, or local tracking branches as evidence of open GitHub work.'
+
 export function analyzePrompt(job: JobHandle): string {
+  const liveGithub = looksLikeLiveCheck(job.goal) || looksLikeRepoAsk(job.goal)
   return [
     `You are a Puppetmaster analysis worker for the owner seat ${job.ownerAgentId}.`,
     'The worker cwd is a git checkout on this Mac. That tree is the subject.',
     'Do not ask for a repo path, slug, or boundary. Open files in this checkout and report from them.',
     'Automaton is the staff app, not the default subject. Do not cite Automaton files (plane.json, AUTOMATON_MODEL, seat.py) unless this checkout is Automaton.',
     'Do not edit files. Do not print job ids.',
-    'Produce one FINDING with a short claim the owner can speak aloud, grounded in files you opened.',
+    liveGithub
+      ? `Produce one FINDING with a short claim the owner can speak aloud, grounded in live GitHub state. ${LIVE_GITHUB_LOOK}`
+      : 'Produce one FINDING with a short claim the owner can speak aloud, grounded in files you opened.',
     ...goalContextLines(job),
     `Request: ${job.goal}`,
   ].join(' ')

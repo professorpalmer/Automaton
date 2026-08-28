@@ -7,7 +7,7 @@ import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed, JobStrip } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
 import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
-import { Inspector, inspectorChord, pasteChord, quitChord } from '../src/inspector'
+import { Inspector, copyChord, cutChord, inspectorChord, pasteChord, quitChord, selectAllChord } from '../src/inspector'
 import { copiedInTests } from '../src/runtime/clipboard'
 import { createAgent } from '../src/runtime/factory'
 import { readSkin, writeSkin } from '../src/runtime/skin'
@@ -21,6 +21,10 @@ describe('app chords', () => {
     expect(quitChord({ key: 'q', modifiers: { cmd: true, shift: true } })).toBe(false)
     expect(pasteChord({ key: 'v', modifiers: { cmd: true } })).toBe(true)
     expect(pasteChord({ key: 'v', modifiers: { cmd: true, shift: true } })).toBe(false)
+    expect(copyChord({ key: 'c', modifiers: { cmd: true } })).toBe(true)
+    expect(selectAllChord({ key: 'a', modifiers: { cmd: true } })).toBe(true)
+    expect(cutChord({ key: 'x', modifiers: { cmd: true } })).toBe(true)
+    expect(copyChord({ key: 'c', modifiers: { cmd: true, shift: true } })).toBe(false)
     expect(inspectorChord({ key: 'i', modifiers: { cmd: true, shift: true } })).toBe(true)
   })
 })
@@ -986,6 +990,43 @@ native('staff shell (GPUI native)', () => {
     expect(after[0]).toBe(0)
   })
 
+  test('inspector claims show freshness and dim stale rows', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 640, display: 'flex', flexDirection: 'row' }}>
+        <Inspector
+          agent={DEFAULT_AGENTS[0]}
+          claims={[
+            {
+              id: '1',
+              ownerAgentId: 'staff',
+              text: 'Marionette #223 merged.',
+              source: 'job',
+              freshness: 'stale',
+            },
+            {
+              id: '2',
+              ownerAgentId: 'staff',
+              text: 'Marionette has 0 open PRs.',
+              source: 'job',
+              freshness: 'fresh',
+            },
+          ]}
+          sandboxHint={null}
+          onClose={() => {}}
+        />
+      </div>,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'claim-stale')).toBeTruthy()
+    expect(findTestId(tree, 'claim-fresh')).toBeTruthy()
+    const painted = renderer.getPaintedText().join(' ')
+    expect(painted).toContain('stale')
+    expect(painted).toContain('Marionette has 0 open PRs')
+    expect(painted).toContain('#223')
+  })
+
   test('rail right-click opens delete without stealing the focused mouth', () => {
     resetIdsForTests()
     const store = testStore()
@@ -1102,6 +1143,33 @@ native('staff shell (GPUI native)', () => {
     expect(mine.x + mine.width).toBeLessThanOrEqual(stage.x + stage.width - T.feed.gutter)
     expect(theirs.x).toBeGreaterThanOrEqual(T.layout.sidebarMin)
     expect(theirs.y).toBeGreaterThanOrEqual(mine.y + mine.height + T.feed.turn)
+  })
+
+  test('click selects a bubble and Cmd+A selects all msgs then copies them', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: 'u1', from: 'user', agentId: 'staff', text: 'hello from the right' },
+      { kind: 'msg', id: 'a1', from: 'agent', agentId: 'staff', text: 'the line worth sharing' },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    clickTestId(renderer, 'bubble-mine')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'sel-u1')).toBeTruthy()
+    const mine = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'bubble-mine')
+    if (typeof mine?.id !== 'number') throw new Error('no bubble id')
+    renderer.nativeSimulateKeystrokes(mine.id, 'cmd-a')
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'sel-u1')).toBeTruthy()
+    expect(findTestId(tree, 'sel-a1')).toBeTruthy()
+    renderer.nativeSimulateKeystrokes(mine.id, 'cmd-c')
+    renderer.flush()
+    expect(copiedInTests()).toBe('hello from the right\n\nthe line worth sharing')
   })
 
   test('right-click on a bubble copies its text and flashes Copied', () => {

@@ -117,6 +117,7 @@ export type StaffStore = {
   load(): Session | null
   listGoalEvents(goalId?: string, limit?: number): GoalEvent[]
   remember(input: RememberInput): void
+  staleClaims(input: { ownerAgentId: string; repo?: string; taskKey?: string }): void
   recall(query: string, limit?: number): Claim[]
   listClaims(): Claim[]
   recordReceipt(receipt: TurnReceipt): void
@@ -659,6 +660,34 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
           freshness,
           new Date().toISOString(),
         ],
+      )
+    },
+    staleClaims(input) {
+      const owner = input.ownerAgentId.trim()
+      if (!owner) return
+      const repo = input.repo?.trim() || null
+      const taskKey = input.taskKey?.trim() || null
+      if (!repo && !taskKey) return
+      if (repo && taskKey) {
+        db.run(
+          `UPDATE claims SET freshness = 'stale'
+           WHERE owner_agent_id = ? AND freshness != 'stale' AND (task_key = ? OR repo = ?)`,
+          [owner, taskKey, repo],
+        )
+        return
+      }
+      if (taskKey) {
+        db.run(
+          `UPDATE claims SET freshness = 'stale'
+           WHERE owner_agent_id = ? AND freshness != 'stale' AND task_key = ?`,
+          [owner, taskKey],
+        )
+        return
+      }
+      db.run(
+        `UPDATE claims SET freshness = 'stale'
+         WHERE owner_agent_id = ? AND freshness != 'stale' AND repo = ?`,
+        [owner, repo],
       )
     },
     recall(query, limit = 8) {

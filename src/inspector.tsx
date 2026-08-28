@@ -104,6 +104,39 @@ export function pasteChord(event: {
   )
 }
 
+function cmdLetterChord(
+  event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } },
+  letter: string,
+): boolean {
+  return (
+    event.key?.toLowerCase() === letter &&
+    Boolean(event.modifiers?.cmd) &&
+    !event.modifiers?.shift &&
+    !event.modifiers?.alt
+  )
+}
+
+export function copyChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'c')
+}
+
+export function selectAllChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'a')
+}
+
+export function cutChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'x')
+}
+
 export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId: string }) {
   return (
     <div testId={testId} style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
@@ -575,11 +608,24 @@ export function Inspector({
           {recent.length === 0 ? (
             <div style={{ fontSize: T.type.sm, color: T.tertiary }}>No claims yet</div>
           ) : (
-            recent.map((claim) => (
-              <div key={claim.id} style={{ fontSize: T.type.sm, color: T.text, lineHeight: T.line.sm }}>
-                {publicClaimText(claim.text) || '…'}
-              </div>
-            ))
+            recent.map((claim) => {
+              const stale = claim.freshness === 'stale'
+              const label = claim.freshness === 'stale' ? 'stale' : claim.freshness === 'fresh' ? 'fresh' : 'unknown'
+              return (
+                <div
+                  key={claim.id}
+                  testId={stale ? 'claim-stale' : 'claim-fresh'}
+                  style={{
+                    fontSize: T.type.sm,
+                    color: stale ? T.ghost : T.text,
+                    lineHeight: T.line.sm,
+                    opacity: stale ? 0.55 : 1,
+                  }}
+                >
+                  {(publicClaimText(claim.text) || '…') + ' · ' + label}
+                </div>
+              )
+            })
           )}
         </div>
       </Section>

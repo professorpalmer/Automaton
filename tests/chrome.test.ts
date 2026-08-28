@@ -45,31 +45,59 @@ describe('browser helper', () => {
     expect(chromeMode()).toBe('none')
   })
 
-  test('a down box is not host Chrome even when Chrome.app exists', () => {
-    const node = process.env.NODE_ENV
-    const bun = process.env.BUN_TEST
-    const host = process.env.AUTOMATON_CHROME_HOST
-    process.env.NODE_ENV = 'production'
-    delete process.env.BUN_TEST
-    delete process.env.AUTOMATON_CHROME_HOST
-    try {
-      expect(
-        chromeMode({
-          box: { docker: () => ({ status: 1, text: 'not running' }) },
-        }),
-      ).toBe('none')
-    } finally {
-      process.env.NODE_ENV = node
-      if (bun !== undefined) process.env.BUN_TEST = bun
-      else delete process.env.BUN_TEST
-      if (host !== undefined) process.env.AUTOMATON_CHROME_HOST = host
-      else delete process.env.AUTOMATON_CHROME_HOST
-    }
+  test('chromeMode prefers host when a Mac binary exists, even if the box is up', () => {
+    const running = { docker: () => ({ status: 0, text: 'true\n' }) }
+    expect(
+      chromeMode({
+        binary: '/fake/Google Chrome',
+        box: running,
+      }),
+    ).toBe('host')
+    expect(chromeMode({ binary: '/fake/Google Chrome' })).toBe('host')
+  })
+
+  test('chromeMode uses box when no host binary and the box is up', () => {
+    expect(
+      chromeMode({
+        binary: null,
+        box: { docker: () => ({ status: 0, text: 'true\n' }) },
+      }),
+    ).toBe('box')
+  })
+
+  test('forceBox keeps worker clicks on box Chrome', () => {
+    expect(
+      chromeMode({
+        binary: '/fake/Google Chrome',
+        forceBox: true,
+        box: { docker: () => ({ status: 0, text: 'true\n' }) },
+      }),
+    ).toBe('box')
   })
 
   test('ensureBrowser does not spawn Mac Chrome from a test home', async () => {
     const home = tmpHome()
     expect(await ensureBrowser('staff', home)).toBeNull()
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('ensureBrowser host preference does not launch when tests gate the binary', async () => {
+    const home = tmpHome()
+    const spawned: string[] = []
+    const handle = await ensureBrowser('staff', home, {
+      binary: '/fake/Google Chrome',
+      box: { docker: () => ({ status: 0, text: 'true\n' }) },
+      spawn: (bin) => {
+        spawned.push(bin)
+        return { pid: 99 }
+      },
+      pickPort: () => 9333,
+      waitReady: async () => {},
+      alive: () => false,
+      kill: () => {},
+    })
+    expect(handle?.via).toBe('host')
+    expect(spawned).toEqual(['/fake/Google Chrome'])
     rmSync(home, { recursive: true, force: true })
   })
 
