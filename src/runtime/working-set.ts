@@ -1,4 +1,4 @@
-import type { Agent, AgentKit, Thread } from '../domain'
+import { looksLikeLiveCheck, type Agent, type AgentKit, type Thread } from '../domain'
 import { imageDataUrl } from './attachments'
 import { formatWellKnown, listWellKnownProjects, type MachineProject } from './machine'
 import { skillPromptLayers, type SkillMeta } from './skills'
@@ -196,6 +196,12 @@ export function systemPrompt(
     intro?: boolean
   },
 ): string {
+  const query = input?.query ?? ''
+  const productNames = (input?.projects ?? []).map((row) => row.name)
+  const liveCheck = looksLikeLiveCheck(query, productNames)
+  const recallOk = looksLikeRecallRequest(query) && !liveCheck
+  const liveCue =
+    'A look is already booked. Do not answer from memory or transcript about GitHub, PRs, or issues.'
   if (input?.kit === 'coordinator') {
     const roster = (input.roster ?? [])
       .filter((row) => !row.hidden)
@@ -208,6 +214,7 @@ export function systemPrompt(
       seatFact(input.model),
       WIDGET_CUE,
       'Speak briefly. Do not print job ids. Do not ask how you can assist.',
+      liveCheck ? liveCue : '',
     ].filter(Boolean)
     const standing = rules.trim()
     if (standing) parts.push(`Standing rules: ${standing}`)
@@ -225,7 +232,11 @@ export function systemPrompt(
     agent.description,
     'Speak briefly. Do not print job ids. Workers stay mute; you are the automaton.',
     WIDGET_CUE,
-    'If recalled claims answer the user, use them. Do not re-derive a stored finding.',
+    recallOk
+      ? 'If recalled claims answer the user, use them. Do not re-derive a stored finding.'
+      : liveCheck
+        ? liveCue
+        : '',
     'Do not ask how you can assist.',
     machineFact(input?.projects),
     seatFact(input?.model),
@@ -245,9 +256,14 @@ export function systemPrompt(
   return parts.join(' ')
 }
 
+export function looksLikeRecallRequest(text: string): boolean {
+  return RECALL_REQUEST.test(text.toLowerCase())
+}
+
 /** Query-vs-inference: speak only a provenance-safe recall. Never grab an arbitrary recent row. */
 export function queryFirst(query: string, claims: ClaimRef[]): string | null {
   if (claims.length === 0) return null
+  if (looksLikeLiveCheck(query)) return null
   const q = query.toLowerCase()
   if (!RECALL_REQUEST.test(q)) return null
 
@@ -319,7 +335,8 @@ export function buildWorkingSet(input: {
   if (layers.bodies) {
     messages.push({ role: 'system', content: layers.bodies })
   }
-  if (input.claims.length > 0) {
+  const liveCheck = looksLikeLiveCheck(input.query ?? '')
+  if (input.claims.length > 0 && !liveCheck) {
     messages.push({
       role: 'system',
       content: `Recalled claims (sqlite, not transcript):\n${input.claims

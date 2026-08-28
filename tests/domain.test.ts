@@ -19,9 +19,12 @@ import {
     looksLikeCodebaseAsk,
     looksLikeFileAsk,
     looksLikeFinishLine,
+    looksLikeInspect,
     looksLikeIssueWork,
     looksLikeJobStatusAsk,
+    looksLikeLiveCheck,
     looksLikePromote,
+    looksLikeRepoAsk,
     looksLikeShip,
     looksLikeValidate,
     criteriaFromAsk,
@@ -144,7 +147,7 @@ describe('mouth vs job', () => {
       'analyze',
     )
     expect(jobKindForKit('code', 'check the ledger replay in Automaton staff.')).toBe('analyze')
-    expect(jobKindForKit('coordinator', 'check the ledger replay in Automaton staff.')).toBeNull()
+    expect(jobKindForKit('coordinator', 'check the ledger replay in Automaton staff.')).toBe('analyze')
     expect(jobKindForKit('coordinator', 'is claude on PATH')).toBe('box-shell')
     expect(
       jobKindForKit(
@@ -182,6 +185,21 @@ describe('mouth vs job', () => {
     expect(jobKindLabel('box-shell')).toBe('shell')
     expect(jobKindLabel('promote')).toBe('land')
     expect(jobKindLabel('ship')).toBe('ship')
+  })
+
+  test('live world-state books analyze on coordinator; recall stays chat', () => {
+    const check = 'check Puppetmaster and Marionette for prs or open issues'
+    expect(looksLikeRepoAsk(check)).toBe(true)
+    expect(looksLikeInspect(check)).toBe(true)
+    expect(looksLikeLiveCheck(check)).toBe(true)
+    expect(jobKindForKit('coordinator', check)).toBe('analyze')
+    expect(jobKindForKit('code', check)).toBe('analyze')
+    expect(looksLikeLiveCheck('do we have any PRs or open issues?')).toBe(true)
+    expect(looksLikeLiveCheck('check the ledger replay in Automaton staff.')).toBe(true)
+    expect(looksLikeLiveCheck('what is the current status of Puppetmaster?')).toBe(true)
+    expect(looksLikeLiveCheck('what did Kernel find about ledger replay')).toBe(false)
+    expect(looksLikeLiveCheck('remember the Kernel finding about ledger replay')).toBe(false)
+    expect(jobKindForKit('coordinator', 'what did Kernel find about ledger replay')).toBeNull()
   })
 
   test('leftover then/and steps book the next job kind', () => {

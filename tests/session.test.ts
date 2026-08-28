@@ -339,6 +339,16 @@ describe('teammate session', () => {
     expect(s.threads.kernel.mouth).toBe('working')
   })
 
+  test('Staff live-check of named products books analyze instead of chatting', () => {
+    const s = send(fresh(), 'check Puppetmaster and Marionette for prs or open issues')
+    expect(s.jobs).toHaveLength(1)
+    expect(s.jobs[0]?.kind).toBe('analyze')
+    expect(s.jobs[0]?.ownerAgentId).toBe('staff')
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(s.threads.staff.mouth).not.toBe('answer')
+    expect(pendingMouthTurns(s)).toHaveLength(0)
+  })
+
   test('Staff ping plus a repo ask books analyze, not a presence check', () => {
     const s = send(fresh(), 'Can you ping Kernel, do we have any PRs or open issues?')
     expect(s.jobs).toHaveLength(1)
@@ -1603,7 +1613,8 @@ describe('steer-queue', () => {
     expect(after).toHaveLength(2)
     if (after[1]?.kind === 'msg') expect(after[1].text).toBe('also check the pin')
     expect(s.threads.staff.steerQueue).toEqual([])
-    expect(s.threads.staff.mouth).toBe('answer')
+    expect(s.threads.staff.mouth).toBe('working')
+    expect(s.jobs[0]?.kind).toBe('analyze')
   })
 
   test('failMouth also drains the parked line', () => {
