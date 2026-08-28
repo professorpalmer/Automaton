@@ -437,11 +437,116 @@ describe('teammate session', () => {
       ),
     ).toBe(true)
     expect(painted.jobs).toHaveLength(0)
+    expect(painted.threads.staff.mouth).toBe('idle')
+    expect(painted.threads.agent_pm.mouth).toBe('must_first')
     expect(painted.pendingSend?.deliveries).toHaveLength(1)
+    expect(painted.pendingSend?.idle).toBe('staff')
+    const sisterUsers = painted.threads.agent_pm.items.filter(
+      (item) => item.kind === 'msg' && item.from === 'user',
+    )
+    expect(sisterUsers).toHaveLength(0)
     const flushed = finishSend(painted)
     expect(flushed.jobs).toHaveLength(1)
     expect(flushed.jobs[0]?.ownerAgentId).toBe('agent_pm')
     expect(flushed.pendingSend).toBeUndefined()
+    expect(flushed.threads.staff.mouth).toBe('idle')
+    expect(flushed.threads.agent_pm.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(
+      1,
+    )
+    expect(finishSend(flushed).threads.agent_pm.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(
+      1,
+    )
+  })
+
+  test('coordinator dispatch paint idles Chief, wakes Marionette, then finishSend books once', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-session-mn-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    writeProfile(
+      {
+        id: 'agent_mn',
+        name: 'Marionette',
+        title: '',
+        description: '',
+        rules: '',
+        kit: 'code',
+        avatarShape: 'hex',
+        avatarColor: 'kernel',
+        namedBy: 'user',
+        skillIds: [],
+        notifyOnUpdates: true,
+        hiddenFromRail: false,
+        createdAt: '2026-08-25T00:00:00.000Z',
+        homeRepo: '',
+        homePath: '',
+      },
+      home,
+    )
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette]
+    resetIdsForTests()
+    try {
+    const painted = paintSend(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      "What is Marionette's verison up to?",
+    )
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'user' && item.text.includes("Marionette's"),
+      ),
+    ).toBe(true)
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling Marionette.',
+      ),
+    ).toBe(true)
+    expect(
+      painted.threads.staff.items.some(
+        (item) => item.kind === 'relay' && item.lane === 'sent' && item.peerId === 'agent_mn',
+      ),
+    ).toBe(true)
+    expect(painted.threads.staff.mouth).toBe('idle')
+    expect(painted.threads.agent_mn.mouth).toBe('must_first')
+    expect(painted.jobs).toHaveLength(0)
+    expect(painted.pendingSend?.deliveries).toHaveLength(1)
+    expect(painted.pendingSend?.deliveries?.[0]?.agentId).toBe('agent_mn')
+    expect(painted.threads.agent_mn.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(
+      0,
+    )
+    const goalsOnPaint = (painted.goals ?? []).filter((goal) => goal.ownerAgentId === 'agent_mn')
+    expect(goalsOnPaint).toHaveLength(0)
+    const flushed = finishSend(painted)
+    expect(flushed.pendingSend).toBeUndefined()
+    expect(flushed.jobs).toHaveLength(1)
+    expect(flushed.jobs[0]?.ownerAgentId).toBe('agent_mn')
+    expect(flushed.threads.agent_mn.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(
+      1,
+    )
+    expect((flushed.goals ?? []).filter((goal) => goal.ownerAgentId === 'agent_mn')).toHaveLength(1)
+    const again = finishSend(flushed)
+    expect(again.threads.agent_mn.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    expect((again.goals ?? []).filter((goal) => goal.ownerAgentId === 'agent_mn')).toHaveLength(1)
+    expect(again.jobs).toHaveLength(1)
+    expect(flushed.threads.agent_mn.mouth).toBe('working')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
   })
 
   test('Staff see-if a factory mouth delivers to that thread, not a Staff OpenRouter turn', () => {

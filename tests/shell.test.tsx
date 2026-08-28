@@ -14,6 +14,20 @@ import { readSkin, writeSkin } from '../src/runtime/skin'
 import { openStaffStore } from '../src/runtime/store'
 import { T } from '../src/tokens'
 
+describe('onSend scheduling', () => {
+  test('finishSend is not coupled to persist/profile finish()', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    const start = src.indexOf('const onSend = () =>')
+    const end = src.indexOf('const onAttach = () =>')
+    expect(start).toBeGreaterThan(0)
+    expect(end).toBeGreaterThan(start)
+    const onSend = src.slice(start, end)
+    expect(onSend).toContain('queueMicrotask')
+    expect(onSend).toMatch(/setTimeout\(finish/)
+    expect(onSend).not.toMatch(/finishSend\(current\)\)\s*finish\(\)/)
+  })
+})
+
 describe('app chords', () => {
   test('cmd+q and cmd+w quit; inspector stays cmd+shift+i', () => {
     expect(quitChord({ key: 'q', modifiers: { cmd: true } })).toBe(true)
