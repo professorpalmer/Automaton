@@ -426,8 +426,28 @@ function namesAProduct(text: string, productNames: string[] = []): boolean {
   })
 }
 
-/** Live world-state: open PRs/issues, inspect, or current/latest status of a named product. Not recall. */
-export function looksLikeLiveCheck(text: string, productNames: string[] = []): boolean {
+/** Bare same-intent follow-on. "what about X" without a new stack/repo inspect. */
+export function looksLikeFollowOn(text: string): boolean {
+  const lower = text.trim().toLowerCase().replace(/[?.!]+$/g, '').trim()
+  if (!lower || looksLikeRepoAsk(text) || looksLikeInspect(text)) return false
+  return (
+    /^(?:what about|how about|same for)\s+[a-z0-9][\w.-]*$/i.test(lower) ||
+    /^and\s+[a-z0-9][\w.-]*$/i.test(lower) ||
+    /^[a-z0-9][\w.-]*\s+too$/i.test(lower)
+  )
+}
+
+export function followOnSubject(text: string): string | null {
+  const lower = text.trim().replace(/[?.!]+$/g, '').trim()
+  const match =
+    /^(?:what about|how about|same for)\s+(.+)$/i.exec(lower) ??
+    /^and\s+(.+)$/i.exec(lower) ??
+    /^(.+)\s+too$/i.exec(lower)
+  const subject = match?.[1]?.trim()
+  return subject || null
+}
+
+function liveCheckSelf(text: string, productNames: string[] = []): boolean {
   if (text.includes('Deliver what that means in your own words')) return false
   if (looksLikeRepoAsk(text) || looksLikeInspect(text)) return true
   const lower = text.toLowerCase()
@@ -435,12 +455,30 @@ export function looksLikeLiveCheck(text: string, productNames: string[] = []): b
   return namesAProduct(text, productNames)
 }
 
+/** Rewrite a bare follow-on to the prior live GitHub check against the new subject. */
+export function inheritLiveAsk(text: string, prior: string): string {
+  if (!looksLikeFollowOn(text) || !liveCheckSelf(prior)) return text
+  const subject = followOnSubject(text)
+  if (!subject) return text
+  if (looksLikeRepoAsk(prior)) return `check ${subject} for prs or open issues`
+  return text
+}
+
+/** Live world-state: open PRs/issues, inspect, or current/latest status of a named product. Not recall. */
+export function looksLikeLiveCheck(text: string, productNames: string[] = [], prior = ''): boolean {
+  if (liveCheckSelf(text, productNames)) return true
+  if (prior && looksLikeFollowOn(text) && liveCheckSelf(prior, productNames)) return true
+  return false
+}
+
 /** Code/docs about a machine checkout. Chat pings stay mouth. */
 export function looksLikeCodebaseAsk(
   text: string,
   productNames: string[] = [],
   implicitProduct = false,
+  prior = '',
 ): boolean {
+  if (prior && looksLikeFollowOn(text) && liveCheckSelf(prior, productNames)) return false
   const lower = text.toLowerCase()
   if (lower.length < 16) return false
   if (/\bwhat (scripts?|files?|modules?) does\b/.test(lower)) return true
@@ -540,9 +578,9 @@ function wantsLook(
 ): boolean {
   return (
     looksLikeLookup(text) ||
-    looksLikeLiveCheck(text, productNames) ||
+    looksLikeLiveCheck(text, productNames, prior) ||
     looksLikeFileAsk(text) ||
-    looksLikeCodebaseAsk(text, productNames, implicitProduct) ||
+    looksLikeCodebaseAsk(text, productNames, implicitProduct, prior) ||
     (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames, implicitProduct))
   )
 }
@@ -550,8 +588,8 @@ function wantsLook(
 function coordinatorLook(text: string, prior = '', productNames: string[] = []): boolean {
   return (
     looksLikeExplicitLookup(text) ||
-    looksLikeLiveCheck(text, productNames) ||
-    looksLikeCodebaseAsk(text, productNames) ||
+    looksLikeLiveCheck(text, productNames, prior) ||
+    looksLikeCodebaseAsk(text, productNames, false, prior) ||
     (looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior, productNames))
   )
 }
@@ -564,7 +602,7 @@ export function jobKindForKit(
   productNames: string[] = [],
 ): JobKind | null {
   if (kit === 'blank') {
-    return looksLikeLiveCheck(text, productNames) ? 'analyze' : null
+    return looksLikeLiveCheck(text, productNames, prior) ? 'analyze' : null
   }
   if (looksLikeBoxShell(text)) return 'box-shell'
   const implicit = kit !== 'coordinator'
@@ -994,6 +1032,13 @@ export function dispatchTargets(text: string, agents: Agent[], focused?: AgentId
     const rest = lower.slice((match.index ?? 0) + match[0].length)
     for (const id of namesAfterCue(rest, roster)) {
       if (!found.includes(id)) found.push(id)
+    }
+  }
+  if (found.length === 0) {
+    const subject = followOnSubject(text)
+    if (subject) {
+      const id = rosterNameMap(roster).get(subject.toLowerCase())
+      if (id) found.push(id)
     }
   }
   if (focused && found.length === 1 && found[0] === focused && !/@/.test(text)) {

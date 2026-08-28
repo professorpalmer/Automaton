@@ -19,6 +19,8 @@ import {
     looksLikeCodebaseAsk,
     looksLikeFileAsk,
     looksLikeFinishLine,
+    looksLikeFollowOn,
+    inheritLiveAsk,
     looksLikeInspect,
     looksLikeIssueWork,
     looksLikeJobStatusAsk,
@@ -206,6 +208,23 @@ describe('mouth vs job', () => {
     const assess = assessAsk('Marionette', 'There are 2 open PRs and 1 open issue.')
     expect(looksLikeLiveCheck(assess)).toBe(false)
     expect(assess).toContain('open PRs')
+  })
+
+  test('bare what-about follow-on inherits a prior live GitHub check', () => {
+    const prior = 'check Puppetmaster and Marionette for prs or open issues'
+    expect(looksLikeFollowOn('What about dugout?')).toBe(true)
+    expect(looksLikeFollowOn('how about Marionette')).toBe(true)
+    expect(looksLikeFollowOn('and Dugout?')).toBe(true)
+    expect(looksLikeFollowOn('same for dugout')).toBe(true)
+    expect(looksLikeFollowOn('Dugout too')).toBe(true)
+    expect(looksLikeFollowOn(prior)).toBe(false)
+    expect(looksLikeCodebaseAsk('what about dugout', ['Dugout'])).toBe(true)
+    expect(looksLikeCodebaseAsk('what about dugout', ['Dugout'], false, prior)).toBe(false)
+    expect(looksLikeLiveCheck('What about dugout?', ['Dugout'])).toBe(false)
+    expect(looksLikeLiveCheck('What about dugout?', ['Dugout'], prior)).toBe(true)
+    expect(inheritLiveAsk('What about dugout?', prior)).toBe('check dugout for prs or open issues')
+    expect(jobKindForKit('coordinator', 'What about dugout?', prior, ['Dugout'])).toBe('analyze')
+    expect(jobKindForKit('coordinator', 'What about dugout?', '', ['Dugout'])).toBe('analyze')
   })
 
   test('leftover then/and steps book the next job kind', () => {

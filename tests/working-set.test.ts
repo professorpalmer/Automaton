@@ -32,6 +32,21 @@ describe('mouth working set', () => {
       false,
     )
     expect(queryFirst('check Puppetmaster and Marionette for prs or open issues', [issue])).toBeNull()
+    const prior = 'check Puppetmaster and Marionette for prs or open issues'
+    expect(
+      queryFirst(
+        'What about dugout?',
+        [
+          {
+            ownerAgentId: 'kernel',
+            text: 'Dugout is a FastAPI/SQLModel fantasy baseball app.',
+            artifactKind: 'analyze' as const,
+            freshness: 'fresh' as const,
+          },
+        ],
+        prior,
+      ),
+    ).toBeNull()
   })
 
   test('live-check working set drops claim texts and does not tell the mouth to use them', () => {

@@ -263,9 +263,9 @@ export function looksLikeRecallRequest(text: string): boolean {
 }
 
 /** Query-vs-inference: speak only a provenance-safe recall. Never grab an arbitrary recent row. */
-export function queryFirst(query: string, claims: ClaimRef[]): string | null {
+export function queryFirst(query: string, claims: ClaimRef[], prior = ''): string | null {
   if (claims.length === 0) return null
-  if (looksLikeLiveCheck(query)) return null
+  if (looksLikeLiveCheck(query, [], prior)) return null
   const q = query.toLowerCase()
   if (!RECALL_REQUEST.test(q)) return null
 
@@ -339,8 +339,16 @@ export function buildWorkingSet(input: {
   if (layers.bodies) {
     messages.push({ role: 'system', content: layers.bodies })
   }
+  const priorAsk = (() => {
+    const users = input.thread.items.filter((item) => item.kind === 'msg' && item.from === 'user')
+    if (users.length < 2) return ''
+    const prior = users[users.length - 2]
+    return prior.kind === 'msg' ? prior.text : ''
+  })()
   const liveCheck =
-    input.mode !== 'assess' && input.intro !== true && looksLikeLiveCheck(input.query ?? '')
+    input.mode !== 'assess' &&
+    input.intro !== true &&
+    looksLikeLiveCheck(input.query ?? '', [], priorAsk)
   if (input.claims.length > 0 && !liveCheck) {
     messages.push({
       role: 'system',

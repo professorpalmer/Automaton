@@ -38,7 +38,10 @@ import {
   joinAnd,
   keepAliveStatus,
   landWidgetForKind,
+  inheritLiveAsk,
   looksLikeCodebaseAsk,
+  looksLikeFollowOn,
+  looksLikeLiveCheck,
   looksLikeJobStatusAsk,
   looksLikeSourceAsk,
   mentionedAgentIds,
@@ -353,6 +356,12 @@ function priorUserText(items: FeedItem[]): string {
   return prior?.kind === 'msg' ? prior.text : ''
 }
 
+function lastUserText(items: FeedItem[]): string {
+  const users = items.filter((item) => item.kind === 'msg' && item.from === 'user')
+  const last = users.at(-1)
+  return last?.kind === 'msg' ? last.text : ''
+}
+
 function jobGoal(
   text: string,
   prior: string,
@@ -362,6 +371,14 @@ function jobGoal(
   const goal = staffParaphrase(text)
   if (kind === 'analyze' && looksLikeSourceAsk(text) && looksLikeCodebaseAsk(prior)) {
     return `${goal} (continuing: ${staffParaphrase(prior)})`
+  }
+  if (kind === 'analyze' && looksLikeFollowOn(text) && looksLikeLiveCheck(prior)) {
+    return `${goal} (continuing: ${staffParaphrase(prior)})`
+  }
+  if (kind === 'analyze' && prior && looksLikeLiveCheck(text) && looksLikeLiveCheck(prior) && text !== prior) {
+    if (looksLikeFollowOn(prior) || inheritLiveAsk(text, prior) !== text) {
+      return `${goal} (continuing: ${staffParaphrase(prior)})`
+    }
   }
   return goal
 }
@@ -444,6 +461,8 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
 
   const roster = visibleAgents(session.agents)
   const kit = kitForAgent(active)
+  const priorAsk = lastUserText(row.items)
+  const inherited = inheritLiveAsk(text, priorAsk)
   if (kit === 'coordinator' && session.pendingFanout == null) {
     const created = createAgentNames(text)
     const renamed = renameAgents(text, roster)
@@ -471,14 +490,18 @@ export function send(session: Session, raw: string, attachmentIds: string[] = []
   }
   const named =
     session.pendingFanout?.targets ??
-    (kit === 'coordinator' ? dispatchTargets(text, roster, active) : mentionedAgentIds(text, roster))
+    (kit === 'coordinator'
+      ? dispatchTargets(inherited, roster, active).length > 0
+        ? dispatchTargets(inherited, roster, active)
+        : dispatchTargets(text, roster, active)
+      : mentionedAgentIds(text, roster))
   const body = session.pendingFanout?.text ?? text
   if (needsFanoutConfirm(named) && session.pendingFanout == null) {
     return { ...session, pendingFanout: { text, targets: named } }
   }
   const next: Session = { ...session, pendingFanout: null, deskOpen: null, deskHandoff: null }
   if (kit === 'coordinator' && named.length > 0) {
-    return coordinatorDispatch(next, body, named, attachmentIds)
+    return coordinatorDispatch(next, body, named, attachmentIds, inherited)
   }
   if (named.length > 1) {
     return fanout(next, body, named)
@@ -595,15 +618,18 @@ function coordinatorDispatch(
   text: string,
   targets: AgentId[],
   attachmentIds: string[],
+  workText = text,
 ): Session {
   const focused = session.activeAgentId
-  const work = dispatchWork(text, visibleAgents(session.agents))
+  const work = dispatchWork(workText, visibleAgents(session.agents))
+  const inherited = workText !== text
+  const note = inherited ? workText : work.note
+  const ping = inherited ? false : work.ping
   const item = stamped('user', focused, text, attachmentIds)
   let next = append(session, focused, item, focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'ack' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused)
   next = markPendingHops(next, focused, targets)
-  const note = work.note
   for (const target of targets) {
     if (target === focused) continue
     next = appendRelay(next, focused, 'sent', target, note, focused)
@@ -613,7 +639,7 @@ function coordinatorDispatch(
       { kind: 'agent_note', id: nextId('item'), fromId: focused, toId: target, text: note },
       focused,
     )
-    next = deliverTo(next, target, note, focused, [], work.ping, text)
+    next = deliverTo(next, target, note, focused, [], ping, inherited ? workText : text)
   }
   return wakeMouth(next, focused, 'idle')
 }
@@ -900,8 +926,20 @@ function coordinatorReturn(
 export function stopMouth(session: Session, agentId: AgentId): Session {
   if (!session.threads[agentId]) return session
   const mouth = thread(session, agentId).mouth
-  if (mouth !== 'answer' && mouth !== 'intro') return session
+  if (mouth === 'idle') return session
   return setThread(session, agentId, { mouth: 'idle' })
+}
+
+/** Composer Stop: idle the focused mouth and abandon every running job in the session. */
+export function stopRun(session: Session, agentId: AgentId): Session {
+  let next = stopMouth(session, agentId)
+  for (const job of runningJobs(next)) {
+    next = stopJob(next, job.id)
+  }
+  for (const worker of runningComputerWorkers(next)) {
+    next = failComputer(next, worker.id, 'Stopped.')
+  }
+  return next
 }
 
 export function failMouth(session: Session, agentId: AgentId, spoken: string): Session {
