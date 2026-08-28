@@ -193,6 +193,12 @@ function missReceipt(
   }
 }
 
+function priorUserAsk(items: { kind: string; from?: string; text?: string }[]): string {
+  const users = items.filter((item) => item.kind === 'msg' && item.from === 'user')
+  if (users.length < 2) return ''
+  return users[users.length - 2]?.text ?? ''
+}
+
 export async function ensureMouth(
   session: Session,
   store: StaffStore,
@@ -217,11 +223,13 @@ export async function ensureMouth(
         hooks.onFail(turn.agentId, "Couldn't speak.")
         continue
       }
-      const liveCheck = turn.mode !== 'assess' && looksLikeLiveCheck(turn.userText)
+      const prior = priorUserAsk(session.threads[turn.agentId]?.items ?? [])
+      const liveCheck = turn.mode !== 'assess' && looksLikeLiveCheck(turn.userText, [], prior)
       const claims = liveCheck ? [] : store.recall(turn.userText)
       const attached = store.attachmentsForItem(turn.itemId)
       const hasVision = attached.some((row) => row.kind === 'image')
-      const recalled = turn.mode === 'assess' || hasVision || liveCheck ? null : queryFirst(turn.userText, claims)
+      const recalled =
+        turn.mode === 'assess' || hasVision || liveCheck ? null : queryFirst(turn.userText, claims, prior)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
         hooks.onComplete(turn.agentId, recalled)

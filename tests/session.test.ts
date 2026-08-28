@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import { writeProfile } from '../src/runtime/profile'
+import { queryFirst } from '../src/runtime/working-set'
 import { openStaffStore } from '../src/runtime/store'
 import {
   addLiveAgent,
@@ -564,6 +565,70 @@ describe('teammate session', () => {
         (item) => item.kind === 'msg' && item.from === 'agent' && /finished\./.test(item.text),
       ),
     ).toBe(false)
+  })
+
+  test('What about dugout inherits the prior PR/issue live check', () => {
+    const marionette = {
+      id: 'agent_mn',
+      name: 'Marionette',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const puppetmaster = {
+      id: 'agent_pm',
+      name: 'Puppetmaster',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const dugout = {
+      id: 'agent_dg',
+      name: 'Dugout',
+      title: 'Code',
+      description: '',
+      color: '#777777',
+      hidden: false,
+    }
+    const agents = [...staffWithSisters(), marionette, puppetmaster, dugout]
+    resetIdsForTests()
+    let s = send(
+      {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      },
+      'check Puppetmaster and Marionette for prs or open issues',
+    )
+    expect(s.jobs).toHaveLength(2)
+    const first = s.jobs.find((job) => job.ownerAgentId === 'agent_pm')
+    const second = s.jobs.find((job) => job.ownerAgentId === 'agent_mn')
+    expect(first && second).toBeTruthy()
+    s = completeJob(s, first!.id, 'Puppetmaster has 2 open PRs.')
+    s = completeJob(s, second!.id, 'Marionette has 1 open issue.')
+    s = completeMouth(s, 'staff', 'A couple of open PRs between them.')
+    s = send(s, 'What about dugout?')
+    const follow = s.jobs.filter((job) => job.status === 'running')
+    expect(follow.length).toBeGreaterThanOrEqual(1)
+    const dugoutJob = follow.find((job) => job.ownerAgentId === 'agent_dg') ?? follow[0]!
+    expect(dugoutJob.kind).toBe('analyze')
+    const goal = dugoutJob.goal.toLowerCase()
+    expect(goal).toContain('dugout')
+    expect(goal.includes('pr') || goal.includes('issue') || goal.includes('continuing:')).toBe(true)
+    expect(goal).not.toContain('stack')
+    expect(goal).not.toContain('fastapi')
+    expect(queryFirst('What about dugout?', [
+      {
+        ownerAgentId: 'agent_dg',
+        text: 'Dugout is a FastAPI/SQLModel fantasy baseball app.',
+        artifactKind: 'analyze' as const,
+        freshness: 'fresh' as const,
+      },
+    ], 'check Puppetmaster and Marionette for prs or open issues')).toBeNull()
   })
 
   test('Staff two-name lookup dispatches without a fan-out card', () => {

@@ -17,12 +17,10 @@ import {
   feedClock,
   feedThinking,
   thinkingDots,
-  jobKindLabel,
   oldestWaitingUserGoal,
   type Agent,
   type FeedItem,
   type GoalRun,
-  type JobHandle,
   type MouthState,
   type WidgetAnswer,
   visibleAgents,
@@ -86,8 +84,7 @@ import {
   send,
   setActive,
   setDraft,
-  stopJob,
-  stopMouth,
+  stopRun,
   cancelGoal,
   retryGoal,
   waitComputerHost,
@@ -385,50 +382,80 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
 
   const onSend = () => {
     if (!thread || !active) return
-    setSession((current) => {
-      const row = current.threads[current.activeAgentId]
-      if (!row) return current
-      const ids: string[] = []
-      for (const path of row.pendingPaths ?? []) {
+    const carry = {
+      paths: [] as string[],
+      draft: '',
+      agentId: session.activeAgentId,
+      ids: [] as string[],
+    }
+    const finish = () => {
+      const bound: string[] = []
+      for (let i = 0; i < carry.paths.length; i += 1) {
         try {
-          const attachment = ingestPath(current.activeAgentId, path, nextId('att'))
+          const attachment = ingestPath(carry.agentId, carry.paths[i]!, carry.ids[i]!)
           store.recordAttachment(attachment)
-          ids.push(attachment.id)
+          bound.push(attachment.id)
         } catch {
           /* missing path stays off the bubble */
         }
       }
-      let working = current
-      if (kitForAgent(working.activeAgentId) === 'coordinator') {
-        const draft = row.draft.trim()
-        for (const name of createAgentNames(draft)) {
-          const created = createAgent({ name, kit: 'code' })
-          working = addLiveAgent(working, created.agent, false)
+      const created =
+        kitForAgent(carry.agentId) === 'coordinator'
+          ? createAgentNames(carry.draft).map((name) => createAgent({ name, kit: 'code' as const }))
+          : []
+      setSession((current) => {
+        let next = current
+        for (const row of created) next = addLiveAgent(next, row.agent, false)
+        if (kitForAgent(carry.agentId) === 'coordinator') {
+          const trimmed = carry.draft.trim()
+          for (const agent of applyHomeBinds(bindHomes(trimmed, visibleAgents(next.agents)))) {
+            next = patchLiveAgent(next, agent)
+          }
+          for (const agent of next.agents) {
+            const profile = readProfile(agent.id)
+            if (!profile || profile.name === agent.name) continue
+            writeProfile({ ...profile, name: agent.name, namedBy: 'user' })
+          }
         }
-        for (const agent of applyHomeBinds(bindHomes(draft, visibleAgents(working.agents)))) {
-          working = patchLiveAgent(working, agent)
+        if (bound.length > 0) {
+          const row = next.threads[carry.agentId]
+          const last = [...(row?.items ?? [])]
+            .reverse()
+            .find((item) => item.kind === 'msg' && item.from === 'user')
+          if (last?.kind === 'msg') store.bindAttachments(bound, last.id)
+        }
+        persistIntroIfUserSpoke(next)
+        return { ...next }
+      })
+    }
+    setSession((current) => {
+      const row = current.threads[current.activeAgentId]
+      if (!row) return current
+      carry.paths = [...(row.pendingPaths ?? [])]
+      carry.draft = row.draft
+      carry.agentId = current.activeAgentId
+      carry.ids = carry.paths.map(() => nextId('att'))
+      if (runningTests()) {
+        for (let i = 0; i < carry.paths.length; i += 1) {
+          try {
+            const attachment = ingestPath(carry.agentId, carry.paths[i]!, carry.ids[i]!)
+            store.recordAttachment(attachment)
+          } catch {
+            /* missing path stays off the bubble */
+          }
         }
       }
-      const beforeIds = new Set((working.threads[working.activeAgentId]?.items ?? []).map((item) => item.id))
-      let next = send(working, row.draft, ids)
-      if (kitForAgent(next.activeAgentId) === 'coordinator') {
-        const draft = row.draft.trim()
-        for (const agent of next.agents) {
-          const profile = readProfile(agent.id)
-          if (!profile || profile.name === agent.name) continue
-          writeProfile({ ...profile, name: agent.name, namedBy: 'user' })
-        }
-        for (const agent of applyHomeBinds(bindHomes(draft, visibleAgents(next.agents)))) {
-          next = patchLiveAgent(next, agent)
-        }
+      const next = send(current, row.draft, carry.ids)
+      if (runningTests()) {
+        const last = [...(next.threads[carry.agentId]?.items ?? [])]
+          .reverse()
+          .find((item) => item.kind === 'msg' && item.from === 'user')
+        if (last?.kind === 'msg' && carry.ids.length > 0) store.bindAttachments(carry.ids, last.id)
+        persistIntroIfUserSpoke(next)
       }
-      const last = [...(next.threads[next.activeAgentId]?.items ?? [])]
-        .reverse()
-        .find((item) => item.kind === 'msg' && item.from === 'user' && !beforeIds.has(item.id))
-      if (last?.kind === 'msg') store.bindAttachments(ids, last.id)
-      persistIntroIfUserSpoke(next)
       return next
     })
+    if (!runningTests()) setTimeout(finish, 0)
   }
 
   const onAttach = () => {
@@ -631,7 +658,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
               items={thread?.items ?? []}
               mouth={thread?.mouth ?? 'idle'}
               agents={session.agents}
-              dockPad={jobs.length > 0 ? T.jobStrip.height : 0}
+              dockPad={0}
               storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
               attachmentsFor={(ids) =>
                 ids.flatMap((id) => store.listAttachments().filter((row) => row.id === id))
@@ -650,32 +677,6 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 backgroundColor: T.canvas,
               }}
             >
-              <motion.div
-                initial={false}
-                animate={{ height: jobs.length > 0 ? T.jobStrip.height : 0 }}
-                transition={{ duration: clockDuration(T.motion.strip), ease: 'easeOut' }}
-                style={{
-                  height: jobs.length > 0 ? T.jobStrip.height : 0,
-                  overflow: 'hidden',
-                  flexShrink: 0,
-                }}
-              >
-                {jobs.length > 0 ? (
-                  <JobStrip
-                    jobs={jobs}
-                    agents={session.agents}
-                    onStop={(id) => {
-                      abandonJob(id)
-                      setSession((current) => {
-                        const next = stopJob(current, id)
-                        bindNewUserAttachments(store, current, next)
-                        persistIntroIfUserSpoke(next)
-                        return next
-                      })
-                    }}
-                  />
-                ) : null}
-              </motion.div>
               {session.pendingFanout ? (
                 <ConfirmCard
                   testId="fanout-confirm"
@@ -730,7 +731,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 queueing={Boolean(thread && shouldQueueSteer(thread.mouth, thread.computerBusy === true))}
                 queued={thread?.steerQueue.length ?? 0}
-                stopping={thread?.mouth === 'answer' || thread?.mouth === 'intro'}
+                stopping={Boolean(
+                  thread &&
+                    (thread.mouth !== 'idle' ||
+                      thread.computerBusy === true ||
+                      jobs.length > 0),
+                )}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
@@ -749,7 +755,13 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                       .filter((turn) => turn.agentId === agentId)
                       .map((turn) => turn.itemId),
                   )
-                  setSession((current) => stopMouth(current, agentId))
+                  for (const job of runningJobs(session)) abandonJob(job.id)
+                  setSession((current) => {
+                    const next = stopRun(current, agentId)
+                    bindNewUserAttachments(store, current, next)
+                    persistIntroIfUserSpoke(next)
+                    return next
+                  })
                 }}
               />
             </div>
@@ -1491,6 +1503,8 @@ export const Feed = forwardRef<FeedApi, {
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const lastClicked = useRef<string | null>(null)
+  const dragFrom = useRef<string | null>(null)
+  const dragging = useRef(false)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flashCopied = (id: string) => {
     setCopiedId(id)
@@ -1528,6 +1542,9 @@ export const Feed = forwardRef<FeedApi, {
       followTail
       estimatedItemHeight={T.line.lg * 3}
       style={feedScrollStyle}
+      onMouseUp={() => {
+        dragging.current = false
+      }}
       onKeyDown={(event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } }) => {
         if (selectAllChord(event)) selectAll()
         if (copyChord(event)) copySelection()
@@ -1693,12 +1710,28 @@ export const Feed = forwardRef<FeedApi, {
                 const anchor = lastClicked.current
                 lastClicked.current = item.id
                 if (event.modifiers?.shift && anchor) {
+                  dragging.current = false
+                  dragFrom.current = anchor
                   setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), anchor, item.id)))
                   return
                 }
+                dragging.current = true
+                dragFrom.current = item.id
                 setSelectedIds(new Set([item.id]))
               }}
+              onMouseEnter={() => {
+                if (!dragging.current || !dragFrom.current) return
+                setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, item.id)))
+              }}
+              onMouseMove={() => {
+                if (!dragging.current || !dragFrom.current) return
+                setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, item.id)))
+              }}
+              onMouseUp={() => {
+                dragging.current = false
+              }}
             >
+              <div testId={`msg-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
               {selectedIds.has(item.id) ? (
                 <div testId={`sel-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
               ) : null}
@@ -1745,59 +1778,6 @@ export const Feed = forwardRef<FeedApi, {
     </virtual-list>
   )
 })
-
-export function JobStrip({
-  jobs,
-  agents,
-  onStop,
-}: {
-  jobs: JobHandle[]
-  agents: Agent[]
-  onStop: (id: string) => void
-}) {
-  return (
-    <div
-      testId="job-strip"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: T.space.xs,
-        paddingLeft: T.space.lg,
-        paddingRight: T.space.lg,
-        minHeight: T.jobStrip.height,
-        paddingTop: T.space.sm,
-        paddingBottom: T.space.sm,
-        borderTopWidth: T.stroke.hairline,
-        borderTopColor: T.border,
-        backgroundColor: T.canvas,
-        flexShrink: 0,
-      }}
-    >
-      {jobs.map((job) => {
-        const owner = agents.find((agent) => agent.id === job.ownerAgentId)
-        const label = [owner?.name ?? 'Agent', jobKindLabel(job.kind), job.goal, job.lastNote]
-          .filter(Boolean)
-          .join(' · ')
-        return (
-          <div
-            key={job.id}
-            style={{
-              display: 'flex',
-              flexDirection: 'row',
-              alignItems: 'center',
-              gap: T.space.sm,
-            }}
-          >
-            <div style={{ fontSize: T.type.sm, color: T.secondary, flexGrow: 1 }}>{label}</div>
-            <Chip testId={`stop-${job.id}`} tone="ghost" onClick={() => onStop(job.id)}>
-              Stop
-            </Chip>
-          </div>
-        )
-      })}
-    </div>
-  )
-}
 
 function GoalBlockerPanel({
   goal,

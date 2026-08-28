@@ -41,4 +41,10 @@ describe('feed selection copy', () => {
     expect(selectFeedRange(feedMsgIds(items), 'u1', 'a2')).toEqual(['u1', 'a1', 'a2'])
     expect(selectFeedRange(feedMsgIds(items), 'a2', 'u1')).toEqual(['u1', 'a1', 'a2'])
   })
+
+  test('drag from one msg to another uses the same range helper', () => {
+    const ids = feedMsgIds(items)
+    expect(selectFeedRange(ids, 'u1', 'a1')).toEqual(['u1', 'a1'])
+    expect(selectFeedRange(ids, 'a1', 'a2')).toEqual(['a1', 'a2'])
+  })
 })

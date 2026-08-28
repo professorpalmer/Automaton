@@ -4,9 +4,9 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
-import { App, Composer, Feed, JobStrip } from '../src/app'
+import { App, Composer, Feed } from '../src/app'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem, type JobHandle } from '../src/domain'
+import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters, type FeedItem } from '../src/domain'
 import { Inspector, copyChord, cutChord, inspectorChord, pasteChord, quitChord, selectAllChord } from '../src/inspector'
 import { copiedInTests } from '../src/runtime/clipboard'
 import { createAgent } from '../src/runtime/factory'
@@ -66,6 +66,26 @@ function findTestId(node: TreeNode | null, testId: string): TreeNode | null {
     if (found) return found
   }
   return null
+}
+
+function findAllTestIds(node: TreeNode | null, testId: string, acc: TreeNode[] = []): TreeNode[] {
+  if (!node) return acc
+  if (node.testId === testId || node.customProps?.testId === testId) acc.push(node)
+  for (const child of node.children ?? []) findAllTestIds(child, testId, acc)
+  return acc
+}
+
+function boundsOf(node: TreeNode | null, renderer: ReturnType<typeof createTestRoot>['renderer']) {
+  const bounds =
+    node?.bounds ??
+    (typeof node?.id === 'number'
+      ? (() => {
+          const box = renderer.getElementBounds(node.id)
+          return box ? { x: box[0], y: box[1], width: box[2], height: box[3] } : null
+        })()
+      : null)
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) throw new Error('no painted bounds')
+  return bounds
 }
 
 function containsTestId(node: TreeNode | null, testId: string): boolean {
@@ -489,46 +509,27 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(after, 'blob-staff')).toBeTruthy()
   })
 
-  test('job handle labels stay on one row', () => {
-    const job: JobHandle = {
-      id: 'layout-job',
-      ownerAgentId: 'kernel',
-      goal: 'read-only UI verification',
-      status: 'running',
-      kind: 'analyze',
-    }
+  test('job strip is gone; composer Stop is the cancel control', () => {
     const { render, renderer } = createTestRoot()
-    render(<JobStrip jobs={[job]} agents={staffWithSisters()} onStop={() => {}} />)
-    renderer.flush()
-
-    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
-    const strip = findTestId(tree, 'job-strip')
-    const row = strip?.children?.[0]
-    const label = row?.children?.[0]
-    expect(label?.children).toHaveLength(1)
-    expect(label?.children?.[0]?.text).toBe('Kernel · analyze · read-only UI verification')
-  })
-
-  test('job strip surfaces a keepalive lastNote', () => {
-    const job: JobHandle = {
-      id: 'live-job',
-      ownerAgentId: 'kernel',
-      goal: 'install curl on the computer',
-      status: 'running',
-      kind: 'box-shell',
-      lastNote: 'Still installing curl.',
-      updatedAt: 1,
-    }
-    const { render, renderer } = createTestRoot()
-    render(<JobStrip jobs={[job]} agents={staffWithSisters()} onStop={() => {}} />)
-    renderer.flush()
-    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
-    const strip = findTestId(tree, 'job-strip')
-    const row = strip?.children?.[0]
-    const label = row?.children?.[0]
-    expect(label?.children?.[0]?.text).toBe(
-      'Kernel · shell · install curl on the computer · Still installing curl.',
+    render(
+      <Composer
+        value=""
+        pendingPaths={[]}
+        locked={false}
+        stopping
+        onChange={() => {}}
+        onAttach={() => {}}
+        onPaste={() => {}}
+        onDropPending={() => {}}
+        onSend={() => {}}
+        onStop={() => {}}
+      />,
     )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer-stop')).toBeTruthy()
+    expect(findTestId(tree, 'send')).toBeTruthy()
   })
 
   test('composer Stop chip shows while the mouth turn is live', () => {
@@ -654,11 +655,11 @@ native('staff shell (GPUI native)', () => {
     expect(title?.text ?? title?.children?.[0]?.text).toBe('Kernel')
   })
 
-  test('running job strip sits below the feed tail, not on it', () => {
+  test('running jobs show composer Stop and no job-strip', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const store = testStore()
     const threads = emptyThreads(DEFAULT_AGENTS)
-    threads.staff = { ...threads.staff, items: longFeed('staff', 24, 'Staff') }
+    threads.staff = { ...threads.staff, items: longFeed('staff', 24, 'Staff'), mouth: 'idle' }
     store.save({
       agents: DEFAULT_AGENTS,
       activeAgentId: 'staff',
@@ -668,6 +669,13 @@ native('staff shell (GPUI native)', () => {
           id: 'job_strip_overlap',
           ownerAgentId: 'staff',
           goal: 'Ask research, what model and provider are we using right now?',
+          status: 'running',
+          kind: 'analyze',
+        },
+        {
+          id: 'job_sister',
+          ownerAgentId: 'kernel',
+          goal: 'check kernel for prs or open issues',
           status: 'running',
           kind: 'analyze',
         },
@@ -681,18 +689,18 @@ native('staff shell (GPUI native)', () => {
     const shot = 'artifacts/shots/shell-job-dock.png'
     renderer.captureScreenshot(shot)
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
-    const feed = findTestId(tree, 'feed')
-    const strip = findTestId(tree, 'job-strip')
-    const dock = findTestId(tree, 'dock')
-    expect(strip).toBeTruthy()
-    expect(dock).toBeTruthy()
-    expect(strip?.bounds?.y ?? 0).toBeGreaterThanOrEqual(
-      (feed?.bounds?.y ?? 0) + (feed?.bounds?.height ?? 0) - 2,
-    )
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer-stop')).toBeTruthy()
+    expect(findTestId(tree, 'dock')).toBeTruthy()
     const painted = renderer.getPaintedText().join(' ')
     expect(painted).toContain('Staff line 23')
     expect(painted).toContain('Stop')
     expect(statSync(shot).size).toBeGreaterThan(1000)
+    clickTestId(renderer, 'composer-stop')
+    renderer.flush()
+    const after = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(after, 'composer-stop')).toBeFalsy()
+    expect(findTestId(after, 'job-strip')).toBeFalsy()
   })
 
   test('goal blocker sits on the dock, not the transcript; Retry and Cancel work', () => {
@@ -763,6 +771,7 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'goal-blocker-cancel')).toBeTruthy()
     expect(containsTestId(findTestId(tree, 'feed'), 'goal-blocker')).toBe(false)
     expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer-stop')).toBeFalsy()
     expect(findTestId(tree, 'composer')).toBeTruthy()
     const painted = renderer.getPaintedText().join(' ')
     expect(painted).toContain('Waiting on you')
@@ -774,7 +783,8 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     tree = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(tree, 'goal-blocker')).toBeFalsy()
-    expect(findTestId(tree, 'job-strip')).toBeTruthy()
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer-stop')).toBeTruthy()
     expect(findTestId(tree, 'composer')).toBeTruthy()
     unmount()
 
@@ -787,6 +797,7 @@ native('staff shell (GPUI native)', () => {
     const cancelled = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(cancelled, 'goal-blocker')).toBeFalsy()
     expect(findTestId(cancelled, 'job-strip')).toBeFalsy()
+    expect(findTestId(cancelled, 'composer-stop')).toBeFalsy()
     expect(findTestId(cancelled, 'composer')).toBeTruthy()
     expect(containsTestId(findTestId(cancelled, 'feed'), 'goal-blocker')).toBe(false)
     unmount()
@@ -1172,6 +1183,75 @@ native('staff shell (GPUI native)', () => {
     expect(copiedInTests()).toBe('hello from the right\n\nthe line worth sharing')
   })
 
+  test('click-drag across bubbles selects a feed range', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: 'u1', from: 'user', agentId: 'staff', text: 'hello from the right' },
+      { kind: 'msg', id: 'a1', from: 'agent', agentId: 'staff', text: 'the line worth sharing' },
+      { kind: 'msg', id: 'a2', from: 'agent', agentId: 'staff', text: 'a later finding' },
+    ]
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 480, display: 'flex', flexDirection: 'column' }}>
+        <Feed items={items} agents={DEFAULT_AGENTS} storeAnswer={() => false} />
+      </div>,
+    )
+    renderer.flush()
+    const start = boundsFor(renderer, 'bubble-mine')
+    const theirs = findAllTestIds(asTree(JSON.parse(renderer.getAutomationTree())), 'bubble-theirs')
+    const endNode = theirs.at(-1)
+    const end = boundsOf(endNode ?? null, renderer)
+    renderer.nativeSimulateMouseDown(
+      Math.floor(start.x + Math.min(40, start.width / 2)),
+      Math.floor(start.y + start.height / 2),
+    )
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'sel-u1')).toBeTruthy()
+    renderer.nativeSimulateMouseMove(
+      Math.floor(end.x + Math.min(40, end.width / 2)),
+      Math.floor(end.y + end.height / 2),
+      0,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'sel-u1')).toBeTruthy()
+    expect(findTestId(tree, 'sel-a1')).toBeTruthy()
+    expect(findTestId(tree, 'sel-a2')).toBeTruthy()
+    renderer.nativeSimulateMouseUp(
+      Math.floor(end.x + Math.min(40, end.width / 2)),
+      Math.floor(end.y + end.height / 2),
+    )
+    renderer.flush()
+    const mine = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'bubble-mine')
+    if (typeof mine?.id !== 'number') throw new Error('no bubble id')
+    renderer.nativeSimulateKeystrokes(mine.id, 'cmd-c')
+    renderer.flush()
+    expect(copiedInTests()).toBe('hello from the right\n\nthe line worth sharing\n\na later finding')
+  })
+
+  test('onSend paints the user bubble on the first commit', () => {
+    const store = testStore()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = { ...threads.staff, draft: 'hello from the right' }
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'bubble-mine')).toBeFalsy()
+    clickTestId(renderer, 'send')
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(tree, 'bubble-mine')).toBeTruthy()
+    expect(renderer.getPaintedText().join(' ')).toContain('hello from the right')
+    expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'composer-stop')).toBeTruthy()
+  })
+
   test('right-click on a bubble copies its text and flashes Copied', () => {
     const at = Date.parse('2026-08-25T23:42:00')
     const store = testStore()
@@ -1315,7 +1395,7 @@ native('staff shell (GPUI native)', () => {
     expect(statSync(shot).size).toBeGreaterThan(1000)
   })
 
-  test('composer plus queues an image and Send paints a thumb', () => {
+  test('composer plus queues an image and Send paints a thumb', async () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const png = join(import.meta.dir, '../src/marks/blob/staff/rest.png')
     process.env.AUTOMATON_PICK_FILES = png
@@ -1326,6 +1406,9 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     expect(renderer.getPaintedText().join(' ')).toContain('rest.png')
     clickTestId(renderer, 'send')
+    renderer.flush()
+    await Promise.resolve()
+    await Promise.resolve()
     renderer.flush()
     const shot = 'artifacts/shots/shell-attach.png'
     renderer.captureScreenshot(shot)
