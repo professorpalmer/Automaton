@@ -1,6 +1,6 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { existsSync } from 'node:fs'
-import { motion, useGpuix } from '@gpuix/react'
+import { flushSync, motion, useGpuix } from '@gpuix/react'
 import {
   DEFAULT_AGENTS,
   bindHomes,
@@ -9,9 +9,14 @@ import {
   emptyThreads,
   isMouthBusy,
   lastSpoken,
+  mergePendingFeed,
   nextId,
+  pendingSendAck,
   previousPaintedFeedItem,
+  PENDING_ACK_ID,
+  PENDING_USER_ID,
   sameFeedVoice,
+  sessionCoversPending,
   shouldQueueSteer,
   shouldShowFeedClock,
   feedClock,
@@ -22,6 +27,7 @@ import {
   type FeedItem,
   type GoalRun,
   type MouthState,
+  type PendingSendView,
   type WidgetAnswer,
   visibleAgents,
 } from './domain'
@@ -138,6 +144,13 @@ function emptySeed(): Session {
   }
 }
 
+function presentOverlayFrame(
+  renderer: { commitMutations?: () => void; tick?: () => unknown } | null,
+): void {
+  renderer?.commitMutations?.()
+  if (typeof renderer?.tick === 'function') renderer.tick()
+}
+
 
 function bindNewUserAttachments(store: StaffStore, before: Session, after: Session): void {
   for (const [id, row] of Object.entries(after.threads)) {
@@ -178,6 +191,8 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const [railDragging, setRailDragging] = useState(false)
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
   const [deskControl, setDeskControl] = useState(false)
+  const [pendingSend, setPendingSend] = useState<PendingSendView | null>(null)
+  const { renderer } = useGpuix()
   const railDrag = useRef<{ startX: number; startWidth: number } | null>(null)
   const railPoint = useRef<number | null>(null)
   const railWidthRef = useRef(railWidth)
@@ -211,6 +226,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const pasteBusy = useRef(false)
   const active = session.agents.find((agent) => agent.id === session.activeAgentId)
   const thread = session.threads[session.activeAgentId]
+  const overlayBusy = Boolean(
+    pendingSend &&
+      pendingSend.agentId === session.activeAgentId &&
+      !sessionCoversPending(thread?.items ?? [], pendingSend),
+  )
+  const feedItems = mergePendingFeed(thread?.items ?? [], pendingSend, session.activeAgentId)
   const jobs = runningJobs(session)
   const blocker = oldestWaitingUserGoal(session.goals)
   const profile = active ? readProfile(active.id) : null
@@ -224,6 +245,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   }
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => {
+    if (!pendingSend) return
+    const row = session.threads[pendingSend.agentId]
+    if (row && sessionCoversPending(row.items, pendingSend)) setPendingSend(null)
+  }, [session, pendingSend])
+
   useEffect(() => {
     if (runningTests()) {
       store.save(session)
@@ -399,6 +426,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       agentId: session.activeAgentId,
       ids: [] as string[],
     }
+    const capture = (current: Session) => {
+      const row = current.threads[current.activeAgentId]
+      if (!row) return null
+      carry.paths = [...(row.pendingPaths ?? [])]
+      carry.draft = row.draft
+      carry.agentId = current.activeAgentId
+      carry.ids = carry.paths.map(() => nextId('att'))
+      return row
+    }
     const finish = () => {
       const bound: string[] = []
       for (let i = 0; i < carry.paths.length; i += 1) {
@@ -439,14 +475,10 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         return { ...next }
       })
     }
-    setSession((current) => {
-      const row = current.threads[current.activeAgentId]
-      if (!row) return current
-      carry.paths = [...(row.pendingPaths ?? [])]
-      carry.draft = row.draft
-      carry.agentId = current.activeAgentId
-      carry.ids = carry.paths.map(() => nextId('att'))
-      if (runningTests()) {
+    if (runningTests()) {
+      setSession((current) => {
+        const row = capture(current)
+        if (!row) return current
         for (let i = 0; i < carry.paths.length; i += 1) {
           try {
             const attachment = ingestPath(carry.agentId, carry.paths[i]!, carry.ids[i]!)
@@ -455,24 +487,44 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             /* missing path stays off the bubble */
           }
         }
-      }
-      const painted = paintSend(current, row.draft, carry.ids)
-      const next = runningTests() ? finishSend(painted) : painted
-      if (runningTests()) {
+        const next = finishSend(paintSend(current, row.draft, carry.ids))
         const last = [...(next.threads[carry.agentId]?.items ?? [])]
           .reverse()
           .find((item) => item.kind === 'msg' && item.from === 'user')
         if (last?.kind === 'msg' && carry.ids.length > 0) store.bindAttachments(carry.ids, last.id)
         persistIntroIfUserSpoke(next)
-      }
-      return next
-    })
-    if (!runningTests()) {
-      queueMicrotask(() => {
-        setSession((current) => finishSend(current))
+        return next
+      })
+      return
+    }
+    if (shouldQueueSteer(thread.mouth, thread.computerBusy === true)) {
+      setSession((current) => {
+        const row = capture(current)
+        if (!row) return current
+        return paintSend(current, row.draft, carry.ids)
       })
       setTimeout(finish, 0)
+      return
     }
+    const text = thread.draft.trim()
+    if (!text && (thread.pendingPaths ?? []).length === 0) return
+    carry.paths = [...(thread.pendingPaths ?? [])]
+    carry.draft = thread.draft
+    carry.agentId = session.activeAgentId
+    carry.ids = carry.paths.map(() => nextId('att'))
+    const overlay: PendingSendView = {
+      agentId: carry.agentId,
+      text,
+      ack: pendingSendAck(text, session.agents, carry.agentId),
+    }
+    flushSync(() => {
+      setPendingSend(overlay)
+    })
+    presentOverlayFrame(renderer)
+    setTimeout(() => {
+      setSession((current) => finishSend(paintSend(current, carry.draft, carry.ids)))
+      finish()
+    }, 0)
   }
 
   const onAttach = () => {
@@ -672,7 +724,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             <Feed
               ref={feedApi}
               key={session.activeAgentId}
-              items={thread?.items ?? []}
+              items={feedItems}
               mouth={thread?.mouth ?? 'idle'}
               agents={session.agents}
               dockPad={0}
@@ -743,16 +795,17 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 />
               ) : null}
               <Composer
-                value={thread?.draft ?? ''}
-                pendingPaths={thread?.pendingPaths ?? []}
-                locked={!thread || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
+                value={overlayBusy ? '' : (thread?.draft ?? '')}
+                pendingPaths={overlayBusy ? [] : (thread?.pendingPaths ?? [])}
+                locked={!thread || overlayBusy || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 queueing={Boolean(thread && shouldQueueSteer(thread.mouth, thread.computerBusy === true))}
                 queued={thread?.steerQueue.length ?? 0}
                 stopping={Boolean(
-                  thread &&
-                    (thread.mouth !== 'idle' ||
-                      thread.computerBusy === true ||
-                      jobs.length > 0),
+                  overlayBusy ||
+                    (thread &&
+                      (thread.mouth !== 'idle' ||
+                        thread.computerBusy === true ||
+                        jobs.length > 0)),
                 )}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
@@ -1695,7 +1748,15 @@ export const Feed = forwardRef<FeedApi, {
               transition={{ duration: clockDuration(T.motion.enter), ease: 'easeOut' }}
             >
             <div
-              testId={mine ? 'bubble-mine' : 'bubble-theirs'}
+              testId={
+                item.id === PENDING_USER_ID
+                  ? PENDING_USER_ID
+                  : item.id === PENDING_ACK_ID
+                    ? PENDING_ACK_ID
+                    : mine
+                      ? 'bubble-mine'
+                      : 'bubble-theirs'
+              }
               style={{
                 maxWidth: T.feed.max,
                 backgroundColor: selectedIds.has(item.id) ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
