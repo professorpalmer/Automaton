@@ -1,8 +1,8 @@
 # Automaton
 
-A GPUI window of named automata. They speak, then dispatch. Puppetmaster
-runs jobs. Workers stay out of chat. One local Docker Linux is the shared
-computer; each automaton is a screen on that box, not a VM.
+Native GPUI staff over Puppetmaster. Named automata speak, then dispatch.
+Durable state is queried first. Jobs stay out of chat. One local Docker
+Linux is the shared computer; automata are screens, not VMs.
 
 ## Docs
 

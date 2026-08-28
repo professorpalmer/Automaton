@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Durable staff over Puppetmaster. React authored, GPUI rendered. Not Electron.",
+  "description": "Native GPUI staff over Puppetmaster. Named automata speak, then dispatch. Durable state. Jobs stay out of chat.",
   "scripts": {
     "dev": "bun --hot src/main.tsx",
     "start": "bun src/main.tsx",
