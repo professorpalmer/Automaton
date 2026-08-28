@@ -76,9 +76,13 @@ key .` is not an X keysym and is dropped.
 PATH and apt asks are a `box-shell` job (`docker exec`), not implement on
 this Mac. Do not stdio a PTY into the VM for computer-use.
 
-Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Chrome
-runs on the box. A down box is no screen, not a headless Google Chrome on
-this Mac. `AUTOMATON_CHROME_HOST=1` is an explicit opt-in for tests.
+Do not vendor exec-daemon, noVNC, or a hosted computer-use vendor. Worker
+clicks stay on box Chrome so xdotool hits the X display. Interactive desk
+and Take control browse prefer host Chrome when the Mac binary exists
+(`~/.automaton/desktops/<id>/browser`), without `AUTOMATON_CHROME_HOST=1`.
+Google and other captcha sites use that Mac Chrome profile, not the box
+IP; the desk PNG stays the box screen because host Chrome cannot be blitted
+into it. A down box with no Mac Chrome is no screen.
 
 Live capture proof (needs Docker):
 

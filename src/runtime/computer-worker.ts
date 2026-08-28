@@ -1,6 +1,7 @@
 import type { AgentKit } from '../domain'
 import { boxExec } from './box'
 import { browse } from './chrome'
+import { automatonHome } from './keys'
 import { shouldPruneScreenshots, withCacheBreakpoint } from './compact'
 import {
   executeComputerBatch,
@@ -235,7 +236,7 @@ function asToolName(name: string): ComputerToolName | null {
 export function liveComputerSeams(): ComputerToolSeams {
   return {
     boxExec: (argv, env) => boxExec(argv, env ?? {}),
-    browse: (agentId, url) => browse(agentId, url),
+    browse: (agentId, url) => browse(agentId, url, automatonHome(), { forceBox: true }),
     click: (agentId, point) => clickDesk(agentId, point),
     key: (agentId, stroke) => keyDesk(agentId, stroke),
     screenshot: (agentId) => captureDesk(agentId),

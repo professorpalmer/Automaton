@@ -2,6 +2,9 @@ import { dlopen, FFIType } from 'bun:ffi'
 import { runningTests } from './test-env'
 
 const HID = 1
+const KEY_A = 0
+const KEY_X = 7
+const KEY_C = 8
 const KEY_V = 9
 const KEY_Q = 12
 const KEY_W = 13
@@ -21,6 +24,18 @@ export type HidHotkeySeams = {
 
 export type PasteHotkeySeams = HidHotkeySeams & {
   cmdV?: () => boolean
+}
+
+export type CopyHotkeySeams = HidHotkeySeams & {
+  cmdC?: () => boolean
+}
+
+export type SelectAllHotkeySeams = HidHotkeySeams & {
+  cmdA?: () => boolean
+}
+
+export type CutHotkeySeams = HidHotkeySeams & {
+  cmdX?: () => boolean
 }
 
 export type QuitHotkeySeams = HidHotkeySeams & {
@@ -58,6 +73,26 @@ function cmdHeld(read: KeyState): boolean {
 export function cmdVDown(read = loadHid()): boolean {
   if (!read) return false
   return Boolean(read(HID, KEY_V) && cmdHeld(read))
+}
+
+function cmdLetterDown(key: number, read = loadHid()): boolean {
+  if (!read) return false
+  if (!cmdHeld(read)) return false
+  if (read(HID, KEY_SHIFT) || read(HID, KEY_RSHIFT)) return false
+  if (read(HID, KEY_OPT) || read(HID, KEY_ROPT)) return false
+  return Boolean(read(HID, key))
+}
+
+export function cmdCDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_C, read)
+}
+
+export function cmdADown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_A, read)
+}
+
+export function cmdXDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_X, read)
 }
 
 /** Cmd+Q / Cmd+W. Shift or Option means not quit. */
@@ -106,6 +141,21 @@ function watchChord(isDown: () => boolean, onFire: () => void, seams?: HidHotkey
 /** Cmd+V while this process is frontmost. GPUI textarea swallows the React key. */
 export function watchPasteHotkey(onPaste: () => void, seams?: PasteHotkeySeams): () => void {
   return watchChord(seams?.cmdV ?? cmdVDown, onPaste, seams)
+}
+
+/** Cmd+C. Same swallow as paste. */
+export function watchCopyHotkey(onCopy: () => void, seams?: CopyHotkeySeams): () => void {
+  return watchChord(seams?.cmdC ?? cmdCDown, onCopy, seams)
+}
+
+/** Cmd+A. Same swallow as paste. */
+export function watchSelectAllHotkey(onSelectAll: () => void, seams?: SelectAllHotkeySeams): () => void {
+  return watchChord(seams?.cmdA ?? cmdADown, onSelectAll, seams)
+}
+
+/** Cmd+X. Same swallow as paste. */
+export function watchCutHotkey(onCut: () => void, seams?: CutHotkeySeams): () => void {
+  return watchChord(seams?.cmdX ?? cmdXDown, onCut, seams)
 }
 
 /** Cmd+Q / Cmd+W. Same swallow as paste; desk focus also ate the React chord. */

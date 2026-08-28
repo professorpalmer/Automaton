@@ -585,4 +585,38 @@ describe('staff sqlite store', () => {
       authority: 'worker_result',
     })
   })
+
+  test('live remember ages prior owner+repo/taskKey claims and keeps the stale row', () => {
+    const store = openStaffStore(join(tmpdir(), `automaton-store-age-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'staff',
+      text: 'Marionette #223 merged.',
+      source: 'job',
+      jobId: 'job_old',
+      taskKey: 'staff:analyze:check marionette prs',
+      repo: 'professorpalmer/marionette',
+      artifactKind: 'analyze',
+      freshness: 'fresh',
+    })
+    store.staleClaims({
+      ownerAgentId: 'staff',
+      repo: 'professorpalmer/marionette',
+      taskKey: 'staff:analyze:check marionette prs',
+    })
+    store.remember({
+      ownerAgentId: 'staff',
+      text: 'Marionette has 0 open PRs.',
+      source: 'job',
+      jobId: 'job_new',
+      taskKey: 'staff:analyze:check marionette prs',
+      repo: 'professorpalmer/marionette',
+      artifactKind: 'analyze',
+      freshness: 'fresh',
+    })
+    const rows = store.listClaims()
+    expect(rows).toHaveLength(2)
+    expect(rows.find((row) => row.text.includes('#223'))?.freshness).toBe('stale')
+    expect(rows.find((row) => row.text.includes('0 open PRs'))?.freshness).toBe('fresh')
+  })
+
 })

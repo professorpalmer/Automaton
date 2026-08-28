@@ -33,6 +33,8 @@ export type ChromeSeams = {
   capturePng?: (port: number) => Promise<Uint8Array>
   navigate?: (port: number, url: string) => Promise<void>
   box?: BoxSeams
+  /** Worker xdotool clicks stay on box Chrome. Interactive browse prefers host. */
+  forceBox?: boolean
 }
 
 const CANDIDATES = [
@@ -60,9 +62,9 @@ export function chromeAvailable(seams?: ChromeSeams, home = automatonHome()): bo
 }
 
 export function chromeMode(seams?: ChromeSeams, home = automatonHome()): 'box' | 'host' | 'none' {
-  if (seams && 'binary' in seams) return seams.binary ? 'host' : 'none'
+  if (seams?.forceBox) return boxStatus(home, seams.box).running ? 'box' : 'none'
+  if (chromeBinary(seams)) return 'host'
   if (boxStatus(home, seams?.box).running) return 'box'
-  if (process.env.AUTOMATON_CHROME_HOST === '1' && chromeBinary(seams)) return 'host'
   return 'none'
 }
 
@@ -358,6 +360,7 @@ export async function ensureBrowser(
     mode,
     home,
     hostBin: mode === 'host' ? chromeBinary(seams) ?? undefined : undefined,
+    headed: mode === 'host' ? !runningTests() : undefined,
   })
   const spawnFn = seams.spawn ?? defaultSpawn
   const child = spawnFn(launch.bin, launch.argv)
@@ -424,6 +427,20 @@ export async function captureScreen(
   }
 }
 
+/** Bring Automaton host Chrome forward. Cannot blit that window onto the box desk PNG. */
+export function focusHostChrome(pid: number): boolean {
+  if (runningTests() || process.platform !== 'darwin' || pid <= 1) return false
+  const result = spawnSync(
+    'osascript',
+    [
+      '-e',
+      `tell application "System Events" to set frontmost of (first process whose unix id is ${Math.floor(pid)}) to true`,
+    ],
+    { encoding: 'utf8', timeout: 8000 },
+  )
+  return result.status === 0
+}
+
 export async function browse(
   agentId: string,
   url: string,
@@ -434,6 +451,7 @@ export async function browse(
   const handle = await ensureBrowser(agentId, home, seams)
   if (!handle) return null
   if (!(await goToUrl(mode, handle.port, agentId, url, home, seams))) return null
+  if (mode === 'host') focusHostChrome(handle.pid)
   return captureScreen(agentId, home, seams)
 }
 

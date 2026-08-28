@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import React, { forwardRef, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { existsSync } from 'node:fs'
 import { motion, useGpuix } from '@gpuix/react'
 import {
@@ -28,10 +28,11 @@ import {
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
-import { watchPasteHotkey, watchQuitHotkey } from './runtime/paste-hotkey'
+import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from './runtime/paste-hotkey'
 import { clockDuration, runningTests } from './runtime/test-env'
 import { copyTextToClipboard } from './runtime/clipboard'
-import { abandonJob, ensureDispatched } from './runtime/jobs'
+import { copyFeedSelection, feedMsgIds, selectFeedRange } from './runtime/feed-select'
+import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from './runtime/jobs'
 import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
 import { dropMouthStarts, ensureMouth } from './runtime/mouth'
@@ -40,11 +41,14 @@ import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
 import {
   Inspector,
+  copyChord,
+  cutChord,
   inspectorChord,
   isStoreAnswer,
   kernelSandboxHint,
   pasteChord,
   quitChord,
+  selectAllChord,
 } from './inspector'
 import { DeskStage } from './desk'
 import { ensureBox } from './runtime/box'
@@ -107,6 +111,11 @@ import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
 import { mouthModelFor } from './runtime/plane'
 
 type Pane = 'none' | 'inspector' | 'settings'
+
+export type FeedApi = {
+  selectAll: () => void
+  copy: () => boolean
+}
 type RailMenuAt = { id: string; x: number; y: number }
 
 const TRAFFIC =
@@ -282,16 +291,22 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           },
           onComplete: (spoken) => {
             if (job.kind !== 'box-shell' && job.kind !== 'promote' && job.kind !== 'ship') {
+              const taskKey = claimTaskKey({
+                ownerAgentId: job.ownerAgentId,
+                kind: job.kind,
+                goal: job.goal,
+              })
+              const repo = claimRepoForJob(job)
+              if (job.kind === 'analyze' && isLiveAnalyzeGoal(job.goal)) {
+                store.staleClaims({ ownerAgentId: job.ownerAgentId, repo, taskKey })
+              }
               store.remember({
                 ownerAgentId: job.ownerAgentId,
                 text: spoken,
                 source: 'job',
                 jobId: pmIdentity,
-                taskKey: claimTaskKey({
-                  ownerAgentId: job.ownerAgentId,
-                  kind: job.kind,
-                  goal: job.goal,
-                }),
+                taskKey,
+                repo,
                 artifactKind: job.kind,
                 freshness: 'fresh',
               })
@@ -446,13 +461,35 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
 
   const enqueueClipboardRef = useRef(enqueueClipboard)
   enqueueClipboardRef.current = enqueueClipboard
+  const feedApi = useRef<FeedApi | null>(null)
+  const composerFocused = useRef(false)
+  const draftRef = useRef(thread?.draft ?? '')
+  draftRef.current = thread?.draft ?? ''
+
+  const copyFeedIfIdle = () => {
+    if (composerFocused.current && draftRef.current.length > 0) return
+    feedApi.current?.copy()
+  }
+  const cutComposerIfFocused = () => {
+    if (!composerFocused.current) return
+    const draft = draftRef.current
+    if (!draft) return
+    if (!copyTextToClipboard(draft)) return
+    setSession((current) => setDraft(current, ''))
+  }
 
   useEffect(() => {
     if (runningTests()) return
     const stopPaste = watchPasteHotkey(() => enqueueClipboardRef.current())
+    const stopCopy = watchCopyHotkey(() => copyFeedIfIdle())
+    const stopSelectAll = watchSelectAllHotkey(() => feedApi.current?.selectAll())
+    const stopCut = watchCutHotkey(() => cutComposerIfFocused())
     const stopQuit = watchQuitHotkey(() => quitAutomaton())
     return () => {
       stopPaste()
+      stopCopy()
+      stopSelectAll()
+      stopCut()
       stopQuit()
     }
   }, [])
@@ -508,6 +545,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       onKeyDown={(event) => {
         if (inspectorChord(event)) toggleInspector()
         if (pasteChord(event)) enqueueClipboard()
+        if (selectAllChord(event)) feedApi.current?.selectAll()
+        if (copyChord(event)) copyFeedIfIdle()
+        if (cutChord(event)) cutComposerIfFocused()
         if (quitChord(event)) quitAutomaton()
       }}
     >
@@ -586,6 +626,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             }}
           >
             <Feed
+              ref={feedApi}
               key={session.activeAgentId}
               items={thread?.items ?? []}
               mouth={thread?.mouth ?? 'idle'}
@@ -693,6 +734,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
+                onFocus={() => {
+                  composerFocused.current = true
+                }}
+                onBlur={() => {
+                  composerFocused.current = false
+                }}
                 onDropPending={(path) => setSession((current) => dropPendingPath(current, path))}
                 onSend={onSend}
                 onStop={() => {
@@ -1313,34 +1360,23 @@ function RelayMark({
       testId={`relay-${lane}-${peerId}`}
       style={{
         display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'stretch',
-        gap: T.space.sm,
-        width: '100%',
-        paddingTop: T.feed.mark,
-        paddingBottom: T.feed.mark,
+        flexDirection: 'row',
+        alignItems: 'center',
+        alignSelf: 'flex-start',
+        gap: T.space.xs,
+        paddingTop: T.space.xs,
+        paddingBottom: T.space.xs,
       }}
     >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          gap: T.space.sm,
-        }}
-      >
-        <div style={{ flexGrow: 1, height: T.stroke.hairline, backgroundColor: T.border }} />
-        {existsSync(rest) ? (
-          <img
-            src={rest}
-            objectFit="contain"
-            alt=""
-            style={{ width: T.size.badge, height: T.size.badge }}
-          />
-        ) : null}
-        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{label}</div>
-        <div style={{ flexGrow: 1, height: T.stroke.hairline, backgroundColor: T.border }} />
-      </div>
+      {existsSync(rest) ? (
+        <img
+          src={rest}
+          objectFit="contain"
+          alt=""
+          style={{ width: T.size.badge, height: T.size.badge }}
+        />
+      ) : null}
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{label}</div>
     </div>
   )
 }
@@ -1356,8 +1392,8 @@ function TimeMark({ at }: { at: number }) {
         gap: T.space.sm,
         width: '100%',
         ...feedLane,
-        paddingTop: T.feed.mark,
-        paddingBottom: T.feed.mark,
+        paddingTop: T.space.sm,
+        paddingBottom: T.space.sm,
       }}
     >
       <div style={{ flexGrow: 1, height: T.stroke.hairline, backgroundColor: T.border }} />
@@ -1422,18 +1458,7 @@ function ThinkingRow() {
   )
 }
 
-export function Feed({
-  items,
-  agents,
-  storeAnswer,
-  attachmentsFor,
-  dockPad = 0,
-  mouth = 'idle',
-  onAnswerWidget,
-  onDismissWidget,
-  onSaveSecret,
-  onDismissSecret,
-}: {
+export const Feed = forwardRef<FeedApi, {
   items: FeedItem[]
   agents: Agent[]
   storeAnswer: (userItemId: string) => boolean
@@ -1444,34 +1469,69 @@ export function Feed({
   onDismissWidget?: (id: string) => void
   onSaveSecret?: (id: string, value: string) => void
   onDismissSecret?: (id: string) => void
-}) {
-  const ref = useRef<{ id: number } | null>(null)
+}>(function Feed(
+  {
+    items,
+    agents,
+    storeAnswer,
+    attachmentsFor,
+    dockPad = 0,
+    mouth = 'idle',
+    onAnswerWidget,
+    onDismissWidget,
+    onSaveSecret,
+    onDismissSecret,
+  },
+  api,
+) {
+  const listRef = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
   const thinking = feedThinking(mouth, items)
   const pin = feedTailKey(items, dockPad, thinking)
   const [copiedId, setCopiedId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const lastClicked = useRef<string | null>(null)
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const copyBubble = (id: string, text: string) => {
-    if (!copyTextToClipboard(text)) return
+  const flashCopied = (id: string) => {
     setCopiedId(id)
     if (copyTimer.current) clearTimeout(copyTimer.current)
     if (runningTests()) return
     copyTimer.current = setTimeout(() => setCopiedId(null), T.feed.copyFlashMs)
   }
+  const copyBubble = (id: string, text: string) => {
+    if (!copyTextToClipboard(text)) return
+    lastClicked.current = id
+    flashCopied(id)
+  }
+  const copySelection = () => {
+    const ok = copyFeedSelection(items, selectedIds, lastClicked.current)
+    if (!ok) return false
+    const mark = selectedIds.size > 0 ? [...selectedIds][selectedIds.size - 1] : lastClicked.current
+    if (mark) flashCopied(mark)
+    return true
+  }
+  const selectAll = () => {
+    setSelectedIds(new Set(feedMsgIds(items)))
+  }
+  useImperativeHandle(api, () => ({ selectAll, copy: copySelection }), [items, selectedIds])
   useLayoutEffect(() => {
-    pinFeedTail(renderer, ref.current, items, thinking)
+    pinFeedTail(renderer, listRef.current, items, thinking)
   }, [pin, items, renderer, thinking])
   useEffect(() => {
-    pinFeedTail(renderer, ref.current, items, thinking)
+    pinFeedTail(renderer, listRef.current, items, thinking)
   }, [pin, items, renderer, thinking])
   return (
     <virtual-list
-      ref={ref}
+      ref={listRef}
       testId="feed"
       alignment="bottom"
       followTail
       estimatedItemHeight={T.line.lg * 3}
       style={feedScrollStyle}
+      onKeyDown={(event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } }) => {
+        if (selectAllChord(event)) selectAll()
+        if (copyChord(event)) copySelection()
+      }}
     >
       {items.length === 0 ? (
         <div
@@ -1607,10 +1667,10 @@ export function Feed({
               testId={mine ? 'bubble-mine' : 'bubble-theirs'}
               style={{
                 maxWidth: T.feed.max,
-                backgroundColor: mine ? T.selected : T.composer,
+                backgroundColor: selectedIds.has(item.id) ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
                 borderRadius: T.radius.xl,
-                borderWidth: mine ? T.stroke.none : T.stroke.hairline,
-                borderColor: mine ? T.clear : T.border,
+                borderWidth: selectedIds.has(item.id) || !mine ? T.stroke.hairline : T.stroke.none,
+                borderColor: selectedIds.has(item.id) ? T.borderStrong : mine ? T.clear : T.border,
                 paddingTop: T.feed.padY,
                 paddingBottom: T.feed.padY,
                 paddingLeft: T.feed.padX,
@@ -1619,11 +1679,29 @@ export function Feed({
                 lineHeight: T.line.lg,
                 minHeight: T.line.lg,
                 color: T.text,
+                userSelect: 'none' as const,
+              }}
+              onKeyDown={(event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } }) => {
+                if (selectAllChord(event)) selectAll()
+                if (copyChord(event)) copySelection()
               }}
               onMouseDown={(event) => {
-                if (event.isRightClick || event.button === 2) copyBubble(item.id, item.text)
+                if (event.isRightClick || event.button === 2) {
+                  copyBubble(item.id, item.text)
+                  return
+                }
+                const anchor = lastClicked.current
+                lastClicked.current = item.id
+                if (event.modifiers?.shift && anchor) {
+                  setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), anchor, item.id)))
+                  return
+                }
+                setSelectedIds(new Set([item.id]))
               }}
             >
+              {selectedIds.has(item.id) ? (
+                <div testId={`sel-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
+              ) : null}
               {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
             </div>
             </motion.div>
@@ -1666,7 +1744,7 @@ export function Feed({
       {thinking ? <ThinkingRow /> : null}
     </virtual-list>
   )
-}
+})
 
 export function JobStrip({
   jobs,
@@ -1777,6 +1855,8 @@ export function Composer({
   onChange,
   onAttach,
   onPaste,
+  onFocus,
+  onBlur,
   onDropPending,
   onSend,
   onStop,
@@ -1790,6 +1870,8 @@ export function Composer({
   onChange: (value: string) => void
   onAttach: () => void
   onPaste: () => void
+  onFocus?: () => void
+  onBlur?: () => void
   onDropPending: (path: string) => void
   onSend: () => void
   onStop?: () => void
@@ -1895,11 +1977,18 @@ export function Composer({
             paddingRight: T.space.md,
           }}
           onChange={(event) => onChange(event.value ?? '')}
+          onFocus={onFocus}
+          onBlur={onBlur}
           onSubmit={() => {
             if (ready) onSend()
           }}
           onKeyDown={(event) => {
             if (pasteChord(event)) onPaste()
+            if (copyChord(event) && !value) return
+            if (cutChord(event) && value) {
+              if (copyTextToClipboard(value)) onChange('')
+              return
+            }
             if (quitChord(event)) quitAutomaton()
           }}
         />

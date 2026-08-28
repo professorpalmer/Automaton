@@ -118,6 +118,16 @@ describe('durable analyze dispatch', () => {
     expect(isReusableAnalyzePrior(completeAnalyze('prior'), job({ id: 'job_impl', kind: 'implement' }))).toBe(
       false,
     )
+    const live = job({
+      id: 'job_live',
+      goal: 'check Puppetmaster and Marionette for prs or open issues',
+    })
+    expect(
+      isReusableAnalyzePrior(
+        { ...completeAnalyze('old_live'), goal: live.goal },
+        live,
+      ),
+    ).toBe(false)
   })
 
   test('live complete with a finding is a hit; hollow/failed/unsuccessful/stalled miss', () => {

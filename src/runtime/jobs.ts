@@ -4,6 +4,9 @@ import {
   WAITING_CHECKS,
   boundGoalEvidence,
   keepAliveStatus,
+  looksLikeLiveCheck,
+  looksLikeRepoAsk,
+  parseGithubIssue,
   type GoalBlockerSource,
   type JobHandle,
 } from '../domain'
@@ -104,7 +107,20 @@ export function normalizeGoal(goal: string): string {
   return goal.trim().replace(/\s+/g, ' ').toLowerCase()
 }
 
+export function isLiveAnalyzeGoal(goal: string): boolean {
+  return looksLikeLiveCheck(goal) || looksLikeRepoAsk(goal)
+}
+
+export function claimRepoForJob(job: JobHandle, home = automatonHome()): string | undefined {
+  const issue = parseGithubIssue(job.goal) ?? (job.objective ? parseGithubIssue(job.objective) : null)
+  if (issue) return `${issue.owner}/${issue.repo}`
+  const slug = readProfile(job.ownerAgentId, home)?.homeRepo?.trim()
+  if (slug) return slug
+  return matchMachineProject(job.goal, listMachineProjects())?.name
+}
+
 export function isReusableAnalyzePrior(prior: JobHandle, current: JobHandle): boolean {
+  if (isLiveAnalyzeGoal(current.goal) || isLiveAnalyzeGoal(prior.goal)) return false
   return (
     current.kind === 'analyze' &&
     prior.kind === 'analyze' &&

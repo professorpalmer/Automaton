@@ -89,6 +89,21 @@ describe('puppetmaster spawn contract', () => {
     expect(prompt).not.toContain('analysis worker for Automaton staff')
   })
 
+  test('live GitHub ask tells the worker to use gh pr/issue list, not local git', () => {
+    const prompt = analyzePrompt({
+      id: 'j',
+      ownerAgentId: 'staff',
+      goal: 'check Puppetmaster and Marionette for prs or open issues',
+      status: 'running',
+      kind: 'analyze',
+    })
+    expect(prompt).toContain('gh pr list')
+    expect(prompt).toContain('gh issue list --state open')
+    expect(prompt).toContain('live GitHub state')
+    expect(prompt).toContain('Do not use local `git status`')
+    expect(prompt).toContain('leftover absorb branches')
+  })
+
   test('implement argv refuses the Automaton checkout', () => {
     expect(() => assertSandboxCwd(PRODUCT_ROOT)).toThrow(/refusing/)
     expect(() =>
