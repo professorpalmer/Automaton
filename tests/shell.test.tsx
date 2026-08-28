@@ -1252,6 +1252,42 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'composer-stop')).toBeTruthy()
   })
 
+  test('send render does not query claims or metrics', () => {
+    const inner = testStore()
+    let metricsCalls = 0
+    let claimCalls = 0
+    const store = {
+      ...inner,
+      metrics() {
+        metricsCalls += 1
+        return inner.metrics()
+      },
+      listClaims() {
+        claimCalls += 1
+        return inner.listClaims()
+      },
+    }
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = { ...threads.staff, draft: 'hello from the right' }
+    store.save({
+      agents: DEFAULT_AGENTS,
+      activeAgentId: 'staff',
+      threads,
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    metricsCalls = 0
+    claimCalls = 0
+    clickTestId(renderer, 'send')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'bubble-mine')).toBeTruthy()
+    expect(metricsCalls).toBe(0)
+    expect(claimCalls).toBe(0)
+  })
+
   test('right-click on a bubble copies its text and flashes Copied', () => {
     const at = Date.parse('2026-08-25T23:42:00')
     const store = testStore()

@@ -567,18 +567,25 @@ function aggregateField(
   }
 }
 
+function persistableSession(session: Session): Session {
+  if (session.pendingSend == null) return session
+  return { ...session, pendingSend: undefined }
+}
+
 export function openStaffStore(path = defaultStorePath()): StaffStore {
   mkdirSync(dirname(path), { recursive: true })
   const db = new Database(path)
   ensureSchema(db)
+  let lastJson: string | null = null
+  let lastSession: Session | null = null
   return {
     path,
     save(session) {
+      const persistable = persistableSession(session)
+      const json = JSON.stringify(persistable)
+      if (json === lastJson) return
       const persist = db.transaction((next: Session) => {
-        const row = db.query('SELECT session_json FROM snapshot WHERE id = 1').get() as
-          | { session_json: string }
-          | null
-        const prior = row ? normalizeSession(JSON.parse(row.session_json) as Session) : null
+        const prior = lastSession
         for (const event of goalEventsFromSessions(prior, next)) {
           db.run(
             `INSERT OR IGNORE INTO goal_events (
@@ -598,11 +605,13 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
           )
         }
         db.run('INSERT OR REPLACE INTO snapshot (id, session_json, id_seq) VALUES (1, ?, ?)', [
-          JSON.stringify(next),
+          json,
           peekIdSeq(),
         ])
       })
-      persist(session)
+      persist(persistable)
+      lastJson = json
+      lastSession = persistable
     },
     load() {
       const row = db.query('SELECT session_json, id_seq FROM snapshot WHERE id = 1').get() as
@@ -610,7 +619,10 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
         | null
       if (!row) return null
       restoreIdSeq(row.id_seq)
-      return normalizeSession(JSON.parse(row.session_json) as Session)
+      const loaded = normalizeSession(JSON.parse(row.session_json) as Session)
+      lastJson = JSON.stringify(loaded)
+      lastSession = loaded
+      return loaded
     },
     listGoalEvents(goalId, limit = 100) {
       const cap = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 100
