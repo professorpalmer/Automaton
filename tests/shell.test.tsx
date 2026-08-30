@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
+import { UpdateModal } from '../src/update-modal'
 import { assertSeedFrames, blobNeedsClock, busyEyeLayout, presentBlob, SisterBlob } from '../src/blob'
 import {
   DEFAULT_AGENTS,
@@ -1033,6 +1034,21 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-computer')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-accent')).toBeFalsy()
     expect(statSync(settingsShot).size).toBeGreaterThan(1000)
+  })
+
+  test('update modal paints Updates available and Update', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ width: 640, height: 400, position: 'relative' }}>
+        <UpdateModal onUpdate={() => {}} onLater={() => {}} />
+      </div>,
+    )
+    renderer.flush()
+    const text = renderer.getPaintedText().join(' ')
+    expect(text).toContain('Updates available')
+    expect(text).toContain('Update')
+    expect(text).toContain('Later')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'update-apply')).toBeTruthy()
   })
 
   test('inspector mark and rules stay inside the pane', () => {

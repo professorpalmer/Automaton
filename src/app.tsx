@@ -32,6 +32,7 @@ import {
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
 import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from './runtime/paste-hotkey'
 import { clockDuration, runningTests } from './runtime/test-env'
+import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import { copyTextToClipboard } from './runtime/clipboard'
 import { copyFeedSelection, feedMsgIds, selectFeedRange } from './runtime/feed-select'
 import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from './runtime/jobs'
@@ -110,6 +111,7 @@ import { Settings } from './settings'
 import { CHAT_THEME, FIELD_THEME, T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
 import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
+import { UpdateModal } from './update-modal'
 import { mouthModelFor } from './runtime/plane'
 
 type Pane = 'none' | 'inspector' | 'settings'
@@ -191,6 +193,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const [railDragging, setRailDragging] = useState(false)
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
   const [deskControl, setDeskControl] = useState(false)
+  const [update, setUpdate] = useState<UpdateOffer | null>(null)
+  const [updateBusy, setUpdateBusy] = useState(false)
+  const [updateNote, setUpdateNote] = useState('')
   const [pendingSend, setPendingSend] = useState<PendingSendView | null>(null)
   const { renderer } = useGpuix()
   const railDrag = useRef<{ startX: number; startWidth: number } | null>(null)
@@ -270,6 +275,23 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     if (runningTests()) return
     ensureBox()
     ensureScreen(session.activeAgentId)
+  }, [])
+
+  useEffect(() => {
+    if (runningTests()) return
+    let gone = false
+    const look = () => {
+      const offer = checkForUpdate()
+      if (gone || !shouldOfferUpdate(offer, readDismissedSha())) return
+      setUpdate(offer)
+    }
+    const start = setTimeout(look, 800)
+    const pulse = setInterval(look, 4 * 60 * 60 * 1000)
+    return () => {
+      gone = true
+      clearTimeout(start)
+      clearInterval(pulse)
+    }
   }, [])
 
   useEffect(() => {
@@ -905,6 +927,30 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         </div>
       </div>
       </div>
+      {update ? (
+        <UpdateModal
+          dirty={update.dirty}
+          busy={updateBusy}
+          note={updateNote}
+          onUpdate={() => {
+            if (update.dirty || updateBusy) return
+            setUpdateBusy(true)
+            setUpdateNote('')
+            const result = applyUpdate()
+            if (result.ok) {
+              relaunchAutomaton()
+              return
+            }
+            setUpdateNote(result.spoken)
+            setUpdateBusy(false)
+          }}
+          onLater={() => {
+            dismissUpdate(update.latest)
+            setUpdate(null)
+            setUpdateNote('')
+          }}
+        />
+      ) : null}
       {deskControl && active ? (
         <DeskStage
           agentId={active.id}
