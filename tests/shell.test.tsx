@@ -17,6 +17,7 @@ import {
   type FeedItem,
 } from '../src/domain'
 import { Inspector, copyChord, cutChord, inspectorChord, pasteChord, quitChord, selectAllChord } from '../src/inspector'
+import { Settings } from '../src/settings'
 import { copiedInTests } from '../src/runtime/clipboard'
 import { createAgent } from '../src/runtime/factory'
 import { readSkin, writeSkin } from '../src/runtime/skin'
@@ -1087,6 +1088,161 @@ native('staff shell (GPUI native)', () => {
     const after = renderer.getScrollOffset(pane.id) ?? [0, 0]
     expect(after[1]).not.toBe(before[1])
     expect(after[0]).toBe(0)
+  })
+
+  test('inspector wheel over desktop controls still scrolls the pane', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 160, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        <Inspector
+          agent={DEFAULT_AGENTS[0]}
+          profile={{
+            id: 'staff',
+            name: 'Chief of Staff',
+            title: 'Coordinator',
+            description: '',
+            rules: 'Keep the thread moving.\n'.repeat(16),
+            kit: 'coordinator',
+            avatarShape: 'blob',
+            avatarColor: 'staff',
+            namedBy: 'app',
+            skillIds: [],
+            notifyOnUpdates: false,
+            hiddenFromRail: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            homeRepo: '',
+            homePath: '',
+          }}
+          claims={[]}
+          sandboxHint={null}
+          onClose={() => {}}
+          onPatch={() => {}}
+        />
+      </div>,
+    )
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const pane = findTestId(tree, 'inspector')
+    if (typeof pane?.id !== 'number') throw new Error('no inspector id')
+    expect(findTestId(tree, 'desk-view-hit')).toBeTruthy()
+    let refresh = boundsFor(renderer, 'desktop-refresh')
+    const box = boundsFor(renderer, 'inspector')
+    if (refresh.y < box.y || refresh.y + refresh.height > box.y + box.height) {
+      const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
+      renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - refresh.y))
+      renderer.flush()
+      refresh = boundsFor(renderer, 'desktop-refresh')
+    }
+    const before = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    renderer.nativeSimulateScrollWheel(
+      Math.floor(refresh.x + refresh.width / 2),
+      Math.floor(refresh.y + refresh.height / 2),
+      80,
+      80,
+    )
+    renderer.flush()
+    const after = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    expect(after[1]).not.toBe(before[1])
+  })
+
+  test('settings keeps sister seats collapsed and shows frost controls', () => {
+    const empty = {
+      turns: 0,
+      hits: 0,
+      misses: 0,
+      inferenceAvoided: 0,
+      inferenceCalls: 0,
+      promptTokens: null,
+      completionTokens: null,
+      costUsd: null,
+      promptTokensKnown: 0,
+      promptTokensUnknown: 0,
+      completionTokensKnown: 0,
+      completionTokensUnknown: 0,
+      costKnown: 0,
+      costUnknown: 0,
+    }
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 720, width: 400 }}>
+        <Settings
+          metrics={empty}
+          agents={[
+            DEFAULT_AGENTS[0],
+            {
+              id: 'puppet',
+              name: 'Puppetmaster',
+              title: 'Code',
+              description: '',
+              color: '#ff9800',
+              hidden: false,
+            },
+          ]}
+          onClose={() => {}}
+        />
+      </div>,
+    )
+    renderer.flush()
+    let text = renderer.getPaintedText().join(' ')
+    expect(text).toContain('Chief of Staff')
+    expect(text).toContain('Other automata')
+    expect(text).toContain('Frosted')
+    expect(text).toContain('Solid')
+    expect(text).not.toContain('Theme')
+    expect(text).not.toContain('Puppetmaster')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeFalsy()
+    clickTestId(renderer, 'settings-seats-more')
+    renderer.flush()
+    text = renderer.getPaintedText().join(' ')
+    expect(text).toContain('Puppetmaster')
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeTruthy()
+  })
+
+  test('settings wheel over the save chip still scrolls the pane', () => {
+    const empty = {
+      turns: 0,
+      hits: 0,
+      misses: 0,
+      inferenceAvoided: 0,
+      inferenceCalls: 0,
+      promptTokens: null,
+      completionTokens: null,
+      costUsd: null,
+      promptTokensKnown: 0,
+      promptTokensUnknown: 0,
+      completionTokensKnown: 0,
+      completionTokensUnknown: 0,
+      costKnown: 0,
+      costUnknown: 0,
+    }
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 160, width: 400 }}>
+        <Settings metrics={empty} agents={[DEFAULT_AGENTS[0]]} onClose={() => {}} />
+      </div>,
+    )
+    renderer.flush()
+    const pane = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings')
+    if (typeof pane?.id !== 'number') throw new Error('no settings id')
+    const box = boundsFor(renderer, 'settings')
+    let save = boundsFor(renderer, 'settings-key-save')
+    if (save.y < box.y || save.y + save.height > box.y + box.height) {
+      const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
+      renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - save.y))
+      renderer.flush()
+      save = boundsFor(renderer, 'settings-key-save')
+    }
+    const before = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    renderer.nativeSimulateScrollWheel(
+      Math.floor(save.x + save.width / 2),
+      Math.floor(save.y + save.height / 2),
+      80,
+      80,
+    )
+    renderer.flush()
+    const after = renderer.getScrollOffset(pane.id) ?? [0, 0]
+    expect(after[1]).not.toBe(before[1])
   })
 
   test('inspector claims show freshness and dim stale rows', () => {

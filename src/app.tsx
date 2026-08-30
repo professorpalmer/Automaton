@@ -103,11 +103,11 @@ import {
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
-import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
+import { applyChromeToTokens, railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
-import { CHAT_THEME, T } from './tokens'
+import { CHAT_THEME, FIELD_THEME, T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
 import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
 import { mouthModelFor } from './runtime/plane'
@@ -185,6 +185,8 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   })
   const [pane, setPane] = useState<Pane>('none')
   const [planeTick, setPlaneTick] = useState(0)
+  const [chromeTick, setChromeTick] = useState(0)
+  void chromeTick
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
@@ -626,7 +628,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       testId="app"
       style={{
         display: 'flex',
-        flexDirection: 'row',
+        flexDirection: 'column',
         width: '100%',
         height: '100%',
         position: 'relative',
@@ -648,6 +650,17 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         if (quitChord(event)) quitAutomaton()
       }}
     >
+      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          flexGrow: 1,
+          minHeight: 0,
+          minWidth: 0,
+          width: '100%',
+        }}
+      >
       <motion.div
         initial={false}
         animate={{ width: railWidth }}
@@ -699,10 +712,9 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           minWidth: 0,
           minHeight: 0,
           height: '100%',
-          backgroundColor: T.canvas,
+          backgroundColor: T.clear,
         }}
       >
-        <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
         <div
           style={{
             display: 'flex',
@@ -710,7 +722,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             flexGrow: 1,
             minHeight: 0,
             minWidth: 0,
-            backgroundColor: T.canvas,
+            backgroundColor: T.clear,
           }}
         >
           <div
@@ -744,7 +756,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 display: 'flex',
                 flexDirection: 'column',
                 flexShrink: 0,
-                backgroundColor: T.canvas,
+                backgroundColor: T.clear,
               }}
             >
               {session.pendingFanout ? (
@@ -883,10 +895,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 agents={visibleAgents(session.agents)}
                 onClose={() => setPane('none')}
                 onPlaneChange={() => setPlaneTick((n) => n + 1)}
+                onSkinChange={() => {
+                  applyChromeToTokens(readSkin())
+                  setChromeTick((n) => n + 1)
+                }}
               />
             ) : null}
           </SlidePane>
         </div>
+      </div>
       </div>
       {deskControl && active ? (
         <DeskStage
@@ -958,7 +975,7 @@ function RailResize({
         width: T.layout.railHandle,
         height: '100%',
         flexShrink: 0,
-        backgroundColor: T.canvas,
+        backgroundColor: T.clear,
         borderLeftWidth: T.stroke.hairline,
         borderLeftColor: dragging ? T.borderStrong : T.border,
         hover: { borderLeftColor: T.borderStrong },
@@ -1137,14 +1154,7 @@ function Rail({
         flexShrink: 0,
       }}
     >
-      <div
-        style={{
-          height: T.layout.titlebarHeight,
-          paddingLeft: compact ? T.space.sm : TRAFFIC,
-          paddingRight: T.space.sm,
-          flexShrink: 0,
-        }}
-      />
+      <div style={{ height: T.space.sm, flexShrink: 0 }} />
       {agents.map((agent, index) => {
         const row = session.threads[agent.id]
         const selected = agent.id === session.activeAgentId
@@ -1311,7 +1321,7 @@ function Titlebar({
         gap: T.space.sm,
         borderBottomWidth: T.stroke.hairline,
         borderBottomColor: T.border,
-        backgroundColor: T.canvas,
+        backgroundColor: T.clear,
         ...HIT,
         flexShrink: 0,
       }}
@@ -1505,7 +1515,7 @@ function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
         width: T.feed.gutter + pad,
         flexShrink: 0,
         minHeight: T.stroke.hairline,
-        backgroundColor: T.canvas,
+        backgroundColor: T.clear,
       }}
     />
   )
@@ -1957,6 +1967,7 @@ export function Composer({
           borderColor: T.border,
           paddingTop: T.space.md,
           paddingBottom: T.space.md,
+          position: 'relative',
         }}
       >
         {pendingPaths.length > 0 ? (
@@ -2010,24 +2021,42 @@ export function Composer({
             ))}
           </div>
         ) : null}
+        {value.length === 0 && pendingPaths.length === 0 ? (
+          <div
+            testId="composer-placeholder"
+            style={{
+              position: 'absolute',
+              left: T.space.md,
+              top: T.space.md,
+              color: T.text,
+              fontSize: T.type.md,
+              lineHeight: T.line.md,
+              pointerEvents: 'none',
+            }}
+          >
+            Message this automaton
+          </div>
+        ) : null}
         <textarea
           testId="composer"
           value={value}
-          placeholder="Message this automaton"
+          placeholder=""
           minRows={1}
           maxRows={4}
           autoFocus
-          theme={CHAT_THEME}
+          theme={FIELD_THEME}
           style={{
             width: '100%',
             minWidth: 0,
             fontSize: T.type.md,
             lineHeight: T.line.md,
             color: T.text,
-            backgroundColor: T.composer,
-            borderWidth: T.stroke.none,
+            backgroundColor: T.clear,
+            borderWidth: 0,
+            borderColor: T.clear,
             paddingLeft: T.space.md,
             paddingRight: T.space.md,
+            paddingBottom: T.space.xs,
           }}
           onChange={(event) => onChange(event.value ?? '')}
           onFocus={onFocus}

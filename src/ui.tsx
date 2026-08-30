@@ -3,7 +3,6 @@ import { T } from './tokens'
 
 export const HIT = {
   cursor: 'pointer' as const,
-  pointerEvents: 'auto' as const,
   userSelect: 'none' as const,
 }
 
@@ -11,7 +10,9 @@ export const FIELD_STYLE = {
   width: '100%' as const,
   fontSize: T.type.sm,
   color: T.text,
-  backgroundColor: T.composer,
+  get backgroundColor() {
+    return T.composer
+  },
   borderWidth: T.stroke.hairline,
   borderColor: T.border,
   borderRadius: T.radius.md,
@@ -37,7 +38,9 @@ export const FIELD_LINE_STYLE = {
 export const CARD_STYLE = {
   padding: T.space.lg,
   borderRadius: T.radius.lg,
-  backgroundColor: T.raised,
+  get backgroundColor() {
+    return T.raised
+  },
   borderWidth: T.stroke.hairline,
   borderColor: T.border,
   display: 'flex' as const,
@@ -45,10 +48,14 @@ export const CARD_STYLE = {
   gap: T.space.md,
 }
 
+/** Overlays must be opaque. Alpha fills punch through Metal to the composer. */
+const MENU_FILL = '#1A1A1A'
+const MENU_HOVER = '#2A2A2A'
+
 export const MENU_STYLE = {
   maxHeight: T.layout.menuMax,
   overflowY: 'scroll' as const,
-  backgroundColor: T.raised,
+  backgroundColor: MENU_FILL,
   borderWidth: T.stroke.hairline,
   borderColor: T.border,
   borderRadius: T.radius.md,
@@ -68,7 +75,7 @@ export function menuItemStyle(state: { highlighted?: boolean; selected?: boolean
   const on = Boolean(state.highlighted || state.selected)
   return {
     ...ITEM_PAD,
-    backgroundColor: on ? T.selected : T.clear,
+    backgroundColor: on ? MENU_HOVER : MENU_FILL,
     color: on ? T.text : T.secondary,
   }
 }
@@ -92,14 +99,12 @@ export function Chip({
   ready = true,
   children,
   onClick,
-  onScroll,
 }: {
   testId?: string
   tone?: Tone
   ready?: boolean
   children: React.ReactNode
   onClick?: () => void
-  onScroll?: (event: { deltaX?: number; deltaY?: number }) => void
 }) {
   const fill = toneFill(tone, ready)
   return (
@@ -121,7 +126,6 @@ export function Chip({
       onClick={() => {
         if (ready) onClick?.()
       }}
-      onScroll={onScroll}
     >
       {children}
     </div>

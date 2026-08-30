@@ -3,8 +3,9 @@
 Native staff is a GPUI window authored in React (`src/app.tsx`). There is no
 Electron shell and no webview. The product name is **Automaton**. The
 titlebar shows that mark and word, then the focused mouth (Chief of Staff
-until you switch). The window is opaque (`windowBackground: 'opaque'`) so
-clicks land on the rail and composer.
+until you switch). The window is frosted (`windowBackground: 'blurred'`) so the desktop
+shows through the chrome. Titlebar stays transparent; rail and composer
+stay clickable.
 
 Chief of Staff (`staff`) is the only seeded automaton. Other automata are
 created from chat or the factory (`New automaton`). Each named automaton has

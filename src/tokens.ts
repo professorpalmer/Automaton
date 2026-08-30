@@ -1,21 +1,21 @@
 /** Closed token set. Components consume names. No one-off hex at call sites. */
 
 export const T = {
-  canvas: '#141414',
-  sidebar: '#181818',
-  raised: '#222222',
-  selected: '#2A2A2A',
-  composer: '#1C1C1C',
+  canvas: '#10101014',
+  sidebar: '#FFFFFF0A',
+  raised: '#FFFFFF0D',
+  selected: '#FFFFFF1A',
+  composer: '#FFFFFF38',
   overlay: '#E6EAF214',
   overlayStrong: '#E6EAF224',
   clear: '#00000000',
-  border: '#E6EAF218',
-  borderStrong: '#E6EAF230',
-  sidebarBorder: '#2A2A2A',
+  border: '#FFFFFF1F',
+  borderStrong: '#FFFFFF33',
+  sidebarBorder: '#FFFFFF1F',
   text: '#F2F2F2',
-  secondary: '#B4B4B4',
-  tertiary: '#8A8A8A',
-  ghost: '#5A5A5A',
+  secondary: '#F2F2F2',
+  tertiary: '#E8E8E8',
+  ghost: '#D8D8D8',
   accent: '#D4D4D4',
   inverse: '#ECECEC',
   onInverse: '#181818',
@@ -166,15 +166,15 @@ export const T = {
 
 export const CHAT_THEME = {
   text: T.text,
-  textMuted: T.secondary,
-  textFaint: T.tertiary,
-  textDim: T.secondary,
-  border: T.border,
-  bg: T.canvas,
+  textMuted: '#F2F2F2',
+  textFaint: '#F2F2F2',
+  textDim: '#F2F2F2',
+  border: '#00000000',
+  bg: '#00000000',
   accent: T.accent,
   caret: T.accent,
   fontSans: 'Helvetica',
-  codeText: T.secondary,
+  codeText: '#F2F2F2',
   codeWash: T.overlay,
   metrics: {
     mdTextSize: T.type.md,
@@ -189,4 +189,13 @@ export const CHAT_THEME = {
     diffLineHeight: 20,
     diffFileHeaderHeight: 34,
   },
+}
+
+/** Inputs on frost. Native placeholders read textMuted, so it matches body type. */
+export const FIELD_THEME = {
+  ...CHAT_THEME,
+  text: '#F2F2F2',
+  textMuted: '#F2F2F2',
+  textFaint: '#F2F2F2',
+  textDim: '#F2F2F2',
 }

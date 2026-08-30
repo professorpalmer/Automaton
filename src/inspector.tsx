@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { existsSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { useGpuix, Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList } from '@gpuix/react'
+import { Combobox, ComboboxContent, ComboboxInput, ComboboxItem, ComboboxList } from '@gpuix/react'
 import type { Agent, AgentKit } from './domain'
 import type { LedgerMetrics, StaffStore } from './runtime/store'
 import type { AgentProfile } from './runtime/profile'
@@ -13,7 +13,7 @@ import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
 import { importSkillFromUrl, listSkills, setSkillEnabled } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
-import { CHAT_THEME, T } from './tokens'
+import { CHAT_THEME, FIELD_THEME, T } from './tokens'
 import { Chip, FIELD_STYLE, MENU_STYLE, menuItemStyle } from './ui'
 
 const SECRET = /sk-[a-zA-Z0-9_-]{8,}|Bearer\s+\S+|OPENROUTER_API_KEY\s*=\s*\S+/gi
@@ -170,20 +170,7 @@ function uniqueChoices(current: string, catalog: readonly string[]): string[] {
 
 const HIT = {
   cursor: 'pointer' as const,
-  pointerEvents: 'auto' as const,
   userSelect: 'none' as const,
-}
-
-function passScrollTo(
-  renderer: { getScrollOffset?: (id: number) => number[] | null; scrollTo?: (id: number, x: number, y: number) => void } | null,
-  node: { id: number } | null,
-  event: { deltaX?: number; deltaY?: number },
-) {
-  if (!renderer?.scrollTo || !node) return
-  const dy = event.deltaY ?? 0
-  if (!dy) return
-  const now = renderer.getScrollOffset?.(node.id) ?? [0, 0]
-  renderer.scrollTo(node.id, now[0], now[1] - dy)
 }
 
 export function Inspector({
@@ -205,9 +192,6 @@ export function Inspector({
   controlling?: boolean
   onTakeControl?: () => void
 }) {
-  const ref = useRef<{ id: number } | null>(null)
-  const { renderer } = useGpuix()
-  const passWheel = (event: { deltaX?: number; deltaY?: number }) => passScrollTo(renderer, ref.current, event)
   const recent = lastMouthClaims(claims, agent.id)
   const kit = profile?.kit ?? 'blank'
   const preview = desktopPreview(agent.id)
@@ -232,7 +216,6 @@ export function Inspector({
   const markHues = uniqueChoices(profile?.avatarColor ?? '', DEAL_HUES)
   return (
     <div
-      ref={ref}
       testId="inspector"
       style={{
         width: T.inspector.width,
@@ -254,7 +237,8 @@ export function Inspector({
         overflowY: 'scroll',
       }}
     >
-      <PaneHeader title="Inspector" onClose={onClose} closeId="inspector-close" onScroll={passWheel} />
+      <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xl }}>
+      <PaneHeader title="Inspector" onClose={onClose} closeId="inspector-close" />
       <div testId="inspector-mouth" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>
         {onPatch ? (
           <textarea
@@ -263,7 +247,7 @@ export function Inspector({
             placeholder="Name"
             minRows={1}
             maxRows={2}
-            theme={CHAT_THEME}
+            theme={FIELD_THEME}
             style={{
               width: '100%',
               fontSize: T.type.md,
@@ -278,7 +262,6 @@ export function Inspector({
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
             }}
-            onScroll={passWheel}
             onChange={(event) => {
               const name = (event.value ?? '').trim()
               if (name) onPatch({ name })
@@ -310,13 +293,12 @@ export function Inspector({
               borderColor: T.border,
               overflow: 'hidden',
               cursor: 'pointer',
-              pointerEvents: 'auto',
+              position: 'relative',
             }}
             onClick={(event) => {
               if (event.isRightClick || event.button === 2) return
               void recapture()
             }}
-            onScroll={passWheel}
           >
             {screen ? (
               <img
@@ -324,10 +306,7 @@ export function Inspector({
                 src={screen}
                 objectFit="contain"
                 alt=""
-                style={{ width: '100%', height: T.desk.viewH, pointerEvents: 'auto' }}
-                onClick={() => {
-                  void recapture()
-                }}
+                style={{ width: '100%', height: T.desk.viewH }}
               />
             ) : (
               <div
@@ -344,6 +323,20 @@ export function Inspector({
                 No screen yet
               </div>
             )}
+            <div
+              testId="desk-view-hit"
+              style={{
+                position: 'absolute',
+                left: 0,
+                top: 0,
+                width: '100%',
+                height: T.desk.viewH,
+              }}
+              onClick={(event) => {
+                if (event.isRightClick || event.button === 2) return
+                void recapture()
+              }}
+            />
           </div>
           <div style={{ fontSize: T.type.xs, color: T.secondary }}>{`${agent.name}'s screen`}</div>
           <div style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: T.space.sm }}>
@@ -354,7 +347,6 @@ export function Inspector({
                 onTakeControl?.()
                 void recapture()
               }}
-              onScroll={passWheel}
             >
               {controlling ? 'Release' : 'Take control'}
             </Chip>
@@ -364,7 +356,6 @@ export function Inspector({
               onClick={() => {
                 void recapture()
               }}
-              onScroll={passWheel}
             >
               Refresh
             </Chip>
@@ -390,14 +381,20 @@ export function Inspector({
                 }
               }}
             >
+              <div style={{ position: 'relative' }}>
+              {!profile.avatarShape ? (
+                <div style={{ position: 'absolute', left: T.space.md, top: T.space.sm, color: T.text, fontSize: T.type.sm, pointerEvents: 'none' }}>
+                  Shape
+                </div>
+              ) : null}
               <ComboboxInput
                 testId="inspector-mark-shape"
-                placeholder="Shape"
-                theme={CHAT_THEME}
-                style={MARK_FIELD}
-                onScroll={passWheel}
+                placeholder=""
+                theme={FIELD_THEME}
+                style={{ ...MARK_FIELD, color: T.text }}
               />
-              <ComboboxContent testId="inspector-mark-shape-menu" style={MARK_MENU} onScroll={passWheel}>
+              </div>
+              <ComboboxContent testId="inspector-mark-shape-menu" style={MARK_MENU}>
                 <ComboboxList>
                   {(item) => (
                     <ComboboxItem
@@ -421,14 +418,20 @@ export function Inspector({
                 }
               }}
             >
+              <div style={{ position: 'relative' }}>
+              {!profile.avatarColor ? (
+                <div style={{ position: 'absolute', left: T.space.md, top: T.space.sm, color: T.text, fontSize: T.type.sm, pointerEvents: 'none' }}>
+                  Color
+                </div>
+              ) : null}
               <ComboboxInput
                 testId="inspector-mark-color"
-                placeholder="Color"
-                theme={CHAT_THEME}
-                style={MARK_FIELD}
-                onScroll={passWheel}
+                placeholder=""
+                theme={FIELD_THEME}
+                style={{ ...MARK_FIELD, color: T.text }}
               />
-              <ComboboxContent testId="inspector-mark-color-menu" style={MARK_MENU} onScroll={passWheel}>
+              </div>
+              <ComboboxContent testId="inspector-mark-color-menu" style={MARK_MENU}>
                 <ComboboxList>
                   {(item) => (
                     <ComboboxItem
@@ -461,15 +464,14 @@ export function Inspector({
                     paddingTop: T.space.xxs,
                     paddingBottom: T.space.xxs,
                     borderRadius: T.radius.sm,
-                    backgroundColor: selected ? T.inverse : T.raised,
-                    color: selected ? T.onInverse : T.text,
+                    backgroundColor: selected ? T.inverse : '#FFFFFF33',
+                    color: selected ? T.onInverse : '#F2F2F2',
                     fontSize: T.type.xs,
                     ...HIT,
                     hover: { backgroundColor: selected ? T.inverse : T.selected },
                     active: { opacity: T.blob.active },
                   }}
                   onClick={() => onPatch?.({ kit: item })}
-                  onScroll={passWheel}
                 >
                   {item}
                 </div>
@@ -480,13 +482,29 @@ export function Inspector({
       ) : null}
       {profile ? (
         <Section title="Rules">
+          <div style={{ position: 'relative' }}>
+          {!profile.rules ? (
+            <div
+              style={{
+                position: 'absolute',
+                left: T.space.md,
+                top: T.space.xs,
+                color: T.text,
+                fontSize: T.type.sm,
+                lineHeight: T.line.sm,
+                pointerEvents: 'none',
+              }}
+            >
+              Standing instructions for this automaton
+            </div>
+          ) : null}
           <textarea
             testId="inspector-rules"
             value={profile.rules}
-            placeholder="Standing instructions for this automaton"
+            placeholder=""
             minRows={2}
             maxRows={6}
-            theme={CHAT_THEME}
+            theme={FIELD_THEME}
             style={{
               width: '100%',
               fontSize: T.type.sm,
@@ -501,9 +519,9 @@ export function Inspector({
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
             }}
-            onScroll={passWheel}
             onChange={(event) => onPatch?.({ rules: event.value ?? '' })}
           />
+          </div>
         </Section>
       ) : null}
       {profile ? (
@@ -515,7 +533,7 @@ export function Inspector({
               placeholder="SKILL.md URL"
               minRows={1}
               maxRows={2}
-              theme={CHAT_THEME}
+              theme={FIELD_THEME}
               style={{
                 width: '100%',
                 fontSize: T.type.sm,
@@ -530,7 +548,6 @@ export function Inspector({
                 paddingTop: T.space.xs,
                 paddingBottom: T.space.xs,
               }}
-              onScroll={passWheel}
               onChange={(event) => setImportUrl(event.value ?? '')}
             />
             <Chip
@@ -549,7 +566,6 @@ export function Inspector({
                     setImportNote(error instanceof Error ? error.message : 'import failed')
                   })
               }}
-              onScroll={passWheel}
             >
               Import
             </Chip>
@@ -593,7 +609,6 @@ export function Inspector({
                         : [...profile.skillIds, skill.id],
                     })
                   }}
-                  onScroll={passWheel}
                 >
                   {label}
                 </div>
@@ -635,6 +650,7 @@ export function Inspector({
           </div>
         </Section>
       ) : null}
+      </div>
     </div>
   )
 }
@@ -643,12 +659,10 @@ export function PaneHeader({
   title,
   onClose,
   closeId,
-  onScroll,
 }: {
   title: string
   onClose: () => void
   closeId: string
-  onScroll?: (event: { deltaX?: number; deltaY?: number }) => void
 }) {
   return (
     <div
@@ -661,7 +675,7 @@ export function PaneHeader({
       }}
     >
       {title ? <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.text }}>{title}</div> : null}
-      <Chip testId={closeId} tone="ghost" onClick={onClose} onScroll={onScroll}>
+      <Chip testId={closeId} tone="ghost" onClick={onClose}>
         X
       </Chip>
     </div>
@@ -671,7 +685,7 @@ export function PaneHeader({
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
-      <div style={{ fontSize: T.type.xs, color: T.ghost }}>{title}</div>
+      <div style={{ fontSize: T.type.xs, color: T.secondary }}>{title}</div>
       {children}
     </div>
   )
