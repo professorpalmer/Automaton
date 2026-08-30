@@ -1035,6 +1035,44 @@ native('staff shell (GPUI native)', () => {
     expect(statSync(settingsShot).size).toBeGreaterThan(1000)
   })
 
+  test('inspector mark and rules stay inside the pane', () => {
+    const { render, renderer } = createTestRoot()
+    render(
+      <div style={{ height: 640, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+        <Inspector
+          agent={DEFAULT_AGENTS[0]}
+          profile={{
+            id: 'staff',
+            name: 'Chief of Staff',
+            title: 'Coordinator',
+            description: '',
+            rules: '',
+            kit: 'coordinator',
+            avatarShape: 'blob',
+            avatarColor: 'red',
+            namedBy: 'app',
+            skillIds: [],
+            notifyOnUpdates: false,
+            hiddenFromRail: false,
+            createdAt: '2026-01-01T00:00:00.000Z',
+            homeRepo: '',
+            homePath: '',
+          }}
+          claims={[]}
+          sandboxHint={null}
+          onClose={() => {}}
+          onPatch={() => {}}
+        />
+      </div>,
+    )
+    renderer.flush()
+    const pane = boundsFor(renderer, 'inspector')
+    const shape = boundsFor(renderer, 'inspector-mark-shape')
+    const rules = boundsFor(renderer, 'inspector-rules')
+    expect(shape.x + shape.width).toBeLessThanOrEqual(pane.x + pane.width - 16)
+    expect(rules.x + rules.width).toBeLessThanOrEqual(pane.x + pane.width - 16)
+  })
+
   test('inspector wheel over a kit pill still scrolls the pane', () => {
     const { render, renderer } = createTestRoot()
     render(

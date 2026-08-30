@@ -157,7 +157,12 @@ export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId
   )
 }
 
-const MARK_FIELD = FIELD_STYLE
+const MARK_FIELD = {
+  ...FIELD_STYLE,
+  width: undefined,
+  minWidth: 0,
+  maxWidth: '100%',
+}
 const MARK_MENU = MENU_STYLE
 
 function uniqueChoices(current: string, catalog: readonly string[]): string[] {
@@ -229,7 +234,7 @@ export function Inspector({
         borderLeftWidth: T.stroke.hairline,
         borderLeftColor: T.border,
         paddingLeft: T.space.xl,
-        paddingRight: T.space.xl,
+        paddingRight: T.space.xxl,
         paddingTop: T.space.lg,
         paddingBottom: T.space.xl,
         gap: T.space.xl,
@@ -237,7 +242,7 @@ export function Inspector({
         overflowY: 'scroll',
       }}
     >
-      <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xl }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xl, width: '100%', minWidth: 0 }}>
       <PaneHeader title="Inspector" onClose={onClose} closeId="inspector-close" />
       <div testId="inspector-mouth" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>
         {onPatch ? (
@@ -249,7 +254,8 @@ export function Inspector({
             maxRows={2}
             theme={FIELD_THEME}
             style={{
-              width: '100%',
+              minWidth: 0,
+              maxWidth: '100%',
               fontSize: T.type.md,
               lineHeight: T.line.md,
               color: T.text,
@@ -371,7 +377,7 @@ export function Inspector({
       ) : null}
       {profile ? (
         <Section title="Mark">
-          <div testId="inspector-mark" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
+          <div testId="inspector-mark" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs, width: '100%', minWidth: 0 }}>
             <Combobox
               items={markShapes}
               value={profile.avatarShape}
@@ -381,7 +387,7 @@ export function Inspector({
                 }
               }}
             >
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
               {!profile.avatarShape ? (
                 <div style={{ position: 'absolute', left: T.space.md, top: T.space.sm, color: T.text, fontSize: T.type.sm, pointerEvents: 'none' }}>
                   Shape
@@ -418,7 +424,7 @@ export function Inspector({
                 }
               }}
             >
-              <div style={{ position: 'relative' }}>
+              <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
               {!profile.avatarColor ? (
                 <div style={{ position: 'absolute', left: T.space.md, top: T.space.sm, color: T.text, fontSize: T.type.sm, pointerEvents: 'none' }}>
                   Color
@@ -482,16 +488,18 @@ export function Inspector({
       ) : null}
       {profile ? (
         <Section title="Rules">
-          <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
           {!profile.rules ? (
             <div
               style={{
                 position: 'absolute',
                 left: T.space.md,
+                right: T.space.md,
                 top: T.space.xs,
                 color: T.text,
                 fontSize: T.type.sm,
                 lineHeight: T.line.sm,
+                whiteSpace: 'normal',
                 pointerEvents: 'none',
               }}
             >
@@ -506,7 +514,8 @@ export function Inspector({
             maxRows={6}
             theme={FIELD_THEME}
             style={{
-              width: '100%',
+              minWidth: 0,
+              maxWidth: '100%',
               fontSize: T.type.sm,
               lineHeight: T.line.sm,
               color: T.text,
@@ -515,9 +524,10 @@ export function Inspector({
               borderColor: T.border,
               borderRadius: T.radius.md,
               paddingLeft: T.space.md,
-              paddingRight: T.space.sm,
+              paddingRight: T.space.md,
               paddingTop: T.space.xs,
               paddingBottom: T.space.xs,
+              whiteSpace: 'normal',
             }}
             onChange={(event) => onPatch?.({ rules: event.value ?? '' })}
           />
