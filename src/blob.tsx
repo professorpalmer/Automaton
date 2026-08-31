@@ -532,6 +532,7 @@ export function SisterBlob({
       setBlink(false)
       return
     }
+    setLook((n) => nextLook(agent.id, n))
     const wander = setInterval(() => {
       setLook((n) => nextLook(agent.id, n))
     }, clock.wanderMs)

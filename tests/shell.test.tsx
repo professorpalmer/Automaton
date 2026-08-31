@@ -480,6 +480,7 @@ describe('sister blob presentation', () => {
     expect(app).toMatch(/mouth === 'working'/)
     expect(app).toMatch(/row\?\.computerBusy === true/)
     expect(app).toMatch(/alive=\{alive\}/)
+    expect(app).toMatch(/selected \|\| mouthBusy/)
   })
 
   test('a job handle is not an input, so it cannot think a mouth', () => {
