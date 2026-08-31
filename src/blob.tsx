@@ -194,6 +194,16 @@ export function neighborGlance(id: string, look: number, index: number): BusyLoo
   return { x: 0, y: 1 }
 }
 
+/** Selected looks most beats. Rest hold about 1/3, not 4/5. Mix of BUSY_LOOKS and neighbor up/down. */
+export function selectedGlance(id: string, look: number, index: number): BusyLook {
+  if (blobHash(id, `sel-hold:${look}`) % 3 === 0) return REST_LOOK
+  if (blobHash(id, `sel-lane:${look}`) % 2 === 0) {
+    if (index > 0 && blobHash(id, `sel-dir:${look}`) % 2 === 0) return { x: 0, y: -1 }
+    return { x: 0, y: 1 }
+  }
+  return BUSY_LOOKS[(look % (BUSY_LOOKS.length - 1)) + 1] ?? REST_LOOK
+}
+
 /** Mostly rest. Occasional wide/tall silhouette on a look beat. Independent FNV. */
 export function idlePose(id: string, look: number): BlobPose {
   if (blobHash(id, `pose-hold:${look}`) % 5 !== 0) return 'rest'
@@ -370,18 +380,20 @@ export type BlobClock = {
   lookStart: number
 }
 
-export function blobClock(id: string): BlobClock {
+export function blobClock(id: string, opts?: { livelyEyes?: boolean }): BlobClock {
   const phase = blobUnit(id, 'phase')
   const breathe = blobUnit(id, 'breathe')
   const wander = blobUnit(id, 'wander')
   const blink = blobUnit(id, 'blink')
   const blink0 = blobUnit(id, 'blink0')
+  const lively = opts?.livelyEyes === true
+  const livelyBlinkEveryMs = 1200 + blink * 1000
   return {
     phaseOffset: phase * Math.PI * 2,
     breathePeriod: T.blob.breatheMs * (0.75 + breathe * 0.55),
-    wanderMs: T.blob.wanderMs * (2.4 + wander * 1.4),
-    blinkEveryMs: T.blob.blinkEveryMs * (0.5 + blink * 1.0),
-    blinkDelayMs: blink0 * T.blob.blinkEveryMs,
+    wanderMs: T.blob.wanderMs * (lively ? 0.55 + wander * 0.35 : 2.4 + wander * 1.4),
+    blinkEveryMs: lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs * (0.5 + blink * 1.0),
+    blinkDelayMs: blink0 * (lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs),
     lookStart: blobHash(id, 'look') % BUSY_LOOKS.length,
   }
 }
@@ -517,6 +529,7 @@ export function SisterBlob({
   unread,
   mouthBusy,
   alive,
+  working,
   index,
   onSelect,
   onMenu,
@@ -526,18 +539,22 @@ export function SisterBlob({
   unread: number
   mouthBusy: boolean
   alive?: boolean
+  working?: boolean
   index: number
   onSelect?: () => void
   onMenu?: (event: { x?: number; y?: number; isRightClick?: boolean; button?: number }) => void
 }) {
   const live = alive ?? mouthBusy
+  const busyBody = working ?? mouthBusy
   const mark = markFor(agent)
   const fill = catalogHex(mark.tint)
   const eyeKind = eyeKindForSpecies(mark.shape)
-  const clock = useMemo(() => blobClock(agent.id), [agent.id])
+  const clock = useMemo(() => blobClock(agent.id, { livelyEyes: selected }), [agent.id, selected])
+  const bodyClock = useMemo(() => blobClock(agent.id), [agent.id])
   const eyeSvg = useMemo(() => eyeSvgSource(eyeKind), [eyeKind])
   const [entered, setEntered] = useState(() => runningTests())
   const [look, setLook] = useState(() => clock.lookStart)
+  const [poseLook, setPoseLook] = useState(() => bodyClock.lookStart)
   const [blink, setBlink] = useState(false)
   const [pointer, setPointer] = useState({ x: 0, y: 0, vx: 0, vy: 0, down: false })
   const last = useRef({ x: 0, y: 0, t: 0 })
@@ -551,6 +568,7 @@ export function SisterBlob({
   useEffect(() => {
     if (!blobNeedsClock(live)) {
       setLook(clock.lookStart)
+      setPoseLook(bodyClock.lookStart)
       setBlink(false)
       return
     }
@@ -558,6 +576,15 @@ export function SisterBlob({
     const wander = setInterval(() => {
       setLook((n) => nextLook(agent.id, n))
     }, clock.wanderMs)
+    let poseTimer: ReturnType<typeof setInterval> | undefined
+    if (busyBody) {
+      setPoseLook((n) => nextLook(agent.id, n))
+      poseTimer = setInterval(() => {
+        setPoseLook((n) => nextLook(agent.id, n))
+      }, bodyClock.wanderMs)
+    } else {
+      setPoseLook(bodyClock.lookStart)
+    }
     let close: ReturnType<typeof setTimeout> | undefined
     let lids: ReturnType<typeof setTimeout> | undefined
     let reopen: ReturnType<typeof setTimeout> | undefined
@@ -582,11 +609,12 @@ export function SisterBlob({
     scheduleBlink(clock.blinkDelayMs)
     return () => {
       clearInterval(wander)
+      if (poseTimer) clearInterval(poseTimer)
       if (lids) clearTimeout(lids)
       if (close) clearTimeout(close)
       if (reopen) clearTimeout(reopen)
     }
-  }, [live, agent.id, clock.lookStart, clock.wanderMs, clock.blinkEveryMs, clock.blinkDelayMs])
+  }, [live, busyBody, selected, agent.id, clock.lookStart, clock.wanderMs, clock.blinkEveryMs, clock.blinkDelayMs, bodyClock.lookStart, bodyClock.wanderMs])
 
   void presentBlob({
     selected,
@@ -604,9 +632,9 @@ export function SisterBlob({
   const glyphHeight = px(size * squashY)
   const glyphLeft = px((slot - glyphWidth) / 2 + (pointer.down ? pointer.x : 0))
   const glyphTop = px((slot - glyphHeight) / 2 + (pointer.down ? pointer.y : 0))
-  if (!live) lastPose.current = 'rest'
-  const glance = live ? neighborGlance(agent.id, look, index) : REST_LOOK
-  const rawPose = !live || look === clock.lookStart ? 'rest' : workPose(agent.id, look)
+  if (!busyBody) lastPose.current = 'rest'
+  const glance = !live ? REST_LOOK : selected ? selectedGlance(agent.id, look, index) : neighborGlance(agent.id, look, index)
+  const rawPose = !busyBody || poseLook === bodyClock.lookStart ? 'rest' : workPose(agent.id, poseLook)
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
   const melt: BlobMelt = pose
