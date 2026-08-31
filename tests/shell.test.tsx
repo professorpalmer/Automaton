@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
+import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -442,6 +442,14 @@ describe('sister blob presentation', () => {
     expect(poseLayout('rest')).toEqual({ left: 0, top: 0, width: 38, height: 38 })
     expect(poseLayout('wide')).toEqual({ left: -2, top: 2, width: 42, height: 34 })
     expect(poseLayout('tall')).toEqual({ left: 2, top: -2, width: 34, height: 42 })
+    expect(poseLayout('soft-wide')).toEqual({ left: -1, top: 1, width: 40, height: 36 })
+    expect(poseLayout('soft-tall')).toEqual({ left: 1, top: -1, width: 36, height: 40 })
+    const melts = Array.from({ length: 40 }, (_, i) => restMelt('kernel', i))
+    expect(melts.filter((m) => m === 'rest').length).toBeGreaterThan(8)
+    expect(melts.some((m) => m === 'soft-wide')).toBe(true)
+    expect(melts.some((m) => m === 'soft-tall')).toBe(true)
+    expect(src).toMatch(/restMelt/)
+    expect(src).toMatch(/soft-wide/)
     const stamps = poseSvgStamps('blob', '#00C972', T.blob.size)
     expect(poseSvgStamps('blob', '#00C972', T.blob.size)).toBe(stamps)
     expect(stamps.rest).not.toContain('<g transform')

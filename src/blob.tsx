@@ -74,6 +74,7 @@ const PLATE_RADIUS = 12
 
 export const BLOB_POSES = ['rest', 'wide', 'tall'] as const
 export type BlobPose = (typeof BLOB_POSES)[number]
+export type BlobMelt = BlobPose | 'soft-wide' | 'soft-tall'
 
 /** ViewBox "-15 -15 259 259" center. Baked into pose stamps, never layout. */
 const VIEW_CX = 114.5
@@ -200,14 +201,16 @@ export function idlePose(id: string, look: number): BlobPose {
 }
 
 /** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
-const POSE_EXTENT: Record<BlobPose, readonly [number, number]> = {
+const POSE_EXTENT: Record<BlobMelt, readonly [number, number]> = {
   rest: [T.blob.size, T.blob.size],
+  'soft-wide': [40, 36],
+  'soft-tall': [36, 40],
   wide: [42, 34],
   tall: [34, 42],
 }
 
 export function poseLayout(
-  pose: BlobPose,
+  pose: BlobMelt,
   hostW = T.blob.size,
   hostH = T.blob.size,
 ): { left: number; top: number; width: number; height: number } {
@@ -221,6 +224,13 @@ export function poseLayout(
     width,
     height,
   }
+}
+
+/** Near-rest squash on every look so GELATIN never sits frozen at 38×38. */
+export function restMelt(id: string, look: number): BlobMelt {
+  const lane = blobHash(id, `soft-hold:${look}`) % 3
+  if (lane === 0) return 'rest'
+  return lane === 1 ? 'soft-wide' : 'soft-tall'
 }
 
 export function busyEyeLayout(
@@ -410,7 +420,7 @@ const FrozenMark = React.memo(function FrozenMark({
   width: number
   height: number
   unread: number
-  pose: BlobPose
+  pose: BlobMelt
   dragging: boolean
 }) {
   const box = dragging ? { left: 0, top: 0, width, height } : poseLayout(pose, width, height)
@@ -499,6 +509,7 @@ export function SisterBlob({
   const [blink, setBlink] = useState(false)
   const [pointer, setPointer] = useState({ x: 0, y: 0, vx: 0, vy: 0, down: false })
   const last = useRef({ x: 0, y: 0, t: 0 })
+  const lastPose = useRef<BlobPose>('rest')
   const smears = useRef<{ x: number; y: number; o: number }[]>([])
 
   useEffect(() => {
@@ -557,7 +568,10 @@ export function SisterBlob({
   const glyphLeft = px((slot - glyphWidth) / 2 + (pointer.down ? pointer.x : 0))
   const glyphTop = px((slot - glyphHeight) / 2 + (pointer.down ? pointer.y : 0))
   const glance = neighborGlance(agent.id, look, index)
-  const pose = idlePose(agent.id, look)
+  const rawPose = look === clock.lookStart ? 'rest' : idlePose(agent.id, look)
+  const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
+  lastPose.current = pose
+  const melt: BlobMelt = look === clock.lookStart ? 'rest' : pose === 'rest' ? restMelt(agent.id, look) : pose
   const eyes = entered ? busyEyeLayout(look, blink || mouthBusy, eyeKind, glance) : []
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
@@ -657,7 +671,7 @@ export function SisterBlob({
         width={glyphWidth}
         height={glyphHeight}
         unread={unread}
-        pose={pose}
+        pose={melt}
         dragging={pointer.down}
       />
       {eyes.map((eye, side) => (
