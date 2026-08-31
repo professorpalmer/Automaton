@@ -1018,7 +1018,7 @@ function RailResize({
     <div
       testId="rail-resize"
       style={{
-        width: T.layout.railHandle,
+        width: T.layout.railHandle + T.stroke.hairline,
         height: '100%',
         flexShrink: 0,
         backgroundColor: T.clear,
@@ -1116,10 +1116,10 @@ function PlusMark() {
 }
 
 function GearMark() {
-  const size = T.blob.enterSize
-  const spoke = T.space.xs
+  const size = T.size.badge
+  const spoke = T.space.xxs
   const mid = (size - spoke) / 2
-  const hub = T.space.md
+  const hub = 6
   const hubInset = (size - hub) / 2
   const teeth = [
     { left: mid, top: 0, width: spoke, height: spoke + T.space.xxs },
@@ -1223,13 +1223,8 @@ function Rail({
               marginLeft: rowMargin,
               marginRight: rowMargin,
               marginBottom: T.space.xs,
-              borderRadius: T.radius.md,
-              borderWidth: T.stroke.hairline,
-              borderColor: selected ? T.borderStrong : T.clear,
               ...HIT,
-              backgroundColor: selected ? T.raised : T.clear,
-              hover: { backgroundColor: T.raised },
-              active: { backgroundColor: T.selected },
+              backgroundColor: T.clear,
             }}
             onClick={(event) => {
               if (event.isRightClick || event.button === 2) return
@@ -1255,6 +1250,8 @@ function Rail({
               unread={0}
               mouthBusy={isMouthBusy(row?.mouth ?? 'idle')}
               index={index}
+              onSelect={() => onSelect(agent.id)}
+              onMenu={(event) => onMenu(agent.id, event)}
             />
             {compact ? null : (
               <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0, gap: T.space.xxs }}>

@@ -51,9 +51,9 @@ describe('graphite skin', () => {
   test('read and write persist rail width', () => {
     const home = tmpHome()
     expect(readSkin(home).railWidth).toBe(T.layout.sidebarWidth)
-    writeSkin({ railWidth: 64 }, home)
+    writeSkin({ railWidth: T.layout.sidebarMin }, home)
     expect(readSkin(home)).toEqual({
-      railWidth: 64,
+      railWidth: T.layout.sidebarMin,
       windowMode: 'frosted',
       frostWash: 12,
     })
