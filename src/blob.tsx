@@ -66,11 +66,11 @@ const BODY_SPRING = {
   damping: GELATIN.damping,
   mass: GELATIN.mass,
 }
-const WASH_SPRING = BODY_SPRING
 const EYE_SPRING = { type: 'spring' as const, stiffness: 18, damping: 7, mass: 1.0 }
 
-const WASH_INFLATE_PX = 3
-const VIEWBOX = 259
+/** Grey selected plate. Static box; only opacity springs. */
+const PLATE_INSET = 2
+const PLATE_RADIUS = 12
 
 const svgCache = new Map<string, string>()
 
@@ -110,12 +110,16 @@ function hold(weight: keyof BlobWeights): BlobWeights {
   return { ...ZERO, [weight]: 1 }
 }
 
+function px(n: number): number {
+  return Math.round(n)
+}
+
 export function presentBlob(view: BlobView): BlobMotion {
   const delay = view.entered ? 0 : view.index * T.blob.stagger
   if (!view.entered) {
     return {
-      glyphWidth: T.blob.enterSize,
-      glyphHeight: T.blob.enterSize,
+      glyphWidth: T.blob.size,
+      glyphHeight: T.blob.size,
       lift: 0,
       weights: hold('rest'),
       duration: T.motion.enter,
@@ -128,7 +132,7 @@ export function presentBlob(view: BlobView): BlobMotion {
     return {
       glyphWidth: T.blob.size,
       glyphHeight: T.blob.size,
-      lift: view.selected ? T.blob.selectedLift : 0,
+      lift: 0,
       weights: hold('body'),
       duration: T.motion.selected,
       layoutDuration: T.motion.selected,
@@ -140,7 +144,7 @@ export function presentBlob(view: BlobView): BlobMotion {
     return {
       glyphWidth: T.blob.size,
       glyphHeight: T.blob.size,
-      lift: T.blob.selectedLift,
+      lift: 0,
       weights: hold('selected'),
       duration: T.motion.selected,
       layoutDuration: T.motion.selected,
@@ -169,18 +173,26 @@ export function eyeKindForSpecies(species: string): 'dot' | 'slit' {
   return SLIT_SHAPES.has(species) ? 'slit' : 'dot'
 }
 
+/** Mostly rest. Occasional glance at the neighbor above/below this rail index. */
+export function neighborGlance(id: string, look: number, index: number): BusyLook {
+  if (blobHash(id, `hold:${look}`) % 5 !== 0) return REST_LOOK
+  if (index > 0 && blobHash(id, `dir:${look}`) % 2 === 0) return { x: 0, y: -1 }
+  return { x: 0, y: 1 }
+}
+
 export function busyEyeLayout(
   look: number,
   blink: boolean,
   kind: 'dot' | 'slit' = 'dot',
+  glance: BusyLook | null = null,
 ): { left: number; top: number; width: number; height: number }[] {
-  const glance = BUSY_LOOKS[((look % BUSY_LOOKS.length) + BUSY_LOOKS.length) % BUSY_LOOKS.length] ?? REST_LOOK
+  const used = glance ?? (BUSY_LOOKS[((look % BUSY_LOOKS.length) + BUSY_LOOKS.length) % BUSY_LOOKS.length] ?? REST_LOOK)
   const openH = kind === 'slit' ? Math.max(2, T.blob.eye - 1) : T.blob.eye
   const openW = kind === 'slit' ? T.blob.eye + 1 : T.blob.eye
   const height = blink ? T.space.xxs : openH
   const width = blink ? openW + 1 : openW
-  const pairX = T.blob.eyeX + glance.x * T.blob.eyeWander
-  const pairY = T.blob.eyeY + glance.y * T.blob.eyeWander
+  const pairX = T.blob.eyeX + used.x * T.blob.eyeWander
+  const pairY = T.blob.eyeY + used.y * T.blob.eyeWander
   const top = pairY - height / 2
   return [-1, 1].map((side) => ({
     left: pairX + side * (T.blob.eyeGap / 2) - width / 2,
@@ -202,45 +214,24 @@ function loadShapeSvg(shape: string): string {
   return raw
 }
 
-function washHex(tintHex: string): string {
-  const raw = tintHex.replace('#', '')
-  if (raw.length < 6) return tintHex
-  return `#${raw.slice(0, 6)}`
-}
-
 /**
  * GPUIX `<svg source>` is a monochrome mask tinted by host `style.color`.
  * `fill=` in this markup is for tests/export. True path fill belongs in
  * canvas.rs upstream — do not metal-build that tonight.
+ *
+ * 1× stamp of the 259 viewBox. No inflate, no stroke, overflow hidden.
+ * Do not rebuild this string on clock ticks.
  */
-export function shapeSvgSource(
-  shape: string,
-  tintHex: string,
-  size: number,
-  inflatePx = 0,
-  opacity = 1,
-): string {
+export function shapeSvgSource(shape: string, tintHex: string, size: number): string {
   let svg = loadShapeSvg(shape)
   if (!svg) return ''
   svg = svg.replace('fill="#000"', `fill="${tintHex}"`)
-  if (opacity !== 1) {
-    svg = svg.replace('<path ', `<path fill-opacity="${opacity}" `)
-  }
-  if (inflatePx > 0) {
-    const sw = (2 * inflatePx) / (size / VIEWBOX)
-    svg = svg.replace(
-      '<path ',
-      `<path stroke="${tintHex}" stroke-width="${sw}" stroke-linejoin="round" `,
-    )
-  }
-  const stamp = size * 2
-  const boxOverflow = inflatePx > 0 ? 'visible' : 'hidden'
   svg = svg.replace(/<svg\b([^>]*)>/, (_m, attrs: string) => {
     let rest = String(attrs)
       .replace(/\swidth="[^"]*"/g, '')
       .replace(/\sheight="[^"]*"/g, '')
       .replace(/\soverflow="[^"]*"/g, '')
-    return `<svg width="${stamp}" height="${stamp}" overflow="${boxOverflow}"${rest}>`
+    return `<svg width="${size}" height="${size}" overflow="hidden"${rest}>`
   })
   return svg
 }
@@ -298,17 +289,17 @@ export function blobDoubleBlink(id: string, beat: number): boolean {
   return blobHash(id, `double-blink:${beat}`) % 5 === 0
 }
 
-function svgStampStyle(tint: string, overflow: 'hidden' | 'visible' = 'hidden') {
+function svgStampStyle(tint: string) {
   return {
     width: '100%',
     height: '100%',
     color: tint,
-    overflow,
+    overflow: 'hidden' as const,
     pointerEvents: 'none' as const,
   }
 }
 
-function BreatheGlyph({ shape, fill }: { shape: string; fill: string }) {
+const BodyGlyph = React.memo(function BodyGlyph({ shape, fill }: { shape: string; fill: string }) {
   const bodySvg = useMemo(() => shapeSvgSource(shape, fill, T.blob.size), [shape, fill])
   return (
     <div
@@ -325,7 +316,55 @@ function BreatheGlyph({ shape, fill }: { shape: string; fill: string }) {
       <svg source={bodySvg} style={svgStampStyle(fill)} />
     </div>
   )
-}
+})
+
+const FrozenMark = React.memo(function FrozenMark({
+  shape,
+  fill,
+  left,
+  top,
+  width,
+  height,
+  unread,
+}: {
+  shape: string
+  fill: string
+  left: number
+  top: number
+  width: number
+  height: number
+  unread: number
+}) {
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        left,
+        top,
+        width,
+        height,
+        overflow: 'hidden',
+        pointerEvents: 'none',
+      }}
+    >
+      <BodyGlyph shape={shape} fill={fill} />
+      {unread > 0 ? (
+        <div
+          style={{
+            position: 'absolute',
+            left: width - 4,
+            top: -2,
+            width: 7,
+            height: 7,
+            borderRadius: 4,
+            backgroundColor: T.catalog.red,
+            pointerEvents: 'none',
+          }}
+        />
+      ) : null}
+    </div>
+  )
+})
 
 function eyeSvgSource(kind: 'dot' | 'slit'): string {
   const openW = kind === 'slit' ? T.blob.eye + 1 : T.blob.eye
@@ -406,35 +445,36 @@ export function SisterBlob({
     }
   }, [agent.id, clock.wanderMs, clock.blinkEveryMs, clock.blinkDelayMs])
 
-  const motionState = presentBlob({
+  void presentBlob({
     selected,
     unread,
     mouthBusy,
     index,
     entered,
   })
+
+  const size = T.blob.size
+  const slot = T.blob.slot
   const squashX = pointer.down ? 1 + Math.abs(pointer.vx) * 0.07 : 1
   const squashY = pointer.down ? Math.max(0.82, 1 - Math.abs(pointer.vx) * 0.045) : 1
-  const glyphWidth = motionState.glyphWidth * squashX
-  const glyphHeight = motionState.glyphHeight * squashY
-  const targetX = (T.blob.slot - glyphWidth) / 2 + pointer.x
-  const targetY = (T.blob.slot - glyphHeight) / 2 + motionState.lift + pointer.y
-  const eyes = entered ? busyEyeLayout(look, blink || mouthBusy, eyeKind) : []
+  const glyphWidth = px(size * squashX)
+  const glyphHeight = px(size * squashY)
+  const glyphLeft = px((slot - glyphWidth) / 2 + (pointer.down ? pointer.x : 0))
+  const glyphTop = px((slot - glyphHeight) / 2 + (pointer.down ? pointer.y : 0))
+  const glance = neighborGlance(agent.id, look, index)
+  const eyes = entered ? busyEyeLayout(look, blink || mouthBusy, eyeKind, glance) : []
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
     [mark.shape, fill],
   )
-  const washSvg = useMemo(
-    () => shapeSvgSource(mark.shape, washHex(fill), T.blob.size, WASH_INFLATE_PX, 1),
-    [mark.shape, fill],
-  )
   const speed = Math.hypot(pointer.vx, pointer.vy)
-  if (speed > 0.35) {
-    smears.current = [{ x: targetX, y: targetY, o: 0.35 }, ...smears.current].slice(0, 5)
+  if (pointer.down && speed > 0.35) {
+    smears.current = [{ x: glyphLeft, y: glyphTop, o: 0.35 }, ...smears.current].slice(0, 5)
   } else {
     smears.current = smears.current.map((s) => ({ ...s, o: s.o * 0.72 })).filter((s) => s.o > 0.04)
   }
   const trail = pointer.vx < 0 ? 0 : 1
+  const plate = slot - PLATE_INSET * 2
 
   return (
     <div
@@ -471,16 +511,31 @@ export function SisterBlob({
         if (pointer.down) setPointer({ x: 0, y: 0, vx: 0, vy: 0, down: false })
       }}
       style={{
-        width: T.blob.slot,
-        height: T.blob.slot,
+        width: slot,
+        height: slot,
         position: 'relative',
         flexShrink: 0,
         overflow: 'visible',
         pointerEvents: 'auto',
         opacity: 1,
-        hover: { opacity: T.blob.hover },
       }}
     >
+      <motion.div
+        testId={`blob-plate-${agent.id}`}
+        initial={false}
+        animate={{ opacity: selected ? 1 : 0 }}
+        transition={BODY_SPRING}
+        style={{
+          position: 'absolute',
+          left: PLATE_INSET,
+          top: PLATE_INSET,
+          width: plate,
+          height: plate,
+          borderRadius: PLATE_RADIUS,
+          backgroundColor: T.selected,
+          pointerEvents: 'none',
+        }}
+      />
       {smears.current.map((smear, i) => (
         <div
           key={`smear-${i}`}
@@ -491,71 +546,32 @@ export function SisterBlob({
             width: glyphWidth,
             height: glyphHeight,
             opacity: smear.o,
-            overflow: 'visible',
+            overflow: 'hidden',
             pointerEvents: 'none',
           }}
         >
           <svg source={svg} style={svgStampStyle(fill)} />
         </div>
       ))}
-      <motion.div
-        initial={false}
-        animate={{
-          width: glyphWidth,
-          height: glyphHeight,
-          top: targetY,
-          left: targetX,
-        }}
-        transition={BODY_SPRING}
-        style={{
-          position: 'absolute',
-          overflow: 'visible',
-          pointerEvents: 'none',
-        }}
-      >
-        <motion.div
-          initial={false}
-          animate={{ opacity: selected ? 0.28 : 0 }}
-          transition={WASH_SPRING}
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: '100%',
-            height: '100%',
-            overflow: 'visible',
-            pointerEvents: 'none',
-          }}
-        >
-          <svg
-            source={washSvg}
-            style={svgStampStyle(washHex(fill), 'visible')}
-          />
-        </motion.div>
-        <BreatheGlyph shape={mark.shape} fill={fill} />
-        {unread > 0 ? (
-          <motion.div
-            initial={false}
-            animate={{ left: glyphWidth - 4, top: -2, width: 7, height: 7, borderRadius: 4 }}
-            transition={BODY_SPRING}
-            style={{
-              position: 'absolute',
-              backgroundColor: T.catalog.red,
-              pointerEvents: 'none',
-            }}
-          />
-        ) : null}
-      </motion.div>
+      <FrozenMark
+        shape={mark.shape}
+        fill={fill}
+        left={glyphLeft}
+        top={glyphTop}
+        width={glyphWidth}
+        height={glyphHeight}
+        unread={unread}
+      />
       {eyes.map((eye, side) => (
         <motion.div
           key={side}
           testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
           initial={false}
           animate={{
-            left: targetX + eye.left + (pointer.down ? pointer.vx * 4 : 0),
-            top: targetY + eye.top + (pointer.down ? pointer.vy * 4 : 0),
-            height: eye.height,
-            width: eye.width,
+            left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
+            top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0)),
+            height: px(eye.height),
+            width: px(eye.width),
           }}
           transition={{
             ...EYE_SPRING,
@@ -563,7 +579,7 @@ export function SisterBlob({
           }}
           style={{
             position: 'absolute',
-            overflow: 'visible',
+            overflow: 'hidden',
             pointerEvents: 'none',
           }}
         >
