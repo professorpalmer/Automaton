@@ -66,7 +66,7 @@ const BODY_SPRING = {
   damping: GELATIN.damping,
   mass: GELATIN.mass,
 }
-const EYE_SPRING = { type: 'spring' as const, stiffness: 18, damping: 7, mass: 1.0 }
+const EYE_SPRING = { type: 'spring' as const, stiffness: 13, damping: 14, mass: 1 }
 
 /** Grey selected plate. Static box; only opacity springs. */
 const PLATE_INSET = 2
@@ -240,25 +240,47 @@ export function restMelt(id: string, look: number): BlobMelt {
   return lane === 1 ? 'soft-wide' : 'soft-tall'
 }
 
+/** Face anchors in the 38px stamp. Default T.blob.eyeX/eyeY is blob-ish mass. */
+export const EYE_ANCHOR: Record<string, { x: number; y: number }> = {
+  cloud: { x: 19, y: 16 },
+  wedge: { x: 19, y: 17 },
+  teardrop: { x: 19, y: 18 },
+  arch: { x: 19, y: 15 },
+  leaf: { x: 19, y: 16 },
+  crystal: { x: 19, y: 16 },
+}
+
+export type EyeBox = {
+  left: number
+  top: number
+  width: number
+  height: number
+  lid: number
+}
+
 export function busyEyeLayout(
   look: number,
   blink: boolean,
   kind: 'dot' | 'slit' = 'dot',
   glance: BusyLook | null = null,
-): { left: number; top: number; width: number; height: number }[] {
+  shape = '',
+): EyeBox[] {
   const used = glance ?? (BUSY_LOOKS[((look % BUSY_LOOKS.length) + BUSY_LOOKS.length) % BUSY_LOOKS.length] ?? REST_LOOK)
   const openH = kind === 'slit' ? Math.max(2, T.blob.eye - 1) : T.blob.eye
   const openW = kind === 'slit' ? T.blob.eye + 1 : T.blob.eye
-  const height = blink ? T.space.xxs : openH
-  const width = blink ? openW + 1 : openW
-  const pairX = T.blob.eyeX + used.x * T.blob.eyeWander
-  const pairY = T.blob.eyeY + used.y * T.blob.eyeWander
-  const top = pairY - height / 2
+  const lid = blink ? T.space.xxs : openH
+  const anchor = EYE_ANCHOR[shape] ?? { x: T.blob.eyeX, y: T.blob.eyeY }
+  const pairX = anchor.x + used.x * T.blob.eyeWander
+  const pairY = anchor.y + used.y * T.blob.eyeWander
+  const top = px(pairY - openH / 2)
+  const width = openW
+  const height = openH
   return [-1, 1].map((side) => ({
-    left: pairX + side * (T.blob.eyeGap / 2) - width / 2,
+    left: px(pairX + side * (T.blob.eyeGap / 2) - width / 2),
     top,
     width,
     height,
+    lid,
   }))
 }
 
@@ -588,7 +610,7 @@ export function SisterBlob({
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
   const melt: BlobMelt = pose
-  const eyes = entered ? busyEyeLayout(look, live && blink, eyeKind, glance) : []
+  const eyes = entered ? busyEyeLayout(look, live && blink, eyeKind, glance, mark.shape) : []
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
     [mark.shape, fill],
@@ -599,7 +621,6 @@ export function SisterBlob({
   } else {
     smears.current = smears.current.map((s) => ({ ...s, o: s.o * 0.72 })).filter((s) => s.o > 0.04)
   }
-  const trail = pointer.vx < 0 ? 0 : 1
   const plate = slot - PLATE_INSET * 2
 
   return (
@@ -698,23 +719,34 @@ export function SisterBlob({
           animate={{
             left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
             top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0)),
-            height: px(eye.height),
-            width: px(eye.width),
           }}
-          transition={{
-            ...EYE_SPRING,
-            delay: side * 0.05 + (side === trail ? 0.04 : 0),
-          }}
+          transition={EYE_SPRING}
           style={{
             position: 'absolute',
+            width: eye.width,
+            height: eye.height,
             overflow: 'hidden',
             pointerEvents: 'none',
           }}
         >
-          <svg
-            source={eyeSvg}
-            style={svgStampStyle(T.catalog.black)}
-          />
+          <motion.div
+            initial={false}
+            animate={{ height: px(eye.lid) }}
+            transition={EYE_SPRING}
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: eye.width,
+              overflow: 'hidden',
+              pointerEvents: 'none',
+            }}
+          >
+            <svg
+              source={eyeSvg}
+              style={svgStampStyle(T.catalog.black)}
+            />
+          </motion.div>
         </motion.div>
       ))}
     </div>
