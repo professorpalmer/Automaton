@@ -72,6 +72,19 @@ const EYE_SPRING = { type: 'spring' as const, stiffness: 18, damping: 7, mass: 1
 const PLATE_INSET = 2
 const PLATE_RADIUS = 12
 
+export const BLOB_POSES = ['rest', 'wide', 'tall'] as const
+export type BlobPose = (typeof BLOB_POSES)[number]
+
+/** ViewBox "-15 -15 259 259" center. Baked into pose stamps, never layout. */
+const VIEW_CX = 114.5
+const VIEW_CY = 114.5
+
+const POSE_SCALE: Record<BlobPose, readonly [number, number]> = {
+  rest: [1, 1],
+  wide: [1.1, 0.88],
+  tall: [0.88, 1.1],
+}
+
 const svgCache = new Map<string, string>()
 
 export function blobTestId(id: string): string {
@@ -180,6 +193,12 @@ export function neighborGlance(id: string, look: number, index: number): BusyLoo
   return { x: 0, y: 1 }
 }
 
+/** Mostly rest. Occasional wide/tall silhouette on a look beat. Independent FNV. */
+export function idlePose(id: string, look: number): BlobPose {
+  if (blobHash(id, `pose-hold:${look}`) % 5 !== 0) return 'rest'
+  return blobHash(id, `pose-kind:${look}`) % 2 === 0 ? 'wide' : 'tall'
+}
+
 export function busyEyeLayout(
   look: number,
   blink: boolean,
@@ -234,6 +253,31 @@ export function shapeSvgSource(shape: string, tintHex: string, size: number): st
     return `<svg width="${size}" height="${size}" overflow="hidden"${rest}>`
   })
   return svg
+}
+
+/** Wrap the evenodd path once. Do not call this on clock ticks. */
+export function bakePoseSvg(svg: string, pose: BlobPose): string {
+  if (pose === 'rest' || !svg.includes('<path')) return svg
+  const [sx, sy] = POSE_SCALE[pose]
+  const transform = `translate(${VIEW_CX},${VIEW_CY}) scale(${sx.toFixed(2)},${sy.toFixed(2)}) translate(${-VIEW_CX},${-VIEW_CY})`
+  return svg.replace('<path', `<g transform="${transform}"><path`).replace('</svg>', '</g></svg>')
+}
+
+const poseStampCache = new Map<string, Record<BlobPose, string>>()
+
+/** Three stamps, baked once per shape+tint. Rest / wide / tall. */
+export function poseSvgStamps(shape: string, tintHex: string, size: number): Record<BlobPose, string> {
+  const key = `${shape}|${tintHex}|${size}`
+  const hit = poseStampCache.get(key)
+  if (hit) return hit
+  const rest = shapeSvgSource(shape, tintHex, size)
+  const stamps: Record<BlobPose, string> = {
+    rest,
+    wide: bakePoseSvg(rest, 'wide'),
+    tall: bakePoseSvg(rest, 'tall'),
+  }
+  poseStampCache.set(key, stamps)
+  return stamps
 }
 
 const FNV_OFFSET = 2166136261
@@ -299,8 +343,16 @@ function svgStampStyle(tint: string) {
   }
 }
 
-const BodyGlyph = React.memo(function BodyGlyph({ shape, fill }: { shape: string; fill: string }) {
-  const bodySvg = useMemo(() => shapeSvgSource(shape, fill, T.blob.size), [shape, fill])
+const BodyGlyph = React.memo(function BodyGlyph({
+  shape,
+  fill,
+  pose,
+}: {
+  shape: string
+  fill: string
+  pose: BlobPose
+}) {
+  const stamps = useMemo(() => poseSvgStamps(shape, fill, T.blob.size), [shape, fill])
   return (
     <div
       style={{
@@ -313,7 +365,25 @@ const BodyGlyph = React.memo(function BodyGlyph({ shape, fill }: { shape: string
         pointerEvents: 'none',
       }}
     >
-      <svg source={bodySvg} style={svgStampStyle(fill)} />
+      {BLOB_POSES.map((p) => (
+        <motion.div
+          key={p}
+          initial={false}
+          animate={{ opacity: pose === p ? 1 : 0 }}
+          transition={BODY_SPRING}
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: '100%',
+            height: '100%',
+            overflow: 'hidden',
+            pointerEvents: 'none',
+          }}
+        >
+          <svg source={stamps[p]} style={svgStampStyle(fill)} />
+        </motion.div>
+      ))}
     </div>
   )
 })
@@ -326,6 +396,7 @@ const FrozenMark = React.memo(function FrozenMark({
   width,
   height,
   unread,
+  pose,
 }: {
   shape: string
   fill: string
@@ -334,6 +405,7 @@ const FrozenMark = React.memo(function FrozenMark({
   width: number
   height: number
   unread: number
+  pose: BlobPose
 }) {
   return (
     <div
@@ -347,7 +419,7 @@ const FrozenMark = React.memo(function FrozenMark({
         pointerEvents: 'none',
       }}
     >
-      <BodyGlyph shape={shape} fill={fill} />
+      <BodyGlyph shape={shape} fill={fill} pose={pose} />
       {unread > 0 ? (
         <div
           style={{
@@ -462,6 +534,7 @@ export function SisterBlob({
   const glyphLeft = px((slot - glyphWidth) / 2 + (pointer.down ? pointer.x : 0))
   const glyphTop = px((slot - glyphHeight) / 2 + (pointer.down ? pointer.y : 0))
   const glance = neighborGlance(agent.id, look, index)
+  const pose = idlePose(agent.id, look)
   const eyes = entered ? busyEyeLayout(look, blink || mouthBusy, eyeKind, glance) : []
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
@@ -561,6 +634,7 @@ export function SisterBlob({
         width={glyphWidth}
         height={glyphHeight}
         unread={unread}
+        pose={pose}
       />
       {eyes.map((eye, side) => (
         <motion.div

@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BUSY_LOOKS, busyEyeLayout, neighborGlance, nextLook, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
+import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseSvgStamps, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -430,6 +430,29 @@ describe('sister blob presentation', () => {
     expect(glances.every((g) => g.x === 0)).toBe(true)
     expect(src).toMatch(/neighborGlance/)
     expect(src).toMatch(/FrozenMark/)
+    expect(BLOB_POSES).toEqual(['rest', 'wide', 'tall'])
+    expect(BLOB_POSES).toHaveLength(3)
+    const poses = Array.from({ length: 40 }, (_, i) => idlePose('kernel', i))
+    expect(poses.filter((p) => p === 'rest').length).toBeGreaterThan(24)
+    expect(poses.some((p) => p === 'wide')).toBe(true)
+    expect(poses.some((p) => p === 'tall')).toBe(true)
+    const staffPoses = Array.from({ length: 20 }, (_, i) => idlePose('staff', i)).join()
+    const kernelPoses = Array.from({ length: 20 }, (_, i) => idlePose('kernel', i)).join()
+    expect(staffPoses).not.toBe(kernelPoses)
+    const stamps = poseSvgStamps('blob', '#00C972', T.blob.size)
+    expect(poseSvgStamps('blob', '#00C972', T.blob.size)).toBe(stamps)
+    expect(stamps.rest).not.toContain('<g transform')
+    expect(stamps.wide).toContain('scale(1.10,0.88)')
+    expect(stamps.tall).toContain('scale(0.88,1.10)')
+    expect(stamps.wide).toContain('translate(114.5,114.5)')
+    expect(stamps.wide).toContain('fill="#00C972"')
+    expect(stamps.tall).toContain('overflow="hidden"')
+    expect(stamps.rest).toContain('width="38"')
+    expect(src).toMatch(/idlePose/)
+    expect(src).toMatch(/poseSvgStamps/)
+    expect(src).toMatch(/useMemo\(\(\) => poseSvgStamps/)
+    expect(src).not.toMatch(/socialEyes/)
+    expect(src).not.toMatch(/railCount/)
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).not.toMatch(/neighborSelected/)
     expect(app).not.toMatch(/railCount=\{agents\.length\}/)
