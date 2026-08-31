@@ -1206,7 +1206,8 @@ function Rail({
         const selected = agent.id === session.activeAgentId
         const mouth = row?.mouth ?? 'idle'
         const mouthBusy = isMouthBusy(mouth)
-        const alive = selected || mouthBusy || mouth === 'working' || row?.computerBusy === true
+        const working = mouthBusy || mouth === 'working' || row?.computerBusy === true
+        const alive = selected || working
         const pin = mouthModelFor(agent.id)
         const family = modelFamily(pin)
         const at = row ? lastItemAt(row.items) : null
@@ -1253,6 +1254,7 @@ function Rail({
               unread={0}
               mouthBusy={mouthBusy}
               alive={alive}
+              working={working}
               index={index}
               onSelect={() => onSelect(agent.id)}
               onMenu={(event) => onMenu(agent.id, event)}

@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
+import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, selectedGlance, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -403,6 +403,15 @@ describe('sister blob presentation', () => {
     expect(staff.blinkDelayMs).not.toBe(kernel.blinkDelayMs)
     expect(staff.breathePeriod).toBeGreaterThanOrEqual(T.blob.breatheMs * 0.75)
     expect(staff.breathePeriod).toBeLessThanOrEqual(T.blob.breatheMs * 1.3)
+    expect(staff.wanderMs).toBeGreaterThanOrEqual(T.blob.wanderMs * 2.4)
+    expect(staff.wanderMs).toBeLessThanOrEqual(T.blob.wanderMs * 3.8)
+    const lively = blobClock('staff', { livelyEyes: true })
+    expect(lively.wanderMs).toBeGreaterThanOrEqual(T.blob.wanderMs * 0.55)
+    expect(lively.wanderMs).toBeLessThanOrEqual(T.blob.wanderMs * 0.9)
+    expect(lively.blinkEveryMs).toBeGreaterThanOrEqual(1200)
+    expect(lively.blinkEveryMs).toBeLessThanOrEqual(2200)
+    expect(lively.wanderMs).toBeLessThan(staff.wanderMs)
+    expect(lively.blinkEveryMs).toBeLessThan(staff.blinkEveryMs)
     expect('turnPeriodMs' in staff).toBe(false)
     expect('turnStart' in staff).toBe(false)
     expect('wanderSkipMod' in staff).toBe(false)
@@ -454,6 +463,15 @@ describe('sister blob presentation', () => {
     expect(glances.some((g) => g.y > 0)).toBe(true)
     expect(glances.every((g) => g.x === 0)).toBe(true)
     expect(src).toMatch(/neighborGlance/)
+    const selecteds = Array.from({ length: 40 }, (_, i) => selectedGlance('kernel', i, 2))
+    const selectedRest = selecteds.filter((g) => g.x === 0 && g.y === 0).length
+    expect(selectedRest).toBeLessThan(24)
+    expect(selectedRest).toBeLessThan(selecteds.length * 0.5)
+    expect(selecteds.some((g) => g.y < 0)).toBe(true)
+    expect(selecteds.some((g) => g.y > 0)).toBe(true)
+    expect(selecteds.some((g) => g.x !== 0)).toBe(true)
+    expect(src).toMatch(/selectedGlance/)
+    expect(src).toMatch(/livelyEyes:\s*selected/)
     expect(src).toMatch(/FrozenMark/)
     expect(BLOB_POSES).toEqual(['rest', 'wide', 'tall'])
     expect(BLOB_POSES).toHaveLength(3)
@@ -505,7 +523,8 @@ describe('sister blob presentation', () => {
     expect(app).toMatch(/mouth === 'working'/)
     expect(app).toMatch(/row\?\.computerBusy === true/)
     expect(app).toMatch(/alive=\{alive\}/)
-    expect(app).toMatch(/selected \|\| mouthBusy/)
+    expect(app).toMatch(/working=\{working\}/)
+    expect(app).toMatch(/selected \|\| working/)
   })
 
   test('a job handle is not an input, so it cannot think a mouth', () => {
@@ -553,7 +572,8 @@ describe('sister blob presentation', () => {
     expect(busyStrip.some((frame) => frame.width !== rest.width || frame.height !== rest.height)).toBe(true)
     const src = readFileSync(join(import.meta.dir, '../src/blob.tsx'), 'utf8')
     expect(src).toMatch(/if \(!blobNeedsClock\(live\)\)/)
-    expect(src).toMatch(/workPose\(agent\.id, look\)/)
+    expect(src).toMatch(/workPose\(agent\.id, poseLook\)/)
+    expect(src).toMatch(/busyBody/)
     expect(src).not.toMatch(/idlePose\(agent\.id, look\)/)
   })
 })
