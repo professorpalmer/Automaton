@@ -365,25 +365,7 @@ const BodyGlyph = React.memo(function BodyGlyph({
         pointerEvents: 'none',
       }}
     >
-      {BLOB_POSES.map((p) => (
-        <motion.div
-          key={p}
-          initial={false}
-          animate={{ opacity: pose === p ? 1 : 0 }}
-          transition={BODY_SPRING}
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: '100%',
-            height: '100%',
-            overflow: 'hidden',
-            pointerEvents: 'none',
-          }}
-        >
-          <svg source={stamps[p]} style={svgStampStyle(fill)} />
-        </motion.div>
-      ))}
+      <svg source={stamps[pose]} style={svgStampStyle(fill)} />
     </div>
   )
 })

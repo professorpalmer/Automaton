@@ -451,6 +451,8 @@ describe('sister blob presentation', () => {
     expect(src).toMatch(/idlePose/)
     expect(src).toMatch(/poseSvgStamps/)
     expect(src).toMatch(/useMemo\(\(\) => poseSvgStamps/)
+    expect(src).toMatch(/stamps\[pose\]/)
+    expect(src).not.toMatch(/BLOB_POSES\.map/)
     expect(src).not.toMatch(/socialEyes/)
     expect(src).not.toMatch(/railCount/)
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
