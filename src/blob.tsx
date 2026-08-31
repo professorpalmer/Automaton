@@ -116,8 +116,8 @@ export function assertSeedFrames(): void {
   }
 }
 
-export function blobNeedsClock(_mouthBusy: boolean): boolean {
-  return true
+export function blobNeedsClock(alive: boolean): boolean {
+  return alive
 }
 
 function hold(weight: keyof BlobWeights): BlobWeights {
@@ -198,6 +198,13 @@ export function neighborGlance(id: string, look: number, index: number): BusyLoo
 export function idlePose(id: string, look: number): BlobPose {
   if (blobHash(id, `pose-hold:${look}`) % 5 !== 0) return 'rest'
   return blobHash(id, `pose-kind:${look}`) % 2 === 0 ? 'wide' : 'tall'
+}
+
+/** Working squash. Wide/tall more often; rest is a hold, not the default. */
+export function workPose(id: string, look: number): BlobPose {
+  const lane = blobHash(id, `work-pose:${look}`) % 3
+  if (lane === 0) return 'rest'
+  return lane === 1 ? 'wide' : 'tall'
 }
 
 /** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
@@ -350,7 +357,7 @@ export function blobClock(id: string): BlobClock {
   return {
     phaseOffset: phase * Math.PI * 2,
     breathePeriod: T.blob.breatheMs * (0.75 + breathe * 0.55),
-    wanderMs: T.blob.wanderMs * (0.6 + wander * 0.8),
+    wanderMs: T.blob.wanderMs * (2.4 + wander * 1.4),
     blinkEveryMs: T.blob.blinkEveryMs * (0.5 + blink * 1.0),
     blinkDelayMs: blink0 * T.blob.blinkEveryMs,
     lookStart: blobHash(id, 'look') % BUSY_LOOKS.length,
@@ -487,6 +494,7 @@ export function SisterBlob({
   selected,
   unread,
   mouthBusy,
+  alive,
   index,
   onSelect,
   onMenu,
@@ -495,10 +503,12 @@ export function SisterBlob({
   selected: boolean
   unread: number
   mouthBusy: boolean
+  alive?: boolean
   index: number
   onSelect?: () => void
   onMenu?: (event: { x?: number; y?: number; isRightClick?: boolean; button?: number }) => void
 }) {
+  const live = alive ?? mouthBusy
   const mark = markFor(agent)
   const fill = catalogHex(mark.tint)
   const eyeKind = eyeKindForSpecies(mark.shape)
@@ -517,7 +527,11 @@ export function SisterBlob({
   }, [])
 
   useEffect(() => {
-    if (runningTests()) return
+    if (!blobNeedsClock(live)) {
+      setLook(clock.lookStart)
+      setBlink(false)
+      return
+    }
     const wander = setInterval(() => {
       setLook((n) => nextLook(agent.id, n))
     }, clock.wanderMs)
@@ -549,7 +563,7 @@ export function SisterBlob({
       if (close) clearTimeout(close)
       if (reopen) clearTimeout(reopen)
     }
-  }, [agent.id, clock.wanderMs, clock.blinkEveryMs, clock.blinkDelayMs])
+  }, [live, agent.id, clock.lookStart, clock.wanderMs, clock.blinkEveryMs, clock.blinkDelayMs])
 
   void presentBlob({
     selected,
@@ -567,12 +581,13 @@ export function SisterBlob({
   const glyphHeight = px(size * squashY)
   const glyphLeft = px((slot - glyphWidth) / 2 + (pointer.down ? pointer.x : 0))
   const glyphTop = px((slot - glyphHeight) / 2 + (pointer.down ? pointer.y : 0))
-  const glance = neighborGlance(agent.id, look, index)
-  const rawPose = look === clock.lookStart ? 'rest' : idlePose(agent.id, look)
+  if (!live) lastPose.current = 'rest'
+  const glance = live ? neighborGlance(agent.id, look, index) : REST_LOOK
+  const rawPose = !live || look === clock.lookStart ? 'rest' : workPose(agent.id, look)
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
-  const melt: BlobMelt = look === clock.lookStart ? 'rest' : pose === 'rest' ? restMelt(agent.id, look) : pose
-  const eyes = entered ? busyEyeLayout(look, blink || mouthBusy, eyeKind, glance) : []
+  const melt: BlobMelt = pose
+  const eyes = entered ? busyEyeLayout(look, live && blink, eyeKind, glance) : []
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
     [mark.shape, fill],

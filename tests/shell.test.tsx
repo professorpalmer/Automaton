@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
+import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -286,7 +286,7 @@ describe('sister blob presentation', () => {
     expect(idle.weights).toEqual({ rest: 1, breathe: 0, selected: 0, body: 0 })
     expect(idle.glyphHeight).toBe(T.blob.size)
     expect(idle.lift).toBe(0)
-    expect(blobNeedsClock(false)).toBe(true)
+    expect(blobNeedsClock(false)).toBe(false)
     expect(selected.weights).toEqual({ rest: 0, breathe: 0, selected: 1, body: 0 })
     expect(selected.lift).toBe(0)
     expect(selected.duration).toBe(T.motion.selected)
@@ -436,6 +436,11 @@ describe('sister blob presentation', () => {
     expect(poses.filter((p) => p === 'rest').length).toBeGreaterThan(24)
     expect(poses.some((p) => p === 'wide')).toBe(true)
     expect(poses.some((p) => p === 'tall')).toBe(true)
+    const works = Array.from({ length: 40 }, (_, i) => workPose('kernel', i))
+    expect(works.some((p) => p === 'wide')).toBe(true)
+    expect(works.some((p) => p === 'tall')).toBe(true)
+    expect(works.filter((p) => p === 'rest').length).toBeLessThan(poses.filter((p) => p === 'rest').length)
+    expect(new Set(works.map((p) => poseLayout(p).width)).size).toBeGreaterThan(1)
     const staffPoses = Array.from({ length: 20 }, (_, i) => idlePose('staff', i)).join()
     const kernelPoses = Array.from({ length: 20 }, (_, i) => idlePose('kernel', i)).join()
     expect(staffPoses).not.toBe(kernelPoses)
@@ -460,6 +465,8 @@ describe('sister blob presentation', () => {
     expect(stamps.tall).toContain('overflow="hidden"')
     expect(stamps.rest).toContain('width="38"')
     expect(src).toMatch(/idlePose/)
+    expect(src).toMatch(/workPose/)
+    expect(src).toMatch(/if \(!blobNeedsClock\(live\)\)/)
     expect(src).toMatch(/poseLayout/)
     expect(src).toMatch(/poseSvgStamps/)
     expect(src).toMatch(/useMemo\(\(\) => shapeSvgSource/)
@@ -470,6 +477,9 @@ describe('sister blob presentation', () => {
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).not.toMatch(/neighborSelected/)
     expect(app).not.toMatch(/railCount=\{agents\.length\}/)
+    expect(app).toMatch(/mouth === 'working'/)
+    expect(app).toMatch(/row\?\.computerBusy === true/)
+    expect(app).toMatch(/alive=\{alive\}/)
   })
 
   test('a job handle is not an input, so it cannot think a mouth', () => {
@@ -498,6 +508,27 @@ describe('sister blob presentation', () => {
     expect(mount.weights.body).toBe(0)
     expect(mount.glyphWidth).toBe(T.blob.size)
     expect(mount.delay).toBe(2 * T.blob.stagger)
+  })
+
+  test('idle blobs do not wander; working blobs squash on the clock', () => {
+    expect(blobNeedsClock(false)).toBe(false)
+    expect(blobNeedsClock(true)).toBe(true)
+    const rest = poseLayout('rest')
+    expect(rest).toEqual({ left: 0, top: 0, width: 38, height: 38 })
+    const idleStrip = [0, 1, 2, 3, 4].map(() => poseLayout('rest'))
+    for (const frame of idleStrip) {
+      expect(frame.left - rest.left).toBe(0)
+      expect(frame.top - rest.top).toBe(0)
+      expect(frame.width - rest.width).toBe(0)
+      expect(frame.height - rest.height).toBe(0)
+    }
+    const clock = blobClock('kernel')
+    const busyStrip = [1, 2, 3, 4, 5].map((look) => poseLayout(workPose('kernel', look === clock.lookStart ? look + 1 : look)))
+    expect(busyStrip.some((frame) => frame.width !== rest.width || frame.height !== rest.height)).toBe(true)
+    const src = readFileSync(join(import.meta.dir, '../src/blob.tsx'), 'utf8')
+    expect(src).toMatch(/if \(!blobNeedsClock\(live\)\)/)
+    expect(src).toMatch(/workPose\(agent\.id, look\)/)
+    expect(src).not.toMatch(/idlePose\(agent\.id, look\)/)
   })
 })
 
@@ -713,6 +744,7 @@ native('staff shell (GPUI native)', () => {
             selected={agent.id === 'staff'}
             unread={agent.id === 'research' ? 1 : 0}
             mouthBusy={agent.id === 'kernel'}
+            alive={agent.id === 'kernel'}
             index={index}
           />
         ))}
@@ -730,14 +762,20 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'blob-eye-kernel-left')).toBeTruthy()
     expect(findTestId(tree, 'blob-eye-kernel-right')).toBeTruthy()
     expect(findTestId(tree, 'blob-eye-staff-left')).toBeTruthy()
+    const idleEye = findTestId(tree, 'blob-eye-staff-left')
+    const idleBox = idleEye?.bounds
 
     renderer.clockPause()
-    renderer.clockFastForward(T.blob.wanderMs)
+    renderer.clockFastForward(T.blob.wanderMs * 8)
     renderer.flush()
     const after = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(after, 'blob-eye-kernel-left')).toBeTruthy()
     expect(findTestId(after, 'blob-kernel')).toBeTruthy()
     expect(findTestId(after, 'blob-staff')).toBeTruthy()
+    expect(findTestId(after, 'blob-eye-staff-left')?.bounds).toEqual(idleBox)
+    expect(findTestId(after, 'blob-eye-research-left')?.bounds).toEqual(
+      findTestId(tree, 'blob-eye-research-left')?.bounds,
+    )
   })
 
   test('job strip is gone; composer Stop is the cancel control', () => {
