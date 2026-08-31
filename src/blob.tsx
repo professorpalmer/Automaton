@@ -199,6 +199,30 @@ export function idlePose(id: string, look: number): BlobPose {
   return blobHash(id, `pose-kind:${look}`) % 2 === 0 ? 'wide' : 'tall'
 }
 
+/** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
+const POSE_EXTENT: Record<BlobPose, readonly [number, number]> = {
+  rest: [T.blob.size, T.blob.size],
+  wide: [42, 34],
+  tall: [34, 42],
+}
+
+export function poseLayout(
+  pose: BlobPose,
+  hostW = T.blob.size,
+  hostH = T.blob.size,
+): { left: number; top: number; width: number; height: number } {
+  const rest = T.blob.size
+  const [nw, nh] = POSE_EXTENT[pose]
+  const width = px(hostW * (nw / rest))
+  const height = px(hostH * (nh / rest))
+  return {
+    left: px((hostW - width) / 2),
+    top: px((hostH - height) / 2),
+    width,
+    height,
+  }
+}
+
 export function busyEyeLayout(
   look: number,
   blink: boolean,
@@ -346,13 +370,11 @@ function svgStampStyle(tint: string) {
 const BodyGlyph = React.memo(function BodyGlyph({
   shape,
   fill,
-  pose,
 }: {
   shape: string
   fill: string
-  pose: BlobPose
 }) {
-  const stamps = useMemo(() => poseSvgStamps(shape, fill, T.blob.size), [shape, fill])
+  const bodySvg = useMemo(() => shapeSvgSource(shape, fill, T.blob.size), [shape, fill])
   return (
     <div
       style={{
@@ -365,7 +387,7 @@ const BodyGlyph = React.memo(function BodyGlyph({
         pointerEvents: 'none',
       }}
     >
-      <svg source={stamps[pose]} style={svgStampStyle(fill)} />
+      <svg source={bodySvg} style={svgStampStyle(fill)} />
     </div>
   )
 })
@@ -379,6 +401,7 @@ const FrozenMark = React.memo(function FrozenMark({
   height,
   unread,
   pose,
+  dragging,
 }: {
   shape: string
   fill: string
@@ -388,7 +411,9 @@ const FrozenMark = React.memo(function FrozenMark({
   height: number
   unread: number
   pose: BlobPose
+  dragging: boolean
 }) {
+  const box = dragging ? { left: 0, top: 0, width, height } : poseLayout(pose, width, height)
   return (
     <div
       style={{
@@ -397,11 +422,27 @@ const FrozenMark = React.memo(function FrozenMark({
         top,
         width,
         height,
-        overflow: 'hidden',
+        overflow: 'visible',
         pointerEvents: 'none',
       }}
     >
-      <BodyGlyph shape={shape} fill={fill} pose={pose} />
+      <motion.div
+        initial={false}
+        animate={{
+          left: box.left,
+          top: box.top,
+          width: box.width,
+          height: box.height,
+        }}
+        transition={dragging ? { type: 'tween' as const, duration: 0 } : BODY_SPRING}
+        style={{
+          position: 'absolute',
+          overflow: 'hidden',
+          pointerEvents: 'none',
+        }}
+      >
+        <BodyGlyph shape={shape} fill={fill} />
+      </motion.div>
       {unread > 0 ? (
         <div
           style={{
@@ -617,6 +658,7 @@ export function SisterBlob({
         height={glyphHeight}
         unread={unread}
         pose={pose}
+        dragging={pointer.down}
       />
       {eyes.map((eye, side) => (
         <motion.div

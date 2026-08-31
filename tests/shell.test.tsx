@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseSvgStamps, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
+import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, presentBlob, shapeSvgSource, SisterBlob } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -439,6 +439,9 @@ describe('sister blob presentation', () => {
     const staffPoses = Array.from({ length: 20 }, (_, i) => idlePose('staff', i)).join()
     const kernelPoses = Array.from({ length: 20 }, (_, i) => idlePose('kernel', i)).join()
     expect(staffPoses).not.toBe(kernelPoses)
+    expect(poseLayout('rest')).toEqual({ left: 0, top: 0, width: 38, height: 38 })
+    expect(poseLayout('wide')).toEqual({ left: -2, top: 2, width: 42, height: 34 })
+    expect(poseLayout('tall')).toEqual({ left: 2, top: -2, width: 34, height: 42 })
     const stamps = poseSvgStamps('blob', '#00C972', T.blob.size)
     expect(poseSvgStamps('blob', '#00C972', T.blob.size)).toBe(stamps)
     expect(stamps.rest).not.toContain('<g transform')
@@ -449,9 +452,10 @@ describe('sister blob presentation', () => {
     expect(stamps.tall).toContain('overflow="hidden"')
     expect(stamps.rest).toContain('width="38"')
     expect(src).toMatch(/idlePose/)
+    expect(src).toMatch(/poseLayout/)
     expect(src).toMatch(/poseSvgStamps/)
-    expect(src).toMatch(/useMemo\(\(\) => poseSvgStamps/)
-    expect(src).toMatch(/stamps\[pose\]/)
+    expect(src).toMatch(/useMemo\(\(\) => shapeSvgSource/)
+    expect(src).not.toMatch(/stamps\[pose\]/)
     expect(src).not.toMatch(/BLOB_POSES\.map/)
     expect(src).not.toMatch(/socialEyes/)
     expect(src).not.toMatch(/railCount/)
