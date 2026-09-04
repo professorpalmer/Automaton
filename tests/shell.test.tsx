@@ -160,6 +160,21 @@ function boundsFor(
   return bounds
 }
 
+function scrollTestIdIntoPane(
+  renderer: ReturnType<typeof createTestRoot>['renderer'],
+  testId: string,
+  paneId: string,
+) {
+  const pane = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), paneId)
+  if (typeof pane?.id !== 'number') throw new Error(`no ${paneId} id`)
+  const box = boundsFor(renderer, paneId)
+  const target = boundsFor(renderer, testId)
+  if (target.y >= box.y && target.y + target.height <= box.y + box.height) return
+  const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
+  renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - target.y))
+  renderer.flush()
+}
+
 function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
   const bounds = boundsFor(renderer, testId)
   renderer.nativeSimulateClick(
@@ -1517,6 +1532,7 @@ native('staff shell (GPUI native)', () => {
     expect(text).not.toContain('Puppetmaster')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeFalsy()
+    scrollTestIdIntoPane(renderer, 'settings-seats-more', 'settings')
     clickTestId(renderer, 'settings-seats-more')
     renderer.flush()
     text = renderer.getPaintedText().join(' ')
@@ -1550,14 +1566,8 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     const pane = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings')
     if (typeof pane?.id !== 'number') throw new Error('no settings id')
-    const box = boundsFor(renderer, 'settings')
-    let save = boundsFor(renderer, 'settings-key-save')
-    if (save.y < box.y || save.y + save.height > box.y + box.height) {
-      const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
-      renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - save.y))
-      renderer.flush()
-      save = boundsFor(renderer, 'settings-key-save')
-    }
+    scrollTestIdIntoPane(renderer, 'settings-key-save', 'settings')
+    const save = boundsFor(renderer, 'settings-key-save')
     const before = renderer.getScrollOffset(pane.id) ?? [0, 0]
     renderer.nativeSimulateScrollWheel(
       Math.floor(save.x + save.width / 2),
