@@ -647,4 +647,60 @@ describe('staff sqlite store', () => {
     expect(rows.find((row) => row.text.includes('0 open PRs'))?.freshness).toBe('fresh')
   })
 
+  test('action events survive reopen and never store typed text or file bytes', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-actions-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    const secret = 'hunter2-not-a-real-secret'
+    store.recordAction({
+      id: 'action_1',
+      ownerAgentId: 'kernel',
+      tool: 'box_computer',
+      intent: 'type',
+      decision: 'permit',
+      reason: 'type',
+      secretChars: secret.length,
+      at: 10,
+    })
+    store.recordAction({
+      id: 'action_2',
+      ownerAgentId: 'kernel',
+      tool: 'box_read',
+      intent: 'read',
+      decision: 'permit',
+      reason: 'read',
+      path: '/tmp/secret-file.txt',
+      at: 11,
+    })
+    store.recordAction({
+      id: 'action_2',
+      ownerAgentId: 'kernel',
+      tool: 'box_read',
+      intent: 'read',
+      decision: 'permit',
+      reason: 'read',
+      path: '/tmp/secret-file.txt',
+      at: 11,
+    })
+    store.recordAction({
+      id: 'action_3',
+      ownerAgentId: 'staff',
+      tool: 'box_computer',
+      intent: 'click',
+      decision: 'refuse',
+      reason: 'staff_pixel',
+      at: 12,
+    })
+    expect(store.listActions('kernel')).toHaveLength(2)
+    expect(store.listActions()).toHaveLength(3)
+    const reopened = openStaffStore(path)
+    const rows = reopened.listActions()
+    expect(rows).toHaveLength(3)
+    expect(rows.map((row) => row.id)).toEqual(['action_1', 'action_2', 'action_3'])
+    expect(JSON.stringify(rows)).not.toContain(secret)
+    expect(JSON.stringify(rows)).not.toContain('file bytes')
+    expect(rows[0]?.secretChars).toBe(secret.length)
+    expect(rows[1]?.path).toBe('/tmp/secret-file.txt')
+  })
+
 })

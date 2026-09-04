@@ -3,6 +3,7 @@ import { copiedInTests } from '../src/runtime/clipboard'
 import {
   copyFeedSelection,
   feedMsgIds,
+  hitMsgIdAtY,
   selectFeedRange,
   selectedFeedText,
 } from '../src/runtime/feed-select'
@@ -46,5 +47,21 @@ describe('feed selection copy', () => {
     const ids = feedMsgIds(items)
     expect(selectFeedRange(ids, 'u1', 'a1')).toEqual(['u1', 'a1'])
     expect(selectFeedRange(ids, 'a1', 'a2')).toEqual(['a1', 'a2'])
+  })
+
+  test('pointer y picks the stacked msg row, last overlap wins', () => {
+    const rows = [
+      { id: 'u1', y: 0, height: 40 },
+      { id: 'a1', y: 40, height: 40 },
+      { id: 'a2', y: 80, height: 40 },
+    ]
+    expect(hitMsgIdAtY(rows, 0)).toBe('u1')
+    expect(hitMsgIdAtY(rows, 39)).toBe('u1')
+    expect(hitMsgIdAtY(rows, 40)).toBe('a1')
+    expect(hitMsgIdAtY(rows, 80)).toBe('a2')
+    expect(hitMsgIdAtY(rows, 119)).toBe('a2')
+    expect(hitMsgIdAtY(rows, 120)).toBe(null)
+    expect(hitMsgIdAtY(rows, -1)).toBe(null)
+    expect(hitMsgIdAtY([{ id: 'u1', y: 0, height: 50 }, { id: 'a1', y: 40, height: 40 }], 45)).toBe('a1')
   })
 })

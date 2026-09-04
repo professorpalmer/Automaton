@@ -168,6 +168,7 @@ export type FeedItem =
       text: string
       attachmentIds?: string[]
       at?: number
+      sisterHop?: { to: AgentId; depth: number }
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
@@ -1601,9 +1602,65 @@ export function hostApprovalWidget(prompt = 'Run this on your Mac?'): QuestionWi
   }
 }
 
+export const HOP_MAX_DEPTH = 2
+export const HOP_MAX_PER_TURN = 2
+
+export type SisterHop = {
+  from: AgentId
+  to: AgentId
+  task: string
+  constraints?: string
+  expecting?: string
+  depth: number
+}
+
+export function formatSisterMandate(hop: Pick<SisterHop, 'task' | 'constraints' | 'expecting'>): string {
+  const lines = [`Task: ${hop.task}`]
+  if (hop.constraints) lines.push(`Constraints: ${hop.constraints}`)
+  if (hop.expecting) lines.push(`Expecting: ${hop.expecting}`)
+  return lines.join('\n')
+}
+
+export function sisterHopRefusal(hop: SisterHop, visible: Agent[], handedThisTurn: number): string | null {
+  if (!hop.task.trim()) return 'Need a task to hand off.'
+  if (hop.to === hop.from) return 'Cannot hand that to myself.'
+  if (hop.to === 'staff') return 'Staff is not a hop target.'
+  const target = visible.find((agent) => agent.id === hop.to)
+  if (!target) return 'That automaton is not on the rail.'
+  if (hop.depth >= HOP_MAX_DEPTH) return 'That hop is too deep.'
+  if (handedThisTurn >= HOP_MAX_PER_TURN) return 'Already handed off enough this turn.'
+  return null
+}
+
+export function handedHopsSinceLastUser(items: FeedItem[]): number {
+  let lastUser = -1
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]
+    if (item?.kind === 'msg' && item.from === 'user') {
+      lastUser = i
+      break
+    }
+  }
+  return items
+    .slice(lastUser + 1)
+    .filter((item) => item.kind === 'msg' && item.from === 'agent' && item.sisterHop).length
+}
+
+export function hopDepthFromItems(from: AgentId, items: FeedItem[]): number {
+  if (from === 'staff') return 0
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    const item = items[i]
+    if (item?.kind === 'msg' && item.from === 'user') {
+      return item.sisterHop ? item.sisterHop.depth + 1 : 1
+    }
+  }
+  return 1
+}
+
 export type MouthEmit =
   | { kind: 'widget'; widget: QuestionWidget }
   | { kind: 'secret-request'; connectorId: string }
+  | { kind: 'hop'; hop: Pick<SisterHop, 'to' | 'task' | 'constraints' | 'expecting'> }
 
 function stripJsonFence(text: string): string {
   const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
@@ -1620,6 +1677,22 @@ export function parseMouthEmit(spoken: string): MouthEmit | null {
       const connectorId = typeof parsed.connectorId === 'string' ? parsed.connectorId.trim() : ''
       if (!connectorId) return null
       return { kind: 'secret-request', connectorId }
+    }
+    if (type === 'hop') {
+      const to = typeof parsed.to === 'string' ? parsed.to.trim() : ''
+      const task = typeof parsed.task === 'string' ? parsed.task.trim() : ''
+      if (!to || !task) return null
+      const constraints = typeof parsed.constraints === 'string' ? parsed.constraints.trim() : ''
+      const expecting = typeof parsed.expecting === 'string' ? parsed.expecting.trim() : ''
+      return {
+        kind: 'hop',
+        hop: {
+          to,
+          task,
+          ...(constraints ? { constraints } : {}),
+          ...(expecting ? { expecting } : {}),
+        },
+      }
     }
     if (type === 'widget' || type === 'question') {
       const optionsRaw = Array.isArray(parsed.options) ? parsed.options : []

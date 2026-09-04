@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import { allFrameNames } from '../scripts/bake-marks'
 import { DEFAULT_AGENTS, bindHomes, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
-import { applyHomeBinds, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, markForAgent, resolveFramePath } from '../src/runtime/factory'
+import { applyHomeBinds, cloneAgent, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, markForAgent, resolveFramePath } from '../src/runtime/factory'
 import { readProfile, writeProfile } from '../src/runtime/profile'
 import type { Session } from '../src/session'
 
@@ -160,6 +160,45 @@ describe('agent factory', () => {
     )
     applyHomeBinds(binds, home)
     expect(readProfile(created.agent.id, home)?.homeRepo).toBe('example/Puppetmaster')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('clone inherits kit rules home and skills, not staff, and deals a new mark', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const source = createAgent({ home, name: 'Scout', kit: 'lookup' })
+    writeProfile(
+      {
+        ...source.profile,
+        title: 'Looker',
+        description: 'Finds things.',
+        rules: 'Stay on the product tree.',
+        skillIds: ['skill_note'],
+        homeRepo: 'example/Puppetmaster',
+        homePath: '/tmp/puppetmaster',
+      },
+      home,
+    )
+    expect(cloneAgent('staff', home)).toBeNull()
+    const copy = cloneAgent(source.agent.id, home)
+    expect(copy).not.toBeNull()
+    if (!copy) return
+    expect(copy.agent.id).not.toBe(source.agent.id)
+    expect(copy.profile.name).toBe('Scout copy')
+    expect(copy.profile.kit).toBe('lookup')
+    expect(copy.profile.title).toBe('Looker')
+    expect(copy.profile.description).toBe('Finds things.')
+    expect(copy.profile.rules).toBe('Stay on the product tree.')
+    expect(copy.profile.skillIds).toEqual(['skill_note'])
+    expect(copy.profile.homeRepo).toBe('example/Puppetmaster')
+    expect(copy.profile.homePath).toBe('/tmp/puppetmaster')
+    expect(copy.profile.introPlayedAt ?? null).toBeNull()
+    expect(copy.profile.hiddenFromRail).toBe(false)
+    expect(copy.profile.avatarShape).toBeTruthy()
+    expect(copy.profile.avatarColor).toBeTruthy()
+    expect(existsSync(join(home, 'desktops', copy.agent.id, 'browser'))).toBe(true)
+    destroyAgent(copy.agent.id, home)
+    destroyAgent(source.agent.id, home)
     rmSync(home, { recursive: true, force: true })
   })
 

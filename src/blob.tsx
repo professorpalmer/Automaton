@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { GELATIN, motion } from '@gpuix/react'
+import { motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
@@ -59,6 +59,8 @@ const SVG_DIR = join(import.meta.dir, 'marks', 'grokbot')
 const SLIT_SHAPES = new Set(['hex', 'crystal', 'tablet', 'gem', 'cylinder'])
 
 const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, body: 0 }
+
+const GELATIN = { stiffness: 28, damping: 8, mass: 1.25 }
 
 const BODY_SPRING = {
   type: 'spring' as const,
