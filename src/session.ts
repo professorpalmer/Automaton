@@ -52,6 +52,11 @@ import {
   parseDeskUrl,
   parseGithubIssue,
   parseMouthEmit,
+  formatSisterMandate,
+  handedHopsSinceLastUser,
+  hopDepthFromItems,
+  sisterHopRefusal,
+  type SisterHop,
   renameAck,
   renameAgents,
   returnBeat,
@@ -416,6 +421,7 @@ function stamped(
   text: string,
   attachmentIds?: string[],
   id?: string,
+  sisterHop?: { to: AgentId; depth: number },
 ): FeedItem {
   return {
     kind: 'msg',
@@ -425,11 +431,19 @@ function stamped(
     text,
     attachmentIds: attachmentIds && attachmentIds.length > 0 ? attachmentIds : undefined,
     at: Date.now(),
+    sisterHop,
   }
 }
 
-function speak(session: Session, agentId: AgentId, text: string, focused: AgentId, id?: string): Session {
-  return append(session, agentId, stamped('agent', agentId, text, undefined, id), focused)
+function speak(
+  session: Session,
+  agentId: AgentId,
+  text: string,
+  focused: AgentId,
+  id?: string,
+  sisterHop?: { to: AgentId; depth: number },
+): Session {
+  return append(session, agentId, stamped('agent', agentId, text, undefined, id, sisterHop), focused)
 }
 
 function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Session {
@@ -827,10 +841,11 @@ function deliverTo(
   ping = false,
   mandateText = text,
   skipUser = false,
+  sisterHop?: { to: AgentId; depth: number },
 ): Session {
   let next = session
   if (!skipUser) {
-    const item = stamped('user', agentId, text, attachmentIds)
+    const item = stamped('user', agentId, text, attachmentIds, undefined, sisterHop)
     next = append(next, agentId, item, focused)
     next = setThread(next, agentId, {
       draft: agentId === focused ? '' : thread(next, agentId).draft,
@@ -1010,6 +1025,19 @@ export function pendingMouthTurns(
   return pending
 }
 
+export function offerSisterHop(session: Session, hop: SisterHop): Session {
+  const focused = session.activeAgentId
+  const fromRow = session.threads[hop.from]
+  const handed = fromRow ? handedHopsSinceLastUser(fromRow.items) : 0
+  const reason = sisterHopRefusal(hop, visibleAgents(session.agents), handed)
+  if (reason) return speak(session, hop.from, reason, focused)
+  const name = session.agents.find((agent) => agent.id === hop.to)?.name ?? 'them'
+  const marker = { to: hop.to, depth: hop.depth }
+  const mandate = formatSisterMandate(hop)
+  let next = speak(session, hop.from, `Handed to ${name}.`, focused, undefined, marker)
+  return deliverTo(next, hop.to, mandate, focused, [], false, mandate, false, marker)
+}
+
 export function completeMouth(session: Session, agentId: AgentId, spoken: string): Session {
   const row = thread(session, agentId)
   const focused = session.activeAgentId
@@ -1032,6 +1060,19 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
       fallback = wakeMouth(fallback, agentId, 'idle')
       return finishBatch(fallback, agentId)
     }
+    return finishBatch(next, agentId)
+  }
+  if (emit?.kind === 'hop') {
+    const hop: SisterHop = {
+      from: agentId,
+      to: emit.hop.to,
+      task: emit.hop.task,
+      constraints: emit.hop.constraints,
+      expecting: emit.hop.expecting,
+      depth: hopDepthFromItems(agentId, row.items),
+    }
+    let next = offerSisterHop(session, hop)
+    next = wakeMouth(next, agentId, 'idle')
     return finishBatch(next, agentId)
   }
   const from = inboundCoordinatorId(session, agentId)

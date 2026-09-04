@@ -34,9 +34,9 @@ import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, wat
 import { clockDuration, runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import { copyTextToClipboard } from './runtime/clipboard'
-import { copyFeedSelection, feedMsgIds, selectFeedRange } from './runtime/feed-select'
+import { copyFeedSelection, feedMsgIds, hitMsgIdAtY, selectFeedRange } from './runtime/feed-select'
 import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from './runtime/jobs'
-import { createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
+import { cloneAgent, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
 import { dropMouthStarts, ensureMouth } from './runtime/mouth'
 import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
@@ -416,6 +416,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           seams: {
             ...liveComputerSeams(),
             hostAllowed: worker.hostAllowed === true ? true : undefined,
+            recordAction: (event) => store.recordAction(event),
           },
         },
         {
@@ -991,6 +992,22 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         <RailMenu
           x={railMenu.x}
           y={railMenu.y}
+          canDuplicate={railMenu.id !== 'staff'}
+          onDuplicate={() => {
+            skipSelect.current = true
+            const created = cloneAgent(railMenu.id)
+            setRailMenu(null)
+            if (!created) return
+            setSession((current) =>
+              addLiveAgent(
+                current,
+                created.agent,
+                true,
+                runningTests() ? undefined : created.profile.introPlayedAt ?? null,
+              ),
+            )
+            setPane('inspector')
+          }}
           onDelete={() => {
             skipSelect.current = true
             destroyAgent(railMenu.id)
@@ -1041,11 +1058,15 @@ function RailResize({
 function RailMenu({
   x,
   y,
+  canDuplicate,
+  onDuplicate,
   onDelete,
   onClose,
 }: {
   x: number
   y: number
+  canDuplicate: boolean
+  onDuplicate: () => void
   onDelete: () => void
   onClose: () => void
 }) {
@@ -1067,6 +1088,32 @@ function RailMenu({
       }}
       onMouseDownOutside={onClose}
     >
+      {canDuplicate ? (
+        <div
+          testId="rail-menu-duplicate"
+          style={{
+            paddingLeft: T.space.md,
+            paddingRight: T.space.md,
+            paddingTop: T.space.sm,
+            paddingBottom: T.space.sm,
+            color: T.ink,
+            fontSize: T.type.sm,
+            whiteSpace: 'nowrap',
+            ...HIT,
+            hover: { backgroundColor: T.selected },
+          }}
+          onMouseDown={(event) => {
+            if (event.isRightClick || event.button === 2) return
+            onDuplicate()
+          }}
+          onClick={(event) => {
+            if (event.isRightClick || event.button === 2) return
+            onDuplicate()
+          }}
+        >
+          Duplicate
+        </div>
+      ) : null}
       <div
         testId="rail-menu-delete"
         style={{
@@ -1646,6 +1693,7 @@ export const Feed = forwardRef<FeedApi, {
   const lastClicked = useRef<string | null>(null)
   const dragFrom = useRef<string | null>(null)
   const dragging = useRef(false)
+  const rowEls = useRef(new Map<string, { id: number }>())
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const flashCopied = (id: string) => {
     setCopiedId(id)
@@ -1667,6 +1715,26 @@ export const Feed = forwardRef<FeedApi, {
   }
   const selectAll = () => {
     setSelectedIds(new Set(feedMsgIds(items)))
+  }
+  const paintedMsgRows = () => {
+    if (typeof renderer.getElementBounds !== 'function') return []
+    const rows: { id: string; y: number; height: number }[] = []
+    for (const item of items) {
+      if (item.kind !== 'msg') continue
+      const node = rowEls.current.get(item.id)
+      if (!node) continue
+      const box = renderer.getElementBounds(node.id)
+      if (!box || box.length < 4 || box[3] <= 0) continue
+      rows.push({ id: item.id, y: box[1], height: box[3] })
+    }
+    return rows
+  }
+  const extendDrag = (event: { x?: number; y?: number }) => {
+    if (!dragging.current || !dragFrom.current) return
+    if (typeof event.y !== 'number' || !Number.isFinite(event.y)) return
+    const toId = hitMsgIdAtY(paintedMsgRows(), event.y)
+    if (!toId) return
+    setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, toId)))
   }
   useImperativeHandle(api, () => ({ selectAll, copy: copySelection }), [items, selectedIds])
   useEffect(() => {
@@ -1815,6 +1883,10 @@ export const Feed = forwardRef<FeedApi, {
             >
             <div
               testId={mine ? 'bubble-mine' : 'bubble-theirs'}
+              ref={(node: { id: number } | null) => {
+                if (node) rowEls.current.set(item.id, node)
+                else rowEls.current.delete(item.id)
+              }}
               style={{
                 maxWidth: T.feed.max,
                 backgroundColor: selectedIds.has(item.id) ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
@@ -1856,10 +1928,7 @@ export const Feed = forwardRef<FeedApi, {
                 if (!dragging.current || !dragFrom.current) return
                 setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, item.id)))
               }}
-              onMouseMove={() => {
-                if (!dragging.current || !dragFrom.current) return
-                setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, item.id)))
-              }}
+              onMouseMove={extendDrag}
               onMouseUp={() => {
                 dragging.current = false
               }}
@@ -1868,7 +1937,13 @@ export const Feed = forwardRef<FeedApi, {
               {selectedIds.has(item.id) ? (
                 <div testId={`sel-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
               ) : null}
-              {mine ? item.text : <markdown source={item.text} theme={CHAT_THEME} />}
+              {mine ? (
+                item.text
+              ) : (
+                <div style={{ pointerEvents: 'none' }}>
+                  <markdown source={item.text} theme={CHAT_THEME} />
+                </div>
+              )}
             </div>
             {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
             </div>

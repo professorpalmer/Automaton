@@ -37,6 +37,7 @@ import {
   stableComputerPrefix,
   toolsForComputerRole,
   trimScreenshots,
+  type ActionEvent,
 } from '../src/runtime/computer-tools'
 import { COMPUTER_ROUNDS, runComputerWorker } from '../src/runtime/computer-worker'
 
@@ -350,5 +351,125 @@ describe('computer worker loop', () => {
     )
     expect(result.ok).toBe(false)
     expect(result.spoken).toMatch(/does not pixel-click/i)
+  })
+})
+
+describe('action ledger', () => {
+  const worker = {
+    agentId: 'kernel',
+    display: 2,
+    holderId: 'w1',
+    role: 'worker' as const,
+    kit: 'code' as const,
+  }
+
+  test('refuse while human driving writes a refuse row and never clicks', async () => {
+    resetDrivingForTests()
+    setHumanDriving(2, true)
+    const events: ActionEvent[] = []
+    let clicked = false
+    const result = await executeComputerTool(
+      { name: 'box_computer', args: { x: 10, y: 10 } },
+      worker,
+      {
+        click: () => {
+          clicked = true
+          return true
+        },
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(result.refused).toBe(true)
+    expect(clicked).toBe(false)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.decision).toBe('refuse')
+    expect(events[0]?.reason).toBe('human_driving')
+    resetDrivingForTests()
+  })
+
+  test('staff pixel-click writes a refuse row and never clicks', async () => {
+    const events: ActionEvent[] = []
+    let clicked = false
+    const result = await executeComputerTool(
+      { name: 'box_computer', args: { x: 4, y: 4 } },
+      { agentId: 'staff', display: 1, holderId: 'staff-mouth', role: 'coordinator', kit: 'coordinator' },
+      {
+        click: () => {
+          clicked = true
+          return true
+        },
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(result.ok).toBe(false)
+    expect(clicked).toBe(false)
+    expect(events[0]?.decision).toBe('refuse')
+    expect(events[0]?.reason).toBe('staff_pixel')
+  })
+
+  test('permit box_shell writes a row before exec and never stores stdout', async () => {
+    const events: ActionEvent[] = []
+    let execs = 0
+    const result = await executeComputerTool(
+      { name: 'box_shell', args: { command: 'echo SECRET_STDOUT' } },
+      worker,
+      {
+        boxExec: () => {
+          execs += 1
+          expect(events).toHaveLength(1)
+          return { status: 0, text: 'SECRET_STDOUT\n' }
+        },
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(result.spoken).toBe('SECRET_STDOUT')
+    expect(execs).toBe(1)
+    expect(events[0]?.decision).toBe('permit')
+    expect(JSON.stringify(events)).not.toContain('SECRET_STDOUT')
+    expect(JSON.stringify(events)).not.toContain('echo')
+  })
+
+  test('typed box_computer stores length only', async () => {
+    resetDrivingForTests()
+    const secret = 'hunter2-not-a-real-secret'
+    const events: ActionEvent[] = []
+    const result = await executeComputerTool(
+      { name: 'box_computer', args: { text: secret } },
+      worker,
+      {
+        key: () => true,
+        leases: createDisplayLeases(),
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(events[0]?.decision).toBe('permit')
+    expect(events[0]?.intent).toBe('type')
+    expect(events[0]?.secretChars).toBe(secret.length)
+    expect(JSON.stringify(events)).not.toContain(secret)
+  })
+
+  test('box_read and copy_out store path, not contents', async () => {
+    const events: ActionEvent[] = []
+    const body = 'private file body'
+    await executeComputerTool(
+      { name: 'box_read', args: { path: '/tmp/secret-file.txt' } },
+      worker,
+      {
+        readBox: () => body,
+        recordAction: (event) => events.push(event),
+      },
+    )
+    await executeComputerTool(
+      { name: 'copy_out', args: { from: '/home/box/out.bin', to: '/tmp/out.bin' } },
+      worker,
+      {
+        copyOut: () => true,
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(events.map((row) => row.path)).toEqual(['/tmp/secret-file.txt', '/home/box/out.bin'])
+    expect(JSON.stringify(events)).not.toContain(body)
   })
 })

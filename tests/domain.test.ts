@@ -70,6 +70,14 @@ import {
   feedThinking,
   thinkingDots,
   type FeedItem,
+  type SisterHop,
+  formatSisterMandate,
+  handedHopsSinceLastUser,
+  hopDepthFromItems,
+  HOP_MAX_DEPTH,
+  HOP_MAX_PER_TURN,
+  parseMouthEmit,
+  sisterHopRefusal,
 } from '../src/domain'
 
 describe('mouth vs job', () => {
@@ -730,5 +738,69 @@ describe('pending send overlay', () => {
     ]
     expect(sessionCoversPending(handed, overlay)).toBe(true)
     expect(mergePendingFeed(handed, overlay, 'staff')).toEqual(handed)
+  })
+})
+
+describe('typed sister hop', () => {
+  const kernel: SisterHop = {
+    from: 'staff',
+    to: 'kernel',
+    task: 'Check the pin.',
+    constraints: 'No merge.',
+    expecting: 'A one-line status.',
+    depth: 0,
+  }
+
+  test('parseMouthEmit reads hop and refuses a blank task', () => {
+    expect(parseMouthEmit('{"type":"hop","to":"kernel"}')).toBeNull()
+    expect(parseMouthEmit('{"type":"hop","to":"kernel","task":"   "}')).toBeNull()
+    expect(parseMouthEmit('{"type":"hop","task":"Check the pin."}')).toBeNull()
+    expect(parseMouthEmit('{"type":"hop","to":"kernel","task":"Check the pin.","constraints":"No merge.","expecting":"A one-line status."}')).toEqual({
+      kind: 'hop',
+      hop: {
+        to: 'kernel',
+        task: 'Check the pin.',
+        constraints: 'No merge.',
+        expecting: 'A one-line status.',
+      },
+    })
+  })
+
+  test('mandate is labeled lines; caps refuse instead of truncate', () => {
+    expect(formatSisterMandate(kernel)).toBe(
+      'Task: Check the pin.\nConstraints: No merge.\nExpecting: A one-line status.',
+    )
+    const visible = staffWithSisters()
+    expect(sisterHopRefusal({ ...kernel, task: '' }, visible, 0)).toBe('Need a task to hand off.')
+    expect(sisterHopRefusal({ ...kernel, to: 'staff', from: 'kernel' }, visible, 0)).toBe(
+      'Staff is not a hop target.',
+    )
+    expect(sisterHopRefusal({ ...kernel, to: kernel.from }, visible, 0)).toBe('Cannot hand that to myself.')
+    expect(sisterHopRefusal({ ...kernel, to: 'missing' }, visible, 0)).toBe(
+      'That automaton is not on the rail.',
+    )
+    expect(
+      sisterHopRefusal({ ...kernel, to: 'kernel' }, visible.filter((agent) => agent.id !== 'kernel'), 0),
+    ).toBe('That automaton is not on the rail.')
+    expect(sisterHopRefusal({ ...kernel, depth: HOP_MAX_DEPTH }, visible, 0)).toBe('That hop is too deep.')
+    expect(sisterHopRefusal(kernel, visible, HOP_MAX_PER_TURN)).toBe(
+      'Already handed off enough this turn.',
+    )
+    expect(sisterHopRefusal(kernel, visible, 0)).toBeNull()
+  })
+
+  test('depth and per-turn counts read hop markers on the thread', () => {
+    const items: FeedItem[] = [
+      { kind: 'msg', id: 'u1', from: 'user', agentId: 'kernel', text: 'Task: Check the pin.', sisterHop: { to: 'kernel', depth: 0 } },
+      { kind: 'msg', id: 'a1', from: 'agent', agentId: 'kernel', text: 'Handed to Research.', sisterHop: { to: 'research', depth: 1 } },
+    ]
+    expect(hopDepthFromItems('staff', items)).toBe(0)
+    expect(hopDepthFromItems('kernel', items)).toBe(1)
+    expect(handedHopsSinceLastUser(items)).toBe(1)
+    expect(handedHopsSinceLastUser([
+      { kind: 'msg', id: 'u2', from: 'user', agentId: 'staff', text: 'hand both' },
+      { kind: 'msg', id: 'a2', from: 'agent', agentId: 'staff', text: 'Handed to Kernel.', sisterHop: { to: 'kernel', depth: 0 } },
+      { kind: 'msg', id: 'a3', from: 'agent', agentId: 'staff', text: 'Handed to Research.', sisterHop: { to: 'research', depth: 0 } },
+    ])).toBe(2)
   })
 })

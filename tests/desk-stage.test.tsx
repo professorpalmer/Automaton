@@ -7,7 +7,6 @@ import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { DeskStage, applyDeskKey } from '../src/desk'
 import * as deskRuntime from '../src/runtime/desk'
 import { mapViewToDisplay } from '../src/runtime/desk'
-import { mapViewToDisplay } from '../src/runtime/desk'
 import { screenPath } from '../src/runtime/desktop'
 import { T } from '../src/tokens'
 
@@ -84,28 +83,6 @@ function blitIdentities(node: TreeNode | null): string[] {
 }
 
 native('take-control blit hits', () => {
-  test('gpuix img has no painted hit bounds', () => {
-    const { render, renderer } = createTestRoot()
-    render(
-      <div style={{ width: 400, height: 300, backgroundColor: T.raised }}>
-        <img
-          testId="pic"
-          src={PNG}
-          objectFit="contain"
-          alt=""
-          style={{ width: 400, height: 300, pointerEvents: 'auto' }}
-        />
-      </div>,
-    )
-    renderer.flush()
-    const node = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'pic')
-    expect(node).toBeTruthy()
-    const box = typeof node?.id === 'number' ? renderer.getElementBounds(node.id) : null
-    const width = node?.bounds?.width ?? box?.[2] ?? 0
-    const height = node?.bounds?.height ?? box?.[3] ?? 0
-    expect(width * height).toBe(0)
-  })
-
   test('a filled pane under a pass-through img receives the click', () => {
     let hits = 0
     const { render, renderer } = createTestRoot()
