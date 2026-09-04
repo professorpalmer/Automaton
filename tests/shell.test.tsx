@@ -1533,7 +1533,11 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeFalsy()
     scrollTestIdIntoPane(renderer, 'settings-seats-more', 'settings')
-    clickTestId(renderer, 'settings-seats-more')
+    const more = boundsFor(renderer, 'settings-seats-more')
+    renderer.nativeSimulateMouseDown(
+      Math.floor(more.x + Math.min(8, more.width / 2)),
+      Math.floor(more.y + more.height / 2),
+    )
     renderer.flush()
     text = renderer.getPaintedText().join(' ')
     expect(text).toContain('Puppetmaster')
