@@ -123,7 +123,8 @@ export function Chip({
         hover: ready ? { opacity: T.blob.hover } : undefined,
         active: ready ? { opacity: T.blob.active } : undefined,
       }}
-      onClick={() => {
+      onMouseDown={(event: { button?: number; isRightClick?: boolean }) => {
+        if (event.isRightClick || event.button === 2) return
         if (ready) onClick?.()
       }}
     >

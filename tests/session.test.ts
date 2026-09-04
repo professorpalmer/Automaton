@@ -22,6 +22,7 @@ import {
   failMouth,
   hasUserMessage,
   idleOrphanMouths,
+  offerSisterHop,
   maybeIntro,
   noteJobStatus,
   pendingMouthTurns,
@@ -2127,6 +2128,100 @@ describe('computer-use workers', () => {
     s = send(s, 'hello staff')
     expect(s.threads.staff.mouth).toBe('answer')
     expect(s.threads.staff.steerQueue).toEqual([])
+  })
+})
+
+describe('typed sister hop', () => {
+  function answering(session: Session, agentId: string, text = 'Hand this off.'): Session {
+    return {
+      ...session,
+      threads: {
+        ...session.threads,
+        [agentId]: {
+          ...session.threads[agentId]!,
+          mouth: 'answer',
+          items: [{ kind: 'msg', id: 'ask', from: 'user', agentId, text }],
+        },
+      },
+    }
+  }
+
+  test('accepted hop speaks on the asker and lands the mandate on the addressee', () => {
+    let s = answering(fresh(), 'staff')
+    s = completeMouth(
+      s,
+      'staff',
+      '{"type":"hop","to":"kernel","task":"Check the pin.","constraints":"No merge.","expecting":"A one-line status."}',
+    )
+    const staffLast = s.threads.staff.items.at(-1)
+    expect(staffLast?.kind === 'msg' && staffLast.text).toBe('Handed to Kernel.')
+    expect(staffLast?.kind === 'msg' && staffLast.sisterHop).toEqual({ to: 'kernel', depth: 0 })
+    const mandate = s.threads.kernel.items.find((item) => item.kind === 'msg' && item.from === 'user')
+    expect(mandate?.kind === 'msg' && mandate.text).toBe(
+      'Task: Check the pin.\nConstraints: No merge.\nExpecting: A one-line status.',
+    )
+    expect(mandate?.kind === 'msg' && mandate.sisterHop).toEqual({ to: 'kernel', depth: 0 })
+    expect(s.threads.staff.mouth).toBe('idle')
+  })
+
+  test('staff is not a hop target; hidden sister is refused; blank task does not parse', () => {
+    let s = answering(fresh(), 'kernel')
+    s = offerSisterHop(s, {
+      from: 'kernel',
+      to: 'staff',
+      task: 'Report back.',
+      depth: 1,
+    })
+    expect(s.threads.kernel.items.at(-1)).toMatchObject({ text: 'Staff is not a hop target.' })
+    expect(s.threads.staff.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(0)
+
+    s = answering(fresh(), 'staff')
+    s = {
+      ...s,
+      agents: s.agents.map((agent) => (agent.id === 'kernel' ? { ...agent, hidden: true } : agent)),
+    }
+    s = offerSisterHop(s, { from: 'staff', to: 'kernel', task: 'Check the pin.', depth: 0 })
+    expect(s.threads.staff.items.at(-1)).toMatchObject({ text: 'That automaton is not on the rail.' })
+    expect(s.threads.kernel.items).toEqual([])
+
+    s = offerSisterHop(answering(fresh(), 'staff'), { from: 'staff', to: 'kernel', task: '', depth: 0 })
+    expect(s.threads.staff.items.at(-1)).toMatchObject({ text: 'Need a task to hand off.' })
+    expect(s.threads.kernel.items).toEqual([])
+  })
+
+  test('depth cap and per-turn cap refuse instead of truncating', () => {
+    let s = answering(fresh(), 'kernel', 'Task: Check the pin.')
+    s = {
+      ...s,
+      threads: {
+        ...s.threads,
+        kernel: {
+          ...s.threads.kernel,
+          items: [
+            {
+              kind: 'msg',
+              id: 'ask',
+              from: 'user',
+              agentId: 'kernel',
+              text: 'Task: Check the pin.',
+              sisterHop: { to: 'kernel', depth: 1 },
+            },
+          ],
+        },
+      },
+    }
+    s = completeMouth(s, 'kernel', '{"type":"hop","to":"research","task":"Look this up."}')
+    expect(s.threads.kernel.items.at(-1)).toMatchObject({ text: 'That hop is too deep.' })
+    expect(s.threads.research.items).toEqual([])
+
+    s = answering(fresh(), 'staff')
+    s = offerSisterHop(s, { from: 'staff', to: 'kernel', task: 'First.', depth: 0 })
+    s = offerSisterHop(s, { from: 'staff', to: 'research', task: 'Second.', depth: 0 })
+    const before = s.threads.research.items.length
+    s = offerSisterHop(s, { from: 'staff', to: 'kernel', task: 'Third.', depth: 0 })
+    expect(s.threads.staff.items.at(-1)).toMatchObject({ text: 'Already handed off enough this turn.' })
+    expect(s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'user')).toHaveLength(1)
+    expect(s.threads.research.items.length).toBe(before)
   })
 })
 

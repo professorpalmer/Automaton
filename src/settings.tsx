@@ -430,15 +430,13 @@ export function Settings({
             </div>
           </div>
         </div>
-        {chief ? renderSeat(chief, 0) : null}
         {others.length > 0 ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.md }}>
-            <Chip testId="settings-seats-more" tone="ghost" onClick={() => setMoreOpen((open) => !open)}>
-              {moreOpen ? 'Hide other automata' : `Other automata · ${others.length}`}
-            </Chip>
-            {moreOpen ? others.map((agent, index) => renderSeat(agent, index + 1)) : null}
-          </div>
+          <Chip testId="settings-seats-more" tone="ghost" onClick={() => setMoreOpen((open) => !open)}>
+            {moreOpen ? 'Hide other automata' : `Other automata · ${others.length}`}
+          </Chip>
         ) : null}
+        {chief ? renderSeat(chief, 0) : null}
+        {moreOpen ? others.map((agent, index) => renderSeat(agent, index + 1)) : null}
         <Section title="Usage">
           <div style={CARD_STYLE}>
             <LedgerList metrics={metrics} testId="settings-usage" />

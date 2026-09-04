@@ -110,6 +110,41 @@ export function createAgent(input?: {
   return { agent: liveAgentFromProfile(profile), profile }
 }
 
+/** Copy kit, rules, home, and skills. New id and mark. Staff is not a source. Auth never existed on the profile. */
+export function cloneAgent(
+  sourceId: string,
+  home = automatonHome(),
+): { agent: Agent; profile: AgentProfile } | null {
+  if (sourceId === 'staff') return null
+  const source = readProfile(sourceId, home)
+  if (!source) return null
+  const id = nextId('agent')
+  const mark = seedOverride(id) ?? deal(id)
+  const name = source.name.trim() && source.name.trim() !== FACTORY_NAME ? `${source.name.trim()} copy` : FACTORY_NAME
+  const profile: AgentProfile = {
+    id,
+    name,
+    title: source.title,
+    description: source.description,
+    rules: source.rules,
+    kit: source.kit,
+    avatarShape: mark.shape,
+    avatarColor: mark.color,
+    namedBy: name === FACTORY_NAME ? 'app' : 'user',
+    skillIds: [...source.skillIds],
+    notifyOnUpdates: source.notifyOnUpdates,
+    hiddenFromRail: false,
+    createdAt: new Date().toISOString(),
+    homeRepo: source.homeRepo,
+    homePath: source.homePath,
+    introPlayedAt: null,
+  }
+  writeProfile(profile, home)
+  ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)
+  ensureDesktop(profile.id, home)
+  return { agent: liveAgentFromProfile(profile), profile }
+}
+
 export function applyHomeBinds(
   binds: HomeBind[],
   home = automatonHome(),

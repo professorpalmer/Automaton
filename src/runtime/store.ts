@@ -15,6 +15,7 @@ import {
 } from '../domain'
 import { normalizeSession, type Session } from '../session'
 import type { Attachment, AttachmentInput } from './attachments'
+import type { ActionDecision, ActionEvent } from './computer-tools'
 import {
   asArtifactKind,
   asClaimFreshness,
@@ -111,11 +112,15 @@ export type GoalEvent = {
   at: number
 }
 
+export type { ActionDecision, ActionEvent }
+
 export type StaffStore = {
   path: string
   save(session: Session): void
   load(): Session | null
   listGoalEvents(goalId?: string, limit?: number): GoalEvent[]
+  recordAction(event: ActionEvent): void
+  listActions(ownerAgentId?: string, limit?: number): ActionEvent[]
   remember(input: RememberInput): void
   staleClaims(input: { ownerAgentId: string; repo?: string; taskKey?: string }): void
   recall(query: string, limit?: number): Claim[]
@@ -194,6 +199,18 @@ function ensureSchema(db: Database): void {
       at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS goal_events_goal_at ON goal_events (goal_id, at, id);
+    CREATE TABLE IF NOT EXISTS action_events (
+      id TEXT PRIMARY KEY,
+      owner_agent_id TEXT NOT NULL,
+      tool TEXT NOT NULL,
+      intent TEXT NOT NULL,
+      decision TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      path TEXT,
+      secret_chars INTEGER,
+      at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS action_events_owner_at ON action_events (owner_agent_id, at, id);
   `)
   const eventCols = tableColumns(db, 'goal_events')
   if (!eventCols.has('authority')) {
@@ -364,6 +381,55 @@ function asGoalEventAuthority(
     return value as GoalEventAuthority
   }
   return authorityForEvent(kind, source)
+}
+
+type ActionEventRow = {
+  id: string
+  owner_agent_id: string
+  tool: string
+  intent: string
+  decision: string
+  reason: string
+  path: string | null
+  secret_chars: number | null
+  at: number
+}
+
+function asActionDecision(value: unknown): ActionDecision | null {
+  return value === 'permit' || value === 'refuse' ? value : null
+}
+
+function asActionEvent(row: unknown): ActionEvent | null {
+  if (!row || typeof row !== 'object') return null
+  const rec = row as Record<string, unknown>
+  const decision = asActionDecision(rec.decision)
+  const id = typeof rec.id === 'string' ? rec.id.trim() : ''
+  const ownerAgentId = typeof rec.ownerAgentId === 'string' ? rec.ownerAgentId.trim() : ''
+  const tool = typeof rec.tool === 'string' ? rec.tool.trim() : ''
+  const intent = typeof rec.intent === 'string' ? rec.intent.trim() : ''
+  const reason = typeof rec.reason === 'string' ? rec.reason : ''
+  const at = typeof rec.at === 'number' && Number.isFinite(rec.at) ? rec.at : Number.NaN
+  if (!decision || !id || !ownerAgentId || !tool || !intent || !Number.isFinite(at)) return null
+  const path = typeof rec.path === 'string' && rec.path.trim() ? rec.path.trim() : undefined
+  const secretChars =
+    typeof rec.secretChars === 'number' && Number.isFinite(rec.secretChars) && rec.secretChars >= 0
+      ? Math.floor(rec.secretChars)
+      : undefined
+  return { id, ownerAgentId, tool, intent, decision, reason, path, secretChars, at }
+}
+
+function actionEventFromRow(row: ActionEventRow): ActionEvent | null {
+  return asActionEvent({
+    id: row.id,
+    ownerAgentId: row.owner_agent_id,
+    tool: row.tool,
+    intent: row.intent,
+    decision: row.decision,
+    reason: row.reason,
+    path: row.path ?? undefined,
+    secretChars: row.secret_chars ?? undefined,
+    at: row.at,
+  })
 }
 
 function asGoalEvent(row: GoalEventRow): GoalEvent | null {
@@ -643,6 +709,48 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
       )
       return rows.flatMap((row) => {
         const event = asGoalEvent(row)
+        return event ? [event] : []
+      })
+    },
+    recordAction(event) {
+      const parsed = asActionEvent(event)
+      if (!parsed) return
+      db.run(
+        `INSERT OR IGNORE INTO action_events (
+          id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          parsed.id,
+          parsed.ownerAgentId,
+          parsed.tool,
+          parsed.intent,
+          parsed.decision,
+          parsed.reason,
+          parsed.path ?? null,
+          parsed.secretChars ?? null,
+          parsed.at,
+        ],
+      )
+    },
+    listActions(ownerAgentId, limit = 100) {
+      const cap = Number.isFinite(limit) && limit > 0 ? Math.min(Math.floor(limit), 500) : 100
+      const rows = (
+        ownerAgentId
+          ? (db
+              .query(
+                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
+                 FROM action_events WHERE owner_agent_id = ? ORDER BY rowid ASC LIMIT ?`,
+              )
+              .all(ownerAgentId, cap) as ActionEventRow[])
+          : (db
+              .query(
+                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
+                 FROM action_events ORDER BY rowid ASC LIMIT ?`,
+              )
+              .all(cap) as ActionEventRow[])
+      )
+      return rows.flatMap((row) => {
+        const event = actionEventFromRow(row)
         return event ? [event] : []
       })
     },

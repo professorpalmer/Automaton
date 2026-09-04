@@ -160,6 +160,21 @@ function boundsFor(
   return bounds
 }
 
+function scrollTestIdIntoPane(
+  renderer: ReturnType<typeof createTestRoot>['renderer'],
+  testId: string,
+  paneId: string,
+) {
+  const pane = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), paneId)
+  if (typeof pane?.id !== 'number') throw new Error(`no ${paneId} id`)
+  const box = boundsFor(renderer, paneId)
+  const target = boundsFor(renderer, testId)
+  if (target.y >= box.y && target.y + target.height <= box.y + box.height) return
+  const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
+  renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - target.y))
+  renderer.flush()
+}
+
 function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
   const bounds = boundsFor(renderer, testId)
   renderer.nativeSimulateClick(
@@ -362,6 +377,8 @@ describe('sister blob presentation', () => {
     expect(blobSrc).not.toMatch(/left:\s*origin,\s*top:\s*origin/)
     expect(blobSrc).not.toContain('T.blob.size * scale')
     expect(blobSrc).not.toMatch(/animate=\{\{\s*width:\s*size,\s*height:\s*size/)
+    expect(blobSrc).toMatch(/import \{ motion \} from '@gpuix\/react'/)
+    expect(blobSrc).not.toMatch(/import \{[^}]*GELATIN/)
     expect(blobSrc).toMatch(/GELATIN/)
     expect(blobSrc).toMatch(/GELATIN\.stiffness/)
     expect(blobSrc).not.toMatch(/LIQUID/)
@@ -428,7 +445,8 @@ describe('sister blob presentation', () => {
     ])
     expect(BUSY_LOOKS).toHaveLength(5)
     const src = readFileSync(join(import.meta.dir, '../src/blob.tsx'), 'utf8')
-    expect(src).toMatch(/from '@gpuix\/react'/)
+    expect(src).toMatch(/import \{ motion \} from '@gpuix\/react'/)
+    expect(src).not.toMatch(/import \{[^}]*GELATIN/)
     expect(src).toMatch(/GELATIN/)
     expect(src).toMatch(/GELATIN\.stiffness/)
     expect(src).toMatch(/GELATIN\.damping/)
@@ -1514,10 +1532,13 @@ native('staff shell (GPUI native)', () => {
     expect(text).not.toContain('Puppetmaster')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeFalsy()
+    scrollTestIdIntoPane(renderer, 'settings-seats-more', 'settings')
     clickTestId(renderer, 'settings-seats-more')
     renderer.flush()
     text = renderer.getPaintedText().join(' ')
-    expect(text).toContain('Puppetmaster')
+    const more = boundsFor(renderer, 'settings-seats-more')
+    const pane = boundsFor(renderer, 'settings')
+    expect(text, `more=${JSON.stringify(more)} pane=${JSON.stringify(pane)}`).toContain('Puppetmaster')
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeTruthy()
   })
 
@@ -1547,14 +1568,8 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     const pane = findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings')
     if (typeof pane?.id !== 'number') throw new Error('no settings id')
-    const box = boundsFor(renderer, 'settings')
-    let save = boundsFor(renderer, 'settings-key-save')
-    if (save.y < box.y || save.y + save.height > box.y + box.height) {
-      const now = renderer.getScrollOffset(pane.id) ?? [0, 0]
-      renderer.scrollTo(pane.id, now[0], now[1] + (box.y + 40 - save.y))
-      renderer.flush()
-      save = boundsFor(renderer, 'settings-key-save')
-    }
+    scrollTestIdIntoPane(renderer, 'settings-key-save', 'settings')
+    const save = boundsFor(renderer, 'settings-key-save')
     const before = renderer.getScrollOffset(pane.id) ?? [0, 0]
     renderer.nativeSimulateScrollWheel(
       Math.floor(save.x + save.width / 2),
@@ -1629,10 +1644,12 @@ native('staff shell (GPUI native)', () => {
     const opened = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(title(opened)).toBe('Chief of Staff')
     expect(findTestId(opened, 'rail-menu')).toBeTruthy()
+    expect(findTestId(opened, 'rail-menu-duplicate')).toBeTruthy()
     expect(findTestId(opened, 'rail-menu-delete')).toBeTruthy()
     expect(containsTestId(findTestId(opened, 'rail'), 'rail-menu')).toBe(false)
     expect(findTestId(opened, 'delete-confirm')).toBeFalsy()
     const menuPaint = renderer.getPaintedText().join(' ')
+    expect(menuPaint).toContain('Duplicate')
     expect(menuPaint).toContain('Delete')
     expect(menuPaint).not.toContain('Del ete')
     expect(menuPaint).not.toContain('Delete Kernel?')
@@ -1643,6 +1660,36 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(gone, 'rail-menu')).toBeFalsy()
     expect(title(gone)).toBe('Chief of Staff')
     expect(renderer.getPaintedText().join(' ')).not.toContain('Kernel')
+  })
+
+  test('rail duplicate inherits the sister and does not offer on Staff', () => {
+    resetIdsForTests()
+    const store = testStore()
+    const sister = createAgent({ name: 'Kernel', kit: 'lookup' })
+    const agents = [...DEFAULT_AGENTS, sister.agent]
+    store.save({
+      agents,
+      activeAgentId: 'staff',
+      threads: emptyThreads(agents),
+      jobs: [],
+      pendingFanout: null,
+    })
+    const { render, renderer } = createTestRoot()
+    render(<App store={store} />)
+    renderer.flush()
+    rightClickTestId(renderer, 'agent-staff')
+    renderer.flush()
+    const staffMenu = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(staffMenu, 'rail-menu-duplicate')).toBeFalsy()
+    expect(findTestId(staffMenu, 'rail-menu-delete')).toBeTruthy()
+    rightClickTestId(renderer, `agent-${sister.agent.id}`)
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'rail-menu-duplicate')).toBeTruthy()
+    clickTestId(renderer, 'rail-menu-duplicate')
+    renderer.flush()
+    const after = asTree(JSON.parse(renderer.getAutomationTree()))
+    expect(findTestId(after, 'rail-menu')).toBeFalsy()
+    expect(renderer.getPaintedText().join(' ')).toContain('Kernel copy')
   })
 
   test('compact rail delete menu stays a floating overlay', () => {

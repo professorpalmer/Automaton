@@ -1,5 +1,5 @@
-import type { AgentKit } from '../domain'
-import { looksLikeBoxShell, parseDeskUrl } from '../domain'
+import type { AgentId, AgentKit } from '../domain'
+import { looksLikeBoxShell, nextId, parseDeskUrl } from '../domain'
 import { humanDrivingSpoken, refuseWhileHumanDriving } from './driving'
 import { displayLeases, type DisplayLeases } from './lease'
 
@@ -29,6 +29,21 @@ export type ComputerToolResult = {
   refused?: boolean
   operatorHelp?: boolean
   action?: string
+}
+
+export type ActionDecision = 'permit' | 'refuse'
+
+/** Computer act recorded before the seam runs. Out of chat. Never holds typed text or file bytes. */
+export type ActionEvent = {
+  id: string
+  ownerAgentId: AgentId
+  tool: string
+  intent: string
+  decision: ActionDecision
+  reason: string
+  path?: string
+  secretChars?: number
+  at: number
 }
 
 export const KEEP_SCREENSHOTS = 3
@@ -224,6 +239,7 @@ export type ComputerToolSeams = {
   hostAllowed?: boolean
   leases?: DisplayLeases
   refuseDriving?: typeof refuseWhileHumanDriving
+  recordAction?: (event: ActionEvent) => void
 }
 
 export type ComputerToolContext = {
@@ -263,26 +279,92 @@ function hostCard(action = ''): ComputerToolResult {
   }
 }
 
+function actionIntent(call: ComputerToolCall): string {
+  if (call.name === 'box_computer') {
+    if (asPoint(call.args)) return 'click'
+    if (asString(call.args.key) || asString(call.args.text)) return 'type'
+    return 'pixel'
+  }
+  if (call.name === 'box_shell') return 'shell'
+  if (call.name === 'box_read') return 'read'
+  if (call.name === 'box_browser') return 'browse'
+  if (call.name === 'copy_out') return 'copy_out'
+  if (call.name === 'copy_in') return 'copy_in'
+  if (call.name === 'box_screenshot') return 'screenshot'
+  if (call.name === 'operator_help') return 'operator_help'
+  if (call.name === 'host_read') return 'host_read'
+  if (call.name === 'host_shell') return 'host_shell'
+  if (call.name === 'host_attach') return 'host_attach'
+  return call.name
+}
+
+function actionPath(call: ComputerToolCall): string | undefined {
+  const path =
+    asString(call.args.path) ||
+    asString(call.args.from) ||
+    asString(call.args.url) ||
+    parseDeskUrl(asString(call.args.query)) ||
+    ''
+  return path || undefined
+}
+
+function actionSecretChars(call: ComputerToolCall): number | undefined {
+  if (call.name !== 'box_computer') return undefined
+  const text = asString(call.args.text) || asString(call.args.key)
+  return text ? text.length : undefined
+}
+
+function recordComputerAction(
+  seams: ComputerToolSeams,
+  ctx: ComputerToolContext,
+  call: ComputerToolCall,
+  decision: ActionDecision,
+  reason: string,
+): void {
+  seams.recordAction?.({
+    id: nextId('action'),
+    ownerAgentId: ctx.agentId,
+    tool: call.name,
+    intent: actionIntent(call),
+    decision,
+    reason,
+    path: actionPath(call),
+    secretChars: actionSecretChars(call),
+    at: Date.now(),
+  })
+}
+
+function refusedTool(
+  seams: ComputerToolSeams,
+  ctx: ComputerToolContext,
+  call: ComputerToolCall,
+  spoken: string,
+  reason: string,
+): ComputerToolResult {
+  recordComputerAction(seams, ctx, call, 'refuse', reason)
+  return { ok: false, spoken, refused: true }
+}
+
 export async function executeComputerTool(
   call: ComputerToolCall,
   ctx: ComputerToolContext,
   seams: ComputerToolSeams = {},
 ): Promise<ComputerToolResult> {
   if (ctx.kit === 'blank') {
-    return { ok: false, spoken: 'No computer worker until a kit is set.', refused: true }
+    return refusedTool(seams, ctx, call, 'No computer worker until a kit is set.', 'blank_kit')
   }
   if (call.name === 'box_computer' || call.name === 'box_browser') {
     if (!staffMayPixelClick(ctx.role)) {
-      return { ok: false, spoken: 'Staff does not pixel-click.', refused: true }
+      return refusedTool(seams, ctx, call, 'Staff does not pixel-click.', 'staff_pixel')
     }
     const refuse = (seams.refuseDriving ?? refuseWhileHumanDriving)(call.name, ctx.display)
     if (refuse.refuse) {
-      return { ok: false, spoken: humanDrivingSpoken(), refused: true }
+      return refusedTool(seams, ctx, call, humanDrivingSpoken(), 'human_driving')
     }
     const leases = seams.leases ?? displayLeases()
     const hold = leases.acquire(ctx.display, ctx.holderId)
     if (!hold.ok) {
-      return { ok: false, spoken: 'That screen is busy.', refused: true }
+      return refusedTool(seams, ctx, call, 'That screen is busy.', 'busy_screen')
     }
     leases.renew(ctx.display, ctx.holderId)
   }
@@ -290,19 +372,33 @@ export async function executeComputerTool(
   if (call.name === 'host_read' || call.name === 'host_shell' || call.name === 'host_attach') {
     const action =
       asString(call.args.command) || asString(call.args.cmd) || asString(call.args.path) || call.name
-    if (seams.hostAllowed === false) return hostDenied()
-    if (seams.hostAllowed === true) return { ok: true, spoken: 'Running on your Mac.' }
+    if (seams.hostAllowed === false) {
+      recordComputerAction(seams, ctx, call, 'refuse', 'host_denied')
+      return hostDenied()
+    }
+    if (seams.hostAllowed === true) {
+      recordComputerAction(seams, ctx, call, 'permit', 'host_allowed')
+      return { ok: true, spoken: 'Running on your Mac.' }
+    }
+    recordComputerAction(seams, ctx, call, 'refuse', 'host_card')
     return hostCard(action)
   }
 
   if (call.name === 'box_shell') {
     const command = asString(call.args.command) || asString(call.args.cmd) || asString(call.args.argv)
     if (boxShellLooksLikeGui(command)) {
-      return { ok: false, spoken: 'box_shell cannot click. Use box_computer or box_browser.', refused: true }
+      return refusedTool(
+        seams,
+        ctx,
+        call,
+        'box_shell cannot click. Use box_computer or box_browser.',
+        'gui_shell',
+      )
     }
     if (!seams.boxExec) {
-      return { ok: false, spoken: 'The computer is not running.' }
+      return refusedTool(seams, ctx, call, 'The computer is not running.', 'computer_down')
     }
+    recordComputerAction(seams, ctx, call, 'permit', 'shell')
     const result = seams.boxExec(['sh', '-c', command || 'true'], { HOME: '/home/box' })
     if (result.status === 0) return { ok: true, spoken: result.text.trim() || 'Done on the computer.' }
     return { ok: false, spoken: result.text.trim() || 'The computer command failed.' }
@@ -310,19 +406,24 @@ export async function executeComputerTool(
 
   if (call.name === 'box_read') {
     const path = asString(call.args.path)
-    if (!path) return { ok: false, spoken: 'Need a path on the computer.' }
+    if (!path) return refusedTool(seams, ctx, call, 'Need a path on the computer.', 'missing_path')
     if (seams.readBox) {
+      recordComputerAction(seams, ctx, call, 'permit', 'read')
       const text = seams.readBox(path)
       if (text == null) return { ok: false, spoken: `Could not read ${path} on the computer.` }
       return { ok: true, spoken: text }
     }
-    if (!seams.boxExec) return { ok: false, spoken: 'The computer is not running.' }
+    if (!seams.boxExec) {
+      return refusedTool(seams, ctx, call, 'The computer is not running.', 'computer_down')
+    }
+    recordComputerAction(seams, ctx, call, 'permit', 'read')
     const result = seams.boxExec(['cat', path])
     if (result.status !== 0) return { ok: false, spoken: `Could not read ${path} on the computer.` }
     return { ok: true, spoken: result.text }
   }
 
   if (call.name === 'box_screenshot') {
+    recordComputerAction(seams, ctx, call, 'permit', 'screenshot')
     const path = (await seams.screenshot?.(ctx.agentId)) ?? null
     if (!path) return { ok: false, spoken: 'Could not capture the screen.' }
     return { ok: true, spoken: 'Captured the screen.', screenshotPath: path }
@@ -330,8 +431,11 @@ export async function executeComputerTool(
 
   if (call.name === 'box_browser') {
     const url = asString(call.args.url) || parseDeskUrl(asString(call.args.query)) || ''
-    if (!url) return { ok: false, spoken: 'Need a URL.' }
-    if (!seams.browse) return { ok: false, spoken: 'The computer browser is not available.' }
+    if (!url) return refusedTool(seams, ctx, call, 'Need a URL.', 'missing_path')
+    if (!seams.browse) {
+      return refusedTool(seams, ctx, call, 'The computer browser is not available.', 'computer_down')
+    }
+    recordComputerAction(seams, ctx, call, 'permit', 'browse')
     const shot = await seams.browse(ctx.agentId, url)
     return {
       ok: true,
@@ -344,27 +448,31 @@ export async function executeComputerTool(
     const point = asPoint(call.args)
     const key = asString(call.args.key) || asString(call.args.text)
     if (point && seams.click) {
+      recordComputerAction(seams, ctx, call, 'permit', 'click')
       const ok = seams.click(ctx.agentId, point)
       return ok
         ? { ok: true, spoken: `Clicked ${point.x},${point.y}.` }
         : { ok: false, spoken: 'Click failed.' }
     }
     if (key && seams.key) {
+      recordComputerAction(seams, ctx, call, 'permit', 'type')
       const ok = seams.key(ctx.agentId, key)
       return ok ? { ok: true, spoken: 'Typed on the screen.' } : { ok: false, spoken: 'Type failed.' }
     }
-    return { ok: false, spoken: 'Need a click point or a key.' }
+    return refusedTool(seams, ctx, call, 'Need a click point or a key.', 'missing_input')
   }
 
   if (call.name === 'operator_help') {
     const instruction = asString(call.args.instruction) || 'Sign in if this page asks.'
+    recordComputerAction(seams, ctx, call, 'permit', 'operator_help')
     return { ok: true, spoken: instruction, operatorHelp: true }
   }
 
   if (call.name === 'copy_in') {
     const from = asString(call.args.from) || asString(call.args.path)
     const to = asString(call.args.to) || '/home/box/host/inbox'
-    if (!from) return { ok: false, spoken: 'Need a Mac path to copy in.' }
+    if (!from) return refusedTool(seams, ctx, call, 'Need a Mac path to copy in.', 'missing_path')
+    recordComputerAction(seams, ctx, call, 'permit', 'copy_in')
     if (seams.copyIn && !seams.copyIn(from, to)) return { ok: false, spoken: 'Could not copy onto the computer.' }
     return { ok: true, spoken: 'Copied onto the computer.' }
   }
@@ -372,12 +480,13 @@ export async function executeComputerTool(
   if (call.name === 'copy_out') {
     const from = asString(call.args.from) || asString(call.args.path)
     const to = asString(call.args.to)
-    if (!from) return { ok: false, spoken: 'Need a computer path to copy out.' }
+    if (!from) return refusedTool(seams, ctx, call, 'Need a computer path to copy out.', 'missing_path')
+    recordComputerAction(seams, ctx, call, 'permit', 'copy_out')
     if (seams.copyOut && !seams.copyOut(from, to)) return { ok: false, spoken: 'Could not copy off the computer.' }
     return { ok: true, spoken: 'Copied off the computer.' }
   }
 
-  return { ok: false, spoken: 'Unknown computer tool.' }
+  return refusedTool(seams, ctx, call, 'Unknown computer tool.', 'unknown_tool')
 }
 
 export async function executeComputerBatch(

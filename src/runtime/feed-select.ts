@@ -5,6 +5,18 @@ export function feedMsgIds(items: FeedItem[]): string[] {
   return items.filter((item) => item.kind === 'msg').map((item) => item.id)
 }
 
+export function hitMsgIdAtY(
+  rows: readonly { id: string; y: number; height: number }[],
+  y: number,
+): string | null {
+  let hit: string | null = null
+  for (const row of rows) {
+    if (row.height <= 0) continue
+    if (y >= row.y && y < row.y + row.height) hit = row.id
+  }
+  return hit
+}
+
 export function selectFeedRange(msgIds: string[], fromId: string, toId: string): string[] {
   const start = msgIds.indexOf(fromId)
   const end = msgIds.indexOf(toId)
