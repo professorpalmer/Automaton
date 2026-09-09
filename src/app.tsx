@@ -1497,18 +1497,11 @@ function Titlebar({
       <div
         testId="titlebar-computer"
         style={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-          flexGrow: 0,
-          flexShrink: 0,
-          width: T.layout.titlebarHeight,
-          height: T.layout.titlebarHeight,
-          minWidth: T.layout.titlebarHeight,
-          minHeight: T.layout.titlebarHeight,
+          paddingLeft: T.space.xs,
+          paddingRight: T.space.xs,
+          paddingTop: T.space.xs,
+          paddingBottom: T.space.xs,
           borderRadius: T.radius.sm,
-          backgroundColor: T.clear,
           ...HIT,
           hover: { backgroundColor: T.raised },
         }}
