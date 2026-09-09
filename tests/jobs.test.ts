@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { WAITING_CHECKS, type JobHandle } from '../src/domain'
 import {
+  WATCH_POLL_MS,
   WATCH_UNAVAILABLE_GRACE,
   ensureDispatched,
   findReusableAnalyze,
@@ -108,6 +109,7 @@ describe('durable analyze dispatch', () => {
   })
 
   test('normalized goals collapse case and whitespace', () => {
+    expect(WATCH_POLL_MS).toBe(2500)
     expect(normalizeGoal('  Look   UP why  ')).toBe('look up why')
   })
 
@@ -132,18 +134,18 @@ describe('durable analyze dispatch', () => {
     ).toBe(false)
   })
 
-  test('live complete with a finding is a hit; hollow/failed/unsuccessful/stalled miss', () => {
+  test('live complete with a finding is a hit; hollow/failed/unsuccessful/stalled miss', async () => {
     const current = job({ id: 'job_now' })
     const prior = completeAnalyze('prior')
     const readers = live({
       job_prior: completeFinding(),
     })
-    expect(findReusableAnalyze(current, [prior], readers.readStatus, readers.readArtifactRefs)).toEqual({
+    expect(await findReusableAnalyze(current, [prior], readers.readStatus, readers.readArtifactRefs)).toEqual({
       pmJobId: 'job_prior',
       spoken: FINDING,
     })
     expect(
-      findReusableAnalyze(
+      await findReusableAnalyze(
         current,
         [prior],
         () => ({ job: { status: 'complete' } }),
@@ -151,7 +153,7 @@ describe('durable analyze dispatch', () => {
       ),
     ).toBeNull()
     expect(
-      findReusableAnalyze(
+      await findReusableAnalyze(
         current,
         [{ ...prior, status: 'failed' }],
         readers.readStatus,
@@ -159,7 +161,7 @@ describe('durable analyze dispatch', () => {
       ),
     ).toBeNull()
     expect(
-      findReusableAnalyze(
+      await findReusableAnalyze(
         current,
         [prior],
         () => ({ job: { status: 'complete' }, delivery: { successful: false } }),
@@ -167,7 +169,7 @@ describe('durable analyze dispatch', () => {
       ),
     ).toBeNull()
     expect(
-      findReusableAnalyze(
+      await findReusableAnalyze(
         current,
         [prior],
         () => ({ job: { status: 'stalled' } }),
@@ -175,8 +177,22 @@ describe('durable analyze dispatch', () => {
       ),
     ).toBeNull()
     expect(
-      findReusableAnalyze(job({ id: 'job_impl', kind: 'implement' }), [prior], readers.readStatus, readers.readArtifactRefs),
+      await findReusableAnalyze(job({ id: 'job_impl', kind: 'implement' }), [prior], readers.readStatus, readers.readArtifactRefs),
     ).toBeNull()
+  })
+
+  test('async status seams complete without a sync reader', async () => {
+    const recorded = hooks()
+    await ensureDispatched(job({ id: 'job_async_seam', pmJobId: 'job_async' }), recorded, [], {
+      readStatus: async () => completeFinding().snap,
+      readArtifactRefs: async () => completeFinding().refs,
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(recorded.attached).toEqual(['job_async'])
+    expect(recorded.complete).toEqual([FINDING])
+    expect(recorded.fail).toEqual([])
   })
 
   test('persisted pmJobId watches and attaches without spawning', async () => {
@@ -402,14 +418,14 @@ describe('durable analyze dispatch', () => {
     expect(recorded.fail).toEqual([])
   })
 
-  test('lookTerminalPm is null while running and complete when refs have a gist', () => {
-    const running = lookTerminalPm(
+  test('lookTerminalPm is null while running and complete when refs have a gist', async () => {
+    const running = await lookTerminalPm(
       'job_live',
       () => ({ job: { status: 'running' } }),
       () => [{ type: 'gist', claim: FINDING }],
     )
     expect(running).toBeNull()
-    const unread = lookTerminalPm(
+    const unread = await lookTerminalPm(
       'job_gone',
       () => {
         throw new Error('missing status')
@@ -418,21 +434,21 @@ describe('durable analyze dispatch', () => {
     )
     expect(unread).toBeNull()
     expect(
-      lookTerminalPm(
+      await lookTerminalPm(
         'job_ready',
         () => completeFinding().snap,
         () => completeFinding().refs,
       ),
     ).toEqual({ kind: 'complete', spoken: FINDING })
     expect(
-      lookTerminalPm(
+      await lookTerminalPm(
         'job_gist',
         () => ({ job: { status: 'complete' }, delivery: { successful: true } }),
         () => [{ type: 'gist', claim: 'Staff audit landed.' }],
       ),
     ).toEqual({ kind: 'complete', spoken: 'Staff audit landed.' })
     expect(
-      lookTerminalPm(
+      await lookTerminalPm(
         'job_failed',
         () => ({ job: { status: 'failed' } }),
         () => [{ type: 'gist', claim: FINDING }],
@@ -565,6 +581,53 @@ describe('bound product home', () => {
         projects,
       ),
     ).toBe(pm)
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test('resolveJobCwd keeps Automaton when leftover audits via puppetmaster/codegraph', () => {
+    const root = join(tmpdir(), `automaton-machine-audit-${Date.now()}`)
+    const pm = join(root, 'Puppetmaster')
+    const auto = join(root, 'Automaton')
+    mkdirSync(pm, { recursive: true })
+    mkdirSync(auto, { recursive: true })
+    expect(spawnSync('git', ['init'], { cwd: pm, encoding: 'utf8' }).status).toBe(0)
+    expect(spawnSync('git', ['init'], { cwd: auto, encoding: 'utf8' }).status).toBe(0)
+    const projects = listMachineProjects(root)
+    const home = join(tmpdir(), 'no-agents-audit')
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_audit_named',
+          goal: 'audit of Automaton via puppetmaster/codegraph',
+        }),
+        '/fallback-automaton',
+        home,
+        projects,
+      ),
+    ).toBe(auto)
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_audit_it',
+          goal: 'audit of it via puppetmaster/codegraph',
+          objective: 'Need an audit of Automaton via puppetmaster/codegraph',
+        }),
+        '/fallback-automaton',
+        home,
+        projects,
+      ),
+    ).toBe(auto)
+    expect(
+      resolveJobCwd(
+        job({
+          id: 'job_audit_tooling_only',
+          goal: 'audit of it via puppetmaster/codegraph',
+        }),
+        '/fallback-automaton',
+        home,
+        projects,
+      ),
+    ).toBe('/fallback-automaton')
     rmSync(root, { recursive: true, force: true })
   })
 

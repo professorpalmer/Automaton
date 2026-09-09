@@ -14,7 +14,7 @@ import { automatonHome, listOpenRouterKeys } from './keys'
 import { type BoxSeams } from './box'
 import { runBoxShell } from './box-shell'
 import { isDefinitiveAuthDenial, runPromote, runShip, type HostResult, type LandSeams } from './land'
-import { listMachineProjects, matchMachineProject } from './machine'
+import { listMachineProjects, matchMachineProject, type MachineProject } from './machine'
 import { readProfile } from './profile'
 import {
   PRODUCT_ROOT,
@@ -56,11 +56,11 @@ export const WATCH_UNAVAILABLE_GRACE = 3
 export const STATUS_FIRST_DELAY_MS = 1500
 export const STATUS_THROTTLE_MS = 15_000
 export const EXTERNAL_WAIT_MS = 30_000
-const WATCH_POLL_MS = 1500
+export const WATCH_POLL_MS = 2500
 
 export type DispatchSeams = {
-  readStatus?: (pmJobId: string) => StatusSnap
-  readArtifactRefs?: (pmJobId: string) => unknown
+  readStatus?: (pmJobId: string) => StatusSnap | Promise<StatusSnap>
+  readArtifactRefs?: (pmJobId: string) => unknown | Promise<unknown>
   spawn?: (argv: string[]) => Promise<SpawnedPm>
   analyzeFiles?: (job: JobHandle) => { configPath: string; goalPath: string }
   implementFiles?: (job: JobHandle) => { configPath: string; goalPath: string }
@@ -86,8 +86,8 @@ type Inflight = {
   abandoned: boolean
 }
 
-type StatusReader = (pmJobId: string) => StatusSnap
-type RefsReader = (pmJobId: string) => unknown
+type StatusReader = (pmJobId: string) => StatusSnap | Promise<StatusSnap>
+type RefsReader = (pmJobId: string) => unknown | Promise<unknown>
 
 const started = new Set<string>()
 const inflight = new Map<string, Inflight>()
@@ -113,21 +113,21 @@ export function isWatchingJob(jobId: string): boolean {
 }
 
 /** Readable terminal PM status. Null if still running or the live read is uncertain. */
-export function lookTerminalPm(
+export async function lookTerminalPm(
   pmJobId: string,
   statusOf: StatusReader,
   refsOf: RefsReader,
-): TerminalPmLook | null {
+): Promise<TerminalPmLook | null> {
   let snap: StatusSnap
   try {
-    snap = statusOf(pmJobId)
+    snap = await statusOf(pmJobId)
   } catch {
     return null
   }
   if (jobOutcome(snap) === 'running') return null
   let refs: unknown = null
   try {
-    refs = refsOf(pmJobId)
+    refs = await refsOf(pmJobId)
   } catch {
     refs = null
   }
@@ -147,7 +147,7 @@ export function claimRepoForJob(job: JobHandle, home = automatonHome()): string 
   if (issue) return `${issue.owner}/${issue.repo}`
   const slug = readProfile(job.ownerAgentId, home)?.homeRepo?.trim()
   if (slug) return slug
-  return matchMachineProject(job.goal, listMachineProjects())?.name
+  return matchJobProject(job, listMachineProjects())?.name
 }
 
 export function isReusableAnalyzePrior(prior: JobHandle, current: JobHandle): boolean {
@@ -168,18 +168,21 @@ export function reusableAnalyzeSpoken(snap: StatusSnap, refs: unknown): string |
   return substantiveSpokenFromRefs(refs)
 }
 
-export function findReusableAnalyze(
+export async function findReusableAnalyze(
   current: JobHandle,
   knownJobs: JobHandle[],
   readLiveStatus: StatusReader,
   readLiveRefs: RefsReader,
-): AnalyzeReuseHit | null {
+): Promise<AnalyzeReuseHit | null> {
   if (current.kind !== 'analyze') return null
   for (let index = knownJobs.length - 1; index >= 0; index -= 1) {
     const prior = knownJobs[index]
     if (!isReusableAnalyzePrior(prior, current) || !prior.pmJobId) continue
     try {
-      const spoken = reusableAnalyzeSpoken(readLiveStatus(prior.pmJobId), readLiveRefs(prior.pmJobId))
+      const spoken = reusableAnalyzeSpoken(
+        await readLiveStatus(prior.pmJobId),
+        await readLiveRefs(prior.pmJobId),
+      )
       if (spoken) return { pmJobId: prior.pmJobId, spoken }
     } catch {
       /* uncertain live read is a miss for this candidate */
@@ -200,7 +203,7 @@ export async function ensureDispatched(
   const refsOf = seams.readArtifactRefs ?? ((pmJobId) => readArtifactRefs(pmJobId, PRODUCT_ROOT))
   if (started.has(job.id)) {
     if (!job.pmJobId) return
-    const look = lookTerminalPm(job.pmJobId, statusOf, refsOf)
+    const look = await lookTerminalPm(job.pmJobId, statusOf, refsOf)
     if (!look) return
     const row = inflight.get(job.id)
     if (row) row.abandoned = true
@@ -233,7 +236,7 @@ export async function ensureDispatched(
       return
     }
     if (job.kind === 'analyze') {
-      const hit = findReusableAnalyze(job, knownJobs, statusOf, refsOf)
+      const hit = await findReusableAnalyze(job, knownJobs, statusOf, refsOf)
       if (hit) {
         if (row.abandoned) return
         hooks.onAttached(hit.pmJobId)
@@ -264,7 +267,7 @@ export async function ensureDispatched(
     hooks.onAttached(spawned.pmJobId)
     await watchUntilTerminal(spawned.pmJobId, row, statusOf, seams, hooks, job)
     if (row.abandoned) return
-    deliverTerminal(spawned.pmJobId, hooks, statusOf, refsOf)
+    await deliverTerminal(spawned.pmJobId, hooks, statusOf, refsOf)
   } catch (error) {
     if (row.abandoned) return
     const auth = pmAuthDenialSpoken(error)
@@ -301,7 +304,7 @@ export function resolveBoundProductCwd(
   home = automatonHome(),
   projects = listMachineProjects(),
 ): string | undefined {
-  const hit = matchMachineProject(job.goal, projects)
+  const hit = matchJobProject(job, projects)
   if (hit) return hit.path
   const profile = readProfile(job.ownerAgentId, home)
   const path = profile?.homePath?.trim()
@@ -350,8 +353,8 @@ async function attachExisting(
   if (!pmJobId) return
   hooks.onAttached(pmJobId)
   try {
-    if (jobOutcome(statusOf(pmJobId)) !== 'running') {
-      deliverTerminal(pmJobId, hooks, statusOf, refsOf)
+    if (jobOutcome(await statusOf(pmJobId)) !== 'running') {
+      await deliverTerminal(pmJobId, hooks, statusOf, refsOf)
       return
     }
   } catch {
@@ -359,7 +362,7 @@ async function attachExisting(
   }
   await watchUntilTerminal(pmJobId, row, statusOf, seams, hooks, job)
   if (row.abandoned) return
-  deliverTerminal(pmJobId, hooks, statusOf, refsOf)
+  await deliverTerminal(pmJobId, hooks, statusOf, refsOf)
 }
 
 function emitKeepAlive(job: JobHandle, hooks: DispatchHooks): void {
@@ -449,7 +452,7 @@ async function watchUntilTerminal(
   for (;;) {
     if (row.abandoned) return
     try {
-      if (jobOutcome(statusOf(pmJobId)) !== 'running') return
+      if (jobOutcome(await statusOf(pmJobId)) !== 'running') return
       unavailable = 0
       if (
         hooks.onStatus &&
@@ -515,15 +518,15 @@ function applyDelivery(look: TerminalPmLook, hooks: DispatchHooks): void {
   hooks.onFail(look.spoken)
 }
 
-function deliverTerminal(
+async function deliverTerminal(
   pmJobId: string,
   hooks: DispatchHooks,
   statusOf: StatusReader,
   refsOf: RefsReader,
-): void {
+): Promise<void> {
   let snap: StatusSnap
   try {
-    snap = statusOf(pmJobId)
+    snap = await statusOf(pmJobId)
   } catch (error) {
     const auth = pmAuthDenialSpoken(error)
     if (auth && hooks.onWaitingUser) hooks.onWaitingUser(auth, 'job')
@@ -532,11 +535,21 @@ function deliverTerminal(
   }
   let refs: unknown = null
   try {
-    refs = refsOf(pmJobId)
+    refs = await refsOf(pmJobId)
   } catch {
     refs = null
   }
   applyDelivery(deliveryFromSnap(snap, refs), hooks)
+}
+
+function matchJobProject(job: JobHandle, projects: MachineProject[]): MachineProject | null {
+  const fromGoal = matchMachineProject(job.goal, projects)
+  if (fromGoal) return fromGoal
+  const objective = job.objective?.trim()
+  if (objective && objective !== job.goal.trim()) {
+    return matchMachineProject(objective, projects)
+  }
+  return null
 }
 
 function sleep(ms: number): Promise<void> {
