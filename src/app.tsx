@@ -269,6 +269,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     .map((row) => `${row.agentId}:${row.mouth}`)
     .join('|')
 
+  const inspectArmed = useRef(false)
   const toggleInspector = () => {
     setPane((current) => (current === 'inspector' ? 'none' : 'inspector'))
   }
@@ -677,7 +678,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         if (quitChord(event)) quitAutomaton()
       }}
     >
-      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
+      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} inspectArmed={inspectArmed} />
       <div
         style={{
           display: 'flex',
@@ -1455,11 +1456,12 @@ function DeskMark() {
 function Titlebar({
   name,
   onInspect,
+  inspectArmed,
 }: {
   name: string
   onInspect: () => void
+  inspectArmed: { current: boolean }
 }) {
-  const inspectArmed = useRef(false)
   const inspect = () => {
     onInspect()
   }
