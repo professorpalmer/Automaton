@@ -44,8 +44,12 @@ describe('machine checkouts', () => {
     expect(matchMachineProject('audit of Automaton via puppetmaster/codegraph', projects)?.path).toBe(
       auto,
     )
+    expect(matchMachineProject('audit of Automaton via codegraph/puppetmaster', projects)?.path).toBe(
+      auto,
+    )
     expect(matchMachineProject('run codegraph on Automaton', projects)?.path).toBe(auto)
     expect(matchMachineProject('audit of it via puppetmaster/codegraph', projects)).toBeNull()
+    expect(matchMachineProject('audit of it via codegraph/puppetmaster', projects)).toBeNull()
     expect(matchMachineProject('look at the checkout via puppetmaster', projects)).toBeNull()
     rmSync(root, { recursive: true, force: true })
   })
