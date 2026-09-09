@@ -618,11 +618,12 @@ export function SisterBlob({
   const plate = useRestingStyle(
     { opacity: selected ? 1 : 0 },
     BODY_SPRING,
-    { immediate: pointer.down },
+    { immediate: pointer.down || !selected },
   )
   const lids = useRestingStyle(
     { open: live && blink ? 0 : 1 },
     EYE_SPRING,
+    { immediate: !live },
   )
   const svg = useMemo(() => shapeSvgSource(mark.shape, fill, T.blob.size), [mark.shape, fill])
   const speed = Math.hypot(pointer.vx, pointer.vy)
@@ -677,11 +678,8 @@ export function SisterBlob({
         opacity: 1,
       }}
     >
-      <motion.div
+      <div
         testId={`blob-plate-${agent.id}`}
-        initial={false}
-        animate={{ opacity: plate.opacity }}
-        transition={{ duration: 0 }}
         style={{
           position: 'absolute',
           left: PLATE_INSET,
@@ -691,6 +689,7 @@ export function SisterBlob({
           borderRadius: PLATE_RADIUS,
           backgroundColor: T.selected,
           pointerEvents: 'none',
+          opacity: plate.opacity,
         }}
       />
       {smears.current.map((smear, i) => (
