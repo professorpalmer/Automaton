@@ -371,26 +371,113 @@ export function ownerLabel(job: JobHandle): string {
   return 'kernel analyze request'
 }
 
-export function resolvePm(): PmBin {
+const PM_ATTEMPTS: PmBin[] = [
+  { command: 'puppetmaster', prefix: [] },
+  { command: 'python', prefix: ['-m', 'puppetmaster'] },
+  { command: 'python3', prefix: ['-m', 'puppetmaster'] },
+]
+
+let resolvedPm: PmBin | undefined
+
+export function resetPmBinForTests(): void {
+  resolvedPm = undefined
+}
+
+function pmBinFromOverride(): PmBin | undefined {
   const override = process.env.AUTOMATON_PM_BIN?.trim()
-  if (override) {
-    const parts = override.split(/\s+/)
-    return { command: parts[0], prefix: parts.slice(1) }
-  }
-  const attempts: PmBin[] = [
-    { command: 'puppetmaster', prefix: [] },
-    { command: 'python', prefix: ['-m', 'puppetmaster'] },
-    { command: 'python3', prefix: ['-m', 'puppetmaster'] },
-  ]
-  for (const bin of attempts) {
+  if (!override) return undefined
+  const parts = override.split(/\s+/)
+  return { command: parts[0], prefix: parts.slice(1) }
+}
+
+function rememberPm(bin: PmBin): PmBin {
+  resolvedPm = bin
+  return bin
+}
+
+export function resolvePm(): PmBin {
+  if (resolvedPm) return resolvedPm
+  const override = pmBinFromOverride()
+  if (override) return rememberPm(override)
+  for (const bin of PM_ATTEMPTS) {
     const probe = spawnSync(bin.command, [...bin.prefix, 'doctor'], {
       encoding: 'utf8',
       timeout: 15_000,
       env: pmEnv(),
     })
-    if (probe.status === 0) return bin
+    if (probe.status === 0) return rememberPm(bin)
   }
-  return attempts[0]
+  return rememberPm(PM_ATTEMPTS[0])
+}
+
+type CapturedPm = { status: number | null; stdout: string; stderr: string }
+
+function spawnCaptured(
+  command: string,
+  args: string[],
+  opts: { cwd?: string; env?: NodeJS.ProcessEnv; timeout: number },
+): Promise<CapturedPm> {
+  return new Promise((resolveCaptured) => {
+    const child = spawn(command, args, {
+      cwd: opts.cwd,
+      env: opts.env,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stdout = ''
+    let stderr = ''
+    let settled = false
+    const finish = (result: CapturedPm) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      resolveCaptured(result)
+    }
+    const timer = setTimeout(() => {
+      child.kill('SIGTERM')
+      finish({ status: null, stdout, stderr })
+    }, opts.timeout)
+    child.stdout?.setEncoding('utf8')
+    child.stdout?.on('data', (chunk) => {
+      stdout += String(chunk)
+    })
+    child.stderr?.setEncoding('utf8')
+    child.stderr?.on('data', (chunk) => {
+      stderr += String(chunk)
+    })
+    child.on('error', (err) => {
+      finish({ status: 127, stdout, stderr: stderr || String(err.message ?? err) })
+    })
+    child.on('close', (code) => {
+      finish({ status: code, stdout, stderr })
+    })
+  })
+}
+
+async function resolvePmAsync(): Promise<PmBin> {
+  if (resolvedPm) return resolvedPm
+  const override = pmBinFromOverride()
+  if (override) return rememberPm(override)
+  for (const bin of PM_ATTEMPTS) {
+    const probe = await spawnCaptured(bin.command, [...bin.prefix, 'doctor'], {
+      timeout: 15_000,
+      env: pmEnv(),
+    })
+    if (probe.status === 0) return rememberPm(bin)
+  }
+  return rememberPm(PM_ATTEMPTS[0])
+}
+
+async function runPmCaptured(
+  argv: string[],
+  productRoot: string,
+  timeoutMs: number,
+): Promise<CapturedPm> {
+  const bin = await resolvePmAsync()
+  return spawnCaptured(bin.command, [...bin.prefix, ...argv], {
+    cwd: productRoot,
+    env: pmEnv(),
+    timeout: timeoutMs,
+  })
 }
 
 export function pmEnv(): NodeJS.ProcessEnv {
@@ -528,28 +615,16 @@ export function waitForJobId(
   })
 }
 
-export function readStatus(pmJobId: string, productRoot = PRODUCT_ROOT): StatusSnap {
-  const bin = resolvePm()
-  const result = spawnSync(bin.command, [...bin.prefix, 'status', pmJobId, '--compact'], {
-    cwd: productRoot,
-    env: pmEnv(),
-    encoding: 'utf8',
-    timeout: 20_000,
-  })
+export async function readStatus(pmJobId: string, productRoot = PRODUCT_ROOT): Promise<StatusSnap> {
+  const result = await runPmCaptured(['status', pmJobId, '--compact'], productRoot, 20_000)
   if (result.status !== 0) {
     throw new Error(result.stderr || result.stdout || `status failed for ${pmJobId}`)
   }
   return JSON.parse(result.stdout || '{}') as StatusSnap
 }
 
-export function readArtifactRefs(pmJobId: string, productRoot = PRODUCT_ROOT): unknown {
-  const bin = resolvePm()
-  const result = spawnSync(bin.command, [...bin.prefix, 'artifacts', pmJobId, '--refs'], {
-    cwd: productRoot,
-    env: pmEnv(),
-    encoding: 'utf8',
-    timeout: 20_000,
-  })
+export async function readArtifactRefs(pmJobId: string, productRoot = PRODUCT_ROOT): Promise<unknown> {
+  const result = await runPmCaptured(['artifacts', pmJobId, '--refs'], productRoot, 20_000)
   if (result.status !== 0) return []
   try {
     return JSON.parse(result.stdout || '[]')
