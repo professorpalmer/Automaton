@@ -86,6 +86,7 @@ describe('app chords', () => {
     expect(beforeButton).not.toContain('onClick')
     expect(beforeButton).not.toContain('onMouseDown')
     expect(beforeButton).not.toContain('...HIT')
+    expect(src).toContain('const inspectArmed = { current: false }')
     expect(title).toContain('inspectArmed')
     expect(button).toContain('onMouseDown')
     expect(button).toContain('onClick')
