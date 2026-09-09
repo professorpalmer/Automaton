@@ -373,7 +373,7 @@ describe('durable analyze dispatch', () => {
       sleep: async () => undefined,
       maxUnavailableStatusReads: WATCH_UNAVAILABLE_GRACE,
     })
-    expect(reads).toBe(WATCH_UNAVAILABLE_GRACE + 1)
+    expect(reads).toBe(WATCH_UNAVAILABLE_GRACE + 2)
     expect(recorded.attached).toEqual(['job_gone'])
     expect(recorded.complete).toEqual([])
     expect(recorded.fail).toEqual(["Didn't land."])
@@ -385,7 +385,7 @@ describe('durable analyze dispatch', () => {
     await ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), recorded, [], {
       readStatus: () => {
         reads += 1
-        if (reads < 3) return { job: { status: 'running' } }
+        if (reads < 4) return { job: { status: 'running' } }
         return completeFinding().snap
       },
       readArtifactRefs: () => completeFinding().refs,
@@ -465,12 +465,17 @@ describe('durable analyze dispatch', () => {
 
   test('immediate complete does not emit a keepalive status', async () => {
     const recorded = hooks()
+    let slept = 0
     await ensureDispatched(job({ id: 'job_quick', pmJobId: 'job_ready' }), recorded, [], {
       ...live({ job_ready: completeFinding() }),
       spawn: async () => {
         throw new Error('must not spawn')
       },
+      sleep: async () => {
+        slept += 1
+      },
     })
+    expect(slept).toBe(0)
     expect(recorded.status).toEqual([])
     expect(recorded.complete).toEqual([FINDING])
   })

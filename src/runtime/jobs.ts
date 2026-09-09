@@ -349,6 +349,14 @@ async function attachExisting(
   const pmJobId = job.pmJobId
   if (!pmJobId) return
   hooks.onAttached(pmJobId)
+  try {
+    if (jobOutcome(statusOf(pmJobId)) !== 'running') {
+      deliverTerminal(pmJobId, hooks, statusOf, refsOf)
+      return
+    }
+  } catch {
+    /* first read uncertain — watch with grace */
+  }
   await watchUntilTerminal(pmJobId, row, statusOf, seams, hooks, job)
   if (row.abandoned) return
   deliverTerminal(pmJobId, hooks, statusOf, refsOf)
