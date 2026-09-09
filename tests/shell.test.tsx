@@ -74,6 +74,16 @@ describe('app chords', () => {
     expect(copyChord({ key: 'c', modifiers: { cmd: true, shift: true } })).toBe(false)
     expect(inspectorChord({ key: 'i', modifiers: { cmd: true, shift: true } })).toBe(true)
   })
+
+  test('titlebar inspects only from the computer button', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    const title = src.split('function Titlebar(')[1]?.split('function SpokenLine(')[0] ?? ''
+    const beforeButton = title.split('testId="titlebar-computer"')[0] ?? ''
+    expect(title).toContain('testId="titlebar-computer"')
+    expect(beforeButton).toContain('testId="titlebar"')
+    expect(beforeButton).not.toContain('onClick={onInspect}')
+    expect(beforeButton).not.toContain('...HIT')
+  })
 })
 
 const native = hasNativeTestRenderer ? describe : describe.skip
