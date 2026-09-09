@@ -1492,15 +1492,20 @@ function Titlebar({
       <div
         testId="titlebar-computer"
         style={{
-          paddingLeft: T.space.xs,
-          paddingRight: T.space.xs,
-          paddingTop: T.space.xs,
-          paddingBottom: T.space.xs,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minWidth: T.layout.titlebarHeight,
+          minHeight: T.layout.titlebarHeight,
+          paddingLeft: T.space.sm,
+          paddingRight: T.space.sm,
           borderRadius: T.radius.sm,
+          backgroundColor: T.clear,
           ...HIT,
           hover: { backgroundColor: T.raised },
         }}
-        onClick={(event) => {
+        onMouseDown={(event) => {
           if (event.isRightClick || event.button === 2) return
           onInspect()
         }}
