@@ -349,11 +349,6 @@ async function attachExisting(
   const pmJobId = job.pmJobId
   if (!pmJobId) return
   hooks.onAttached(pmJobId)
-  const immediate = lookTerminalPm(pmJobId, statusOf, refsOf)
-  if (immediate) {
-    applyDelivery(immediate, hooks)
-    return
-  }
   await watchUntilTerminal(pmJobId, row, statusOf, seams, hooks, job)
   if (row.abandoned) return
   deliverTerminal(pmJobId, hooks, statusOf, refsOf)
