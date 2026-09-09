@@ -70,17 +70,17 @@ console.log(`attached ${pmJobId}`)
 console.log(`cwd ${workerCwd}`)
 
 const deadline = Date.now() + 180_000
-let snap = readStatus(pmJobId, PRODUCT_ROOT)
+let snap = await readStatus(pmJobId, PRODUCT_ROOT)
 while (jobOutcome(snap) === 'running' && Date.now() < deadline) {
   await Bun.sleep(2000)
   try {
-    snap = readStatus(pmJobId, PRODUCT_ROOT)
+    snap = await readStatus(pmJobId, PRODUCT_ROOT)
   } catch {
     /* not visible yet */
   }
 }
 
-const spoken = spokenFromArtifactRefs(readArtifactRefs(pmJobId, PRODUCT_ROOT))
+const spoken = spokenFromArtifactRefs(await readArtifactRefs(pmJobId, PRODUCT_ROOT))
 const report = {
   pmJobId,
   workerCwd,
