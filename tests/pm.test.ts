@@ -17,6 +17,9 @@ import {
   parseLauncherPid,
   pmEnv,
   implementPrompt,
+  readArtifactRefs,
+  readStatus,
+  resetPmBinForTests,
   seedSandboxFromProduct,
   spokenFromArtifactRefs,
   substantiveSpokenFromRefs,
@@ -306,6 +309,55 @@ describe('puppetmaster spawn contract', () => {
     expect(existsSync(join(sandbox, '.git'))).toBe(true)
     expect(() => assertSandboxCwd(sandbox, product)).not.toThrow()
     spawnSync('git', ['worktree', 'remove', '--force', sandbox], { cwd: product, env, encoding: 'utf8' })
+  })
+
+  test('readStatus and readArtifactRefs yield instead of blocking the event loop', async () => {
+    const dir = join(tmpdir(), `automaton-pm-async-${Date.now()}`)
+    mkdirSync(dir, { recursive: true })
+    const fake = join(dir, 'fake-pm.mjs')
+    writeFileSync(
+      fake,
+      [
+        'const cmd = process.argv[2]',
+        "if (cmd === 'doctor') process.exit(0)",
+        'await new Promise((resolve) => setTimeout(resolve, 180))',
+        "if (cmd === 'status') {",
+        "  process.stdout.write(JSON.stringify({ job: { status: 'complete' } }))",
+        '  process.exit(0)',
+        '}',
+        "if (cmd === 'artifacts') {",
+        "  process.stdout.write('[]')",
+        '  process.exit(0)',
+        '}',
+        'process.exit(1)',
+        '',
+      ].join('\n'),
+    )
+    const prevBin = process.env.AUTOMATON_PM_BIN
+    process.env.AUTOMATON_PM_BIN = `node ${fake}`
+    resetPmBinForTests()
+    try {
+      const started = Date.now()
+      const pending = readStatus('job_async', dir)
+      const handed = Date.now()
+      expect(handed - started).toBeLessThan(80)
+      let ticks = 0
+      const timer = setInterval(() => {
+        ticks += 1
+      }, 20)
+      const snap = await pending
+      clearInterval(timer)
+      expect(snap.job?.status).toBe('complete')
+      expect(ticks).toBeGreaterThan(0)
+      const refsStarted = Date.now()
+      const refsPending = readArtifactRefs('job_async', dir)
+      expect(Date.now() - refsStarted).toBeLessThan(80)
+      expect(await refsPending).toEqual([])
+    } finally {
+      if (prevBin === undefined) delete process.env.AUTOMATON_PM_BIN
+      else process.env.AUTOMATON_PM_BIN = prevBin
+      resetPmBinForTests()
+    }
   })
 
   test('status maps to mouth outcomes', () => {

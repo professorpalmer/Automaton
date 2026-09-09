@@ -83,14 +83,48 @@ function keyPattern(key: string): RegExp {
   return new RegExp(`\\b${body}\\b`, 'i')
 }
 
-/** Longest key that appears as a whole phrase wins. Ties keep the first path. */
+const TOOLING_VOCAB = /^(puppetmaster|puppet master|codegraph)$/i
+
+function isToolingKey(key: string): boolean {
+  return TOOLING_VOCAB.test(key.trim())
+}
+
+/** `via puppetmaster/codegraph` is runtime vocabulary, not a project subject. */
+function isToolingFrame(text: string, key: string): boolean {
+  if (/^codegraph$/i.test(key.trim())) return true
+  const body = escapeRe(key).replace(/\\ /g, '\\s+')
+  if (new RegExp(`\\b(?:via|using|through)\\s+${body}\\b`, 'i').test(text)) return true
+  return new RegExp(`\\b${body}\\s*[/]\\s*codegraph\\b`, 'i').test(text)
+}
+
+/** Name/path hits beat tooling words. Tooling-only frames do not steal cwd. */
 export function matchMachineProject(text: string, projects: MachineProject[]): MachineProject | null {
-  let best: { project: MachineProject; len: number } | null = null
+  type Hit = { project: MachineProject; len: number; tooling: boolean }
+  let best: Hit | null = null
+  const consider = (project: MachineProject, key: string, tooling: boolean) => {
+    if (!best) {
+      best = { project, len: key.length, tooling }
+      return
+    }
+    if (best.tooling !== tooling) {
+      if (!tooling) best = { project, len: key.length, tooling }
+      return
+    }
+    if (key.length > best.len) best = { project, len: key.length, tooling }
+  }
   for (const project of projects) {
-    for (const key of project.keys) {
+    if (project.path && text.includes(project.path)) {
+      consider(project, project.path, false)
+    }
+    const name = project.name.trim()
+    const keys = name && !project.keys.some((key) => key.toLowerCase() === name.toLowerCase())
+      ? [...project.keys, name]
+      : project.keys
+    for (const key of keys) {
       if (!keyPattern(key).test(text)) continue
-      if (!best || key.length > best.len) best = { project, len: key.length }
+      consider(project, key, isToolingKey(key) && isToolingFrame(text, key))
     }
   }
-  return best?.project ?? null
+  if (!best || best.tooling) return null
+  return best.project
 }

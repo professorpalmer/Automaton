@@ -34,6 +34,22 @@ describe('machine checkouts', () => {
     rmSync(root, { recursive: true, force: true })
   })
 
+  test('tooling words do not steal cwd from Automaton or an anaphor', () => {
+    const root = join(tmpdir(), `automaton-projects-tooling-${Date.now()}`)
+    const pm = gitDir(root, 'Puppetmaster')
+    const auto = gitDir(root, 'Automaton')
+    gitDir(root, 'codegraph')
+    const projects = listMachineProjects(root)
+    expect(matchMachineProject('what script does puppetmaster have', projects)?.path).toBe(pm)
+    expect(matchMachineProject('audit of Automaton via puppetmaster/codegraph', projects)?.path).toBe(
+      auto,
+    )
+    expect(matchMachineProject('run codegraph on Automaton', projects)?.path).toBe(auto)
+    expect(matchMachineProject('audit of it via puppetmaster/codegraph', projects)).toBeNull()
+    expect(matchMachineProject('look at the checkout via puppetmaster', projects)).toBeNull()
+    rmSync(root, { recursive: true, force: true })
+  })
+
   test('well-known labels skip unknown folders', () => {
     const root = join(tmpdir(), `automaton-known-${Date.now()}`)
     gitDir(root, 'Puppetmaster')
