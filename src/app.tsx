@@ -103,7 +103,6 @@ import {
   fulfillSecretRequest,
   dismissSecretRequest,
   type Session,
-  type TerminalJobLook,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
 import { applyChromeToTokens, railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
@@ -207,14 +206,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     return openStaffStore()
   }, [providedStore])
   const [session, setSession] = useState<Session>(() => {
-    const loaded = store.load() ?? emptySeed()
-    const seeded = hydrateSession(loaded, undefined, {
-      onSettled: (jobId, look: TerminalJobLook) => {
-        if (look.kind !== 'complete') return
-        const job = loaded.jobs.find((item) => item.id === jobId)
-        if (job) rememberJobSpoken(store, job, look.spoken, job.pmJobId)
-      },
-    })
+    const seeded = hydrateSession(store.load() ?? emptySeed())
     return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
   })
   const [pane, setPane] = useState<Pane>('none')

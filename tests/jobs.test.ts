@@ -480,6 +480,25 @@ describe('durable analyze dispatch', () => {
     expect(recorded.complete).toEqual([FINDING])
   })
 
+  test('already-failed PM job skips watch and fails immediately', async () => {
+    const recorded = hooks()
+    let slept = 0
+    await ensureDispatched(job({ id: 'job_dead', pmJobId: 'job_4bf91c00a13c' }), recorded, [], {
+      readStatus: () => ({ job: { status: 'failed' } }),
+      readArtifactRefs: () => [{ type: 'gist', claim: FINDING }],
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+      sleep: async () => {
+        slept += 1
+      },
+    })
+    expect(slept).toBe(0)
+    expect(recorded.attached).toEqual(['job_4bf91c00a13c'])
+    expect(recorded.complete).toEqual([])
+    expect(recorded.fail).toEqual(["Didn't land."])
+  })
+
   test('complete with no finding fails closed instead of speaking Done.', async () => {
     const recorded = hooks()
     await ensureDispatched(job({ id: 'job_hollow_live', pmJobId: 'job_empty' }), recorded, [], {
