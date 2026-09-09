@@ -89,11 +89,14 @@ function isToolingKey(key: string): boolean {
   return TOOLING_VOCAB.test(key.trim())
 }
 
-/** `via puppetmaster/codegraph` is runtime vocabulary, not a project subject. */
+/** `via puppetmaster/codegraph` and `via codegraph/puppetmaster` are runtime vocabulary. */
 function isToolingFrame(text: string, key: string): boolean {
   if (/^codegraph$/i.test(key.trim())) return true
   const body = escapeRe(key).replace(/\\ /g, '\\s+')
-  if (new RegExp(`\\b(?:via|using|through)\\s+${body}\\b`, 'i').test(text)) return true
+  if (new RegExp(`\\b(?:via|using|through)\\s+(?:[\\w.-]+\\s*[/]\\s*)*${body}\\b`, 'i').test(text)) {
+    return true
+  }
+  if (new RegExp(`\\bcodegraph\\s*[/]\\s*${body}\\b`, 'i').test(text)) return true
   return new RegExp(`\\b${body}\\s*[/]\\s*codegraph\\b`, 'i').test(text)
 }
 
