@@ -210,6 +210,14 @@ function mouseDownTestId(renderer: ReturnType<typeof createTestRoot>['renderer']
   )
 }
 
+function clickCenterTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+  const bounds = boundsFor(renderer, testId)
+  renderer.nativeSimulateClick(
+    Math.floor(bounds.x + bounds.width / 2),
+    Math.floor(bounds.y + bounds.height / 2),
+  )
+}
+
 function rightClickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
   const bounds = boundsFor(renderer, testId)
   renderer.nativeSimulateMouseDown(
@@ -1298,14 +1306,16 @@ native('staff shell (GPUI native)', () => {
     const titleHit = T.layout.titlebarHeight - T.stroke.hairline
     expect(button?.bounds?.width ?? 0).toBeGreaterThanOrEqual(titleHit)
     expect(button?.bounds?.height ?? 0).toBeGreaterThanOrEqual(titleHit)
+    expect(button?.bounds?.width ?? 0).toBeLessThan(80)
+    expect(button?.bounds?.x ?? 0).toBeGreaterThan(1000)
     mouseDownTestId(renderer, 'titlebar-name')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
-    clickTestId(renderer, 'titlebar-computer')
+    clickCenterTestId(renderer, 'titlebar-computer')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBeGreaterThan(0)
-    clickTestId(renderer, 'titlebar-computer')
+    clickCenterTestId(renderer, 'titlebar-computer')
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
   })
@@ -1318,7 +1328,7 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector')).toBeFalsy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
-    clickTestId(renderer, 'titlebar-computer')
+    clickCenterTestId(renderer, 'titlebar-computer')
     renderer.flush()
     const inspectorShot = 'artifacts/shots/shell-inspector.png'
     renderer.captureScreenshot(inspectorShot)

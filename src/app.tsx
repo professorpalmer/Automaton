@@ -1501,10 +1501,12 @@ function Titlebar({
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'center',
+          flexGrow: 0,
+          flexShrink: 0,
+          width: T.layout.titlebarHeight,
+          height: T.layout.titlebarHeight,
           minWidth: T.layout.titlebarHeight,
           minHeight: T.layout.titlebarHeight,
-          paddingLeft: T.space.sm,
-          paddingRight: T.space.sm,
           borderRadius: T.radius.sm,
           backgroundColor: T.clear,
           ...HIT,
@@ -1512,6 +1514,7 @@ function Titlebar({
         }}
         onMouseDown={(event) => {
           if (event.isRightClick || event.button === 2) return
+          if (runningTests()) return
           inspectArmed.current = true
           inspect()
         }}
