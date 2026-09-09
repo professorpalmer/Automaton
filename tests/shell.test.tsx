@@ -83,10 +83,11 @@ describe('app chords', () => {
     expect(title).toContain('testId="titlebar-computer"')
     expect(beforeButton).toContain('testId="titlebar"')
     expect(beforeButton).not.toContain('onClick={onInspect}')
+    expect(beforeButton).not.toContain('onClick')
     expect(beforeButton).not.toContain('onMouseDown')
     expect(beforeButton).not.toContain('...HIT')
     expect(button).toContain('onMouseDown')
-    expect(button).not.toContain('onClick')
+    expect(button).toContain('onClick')
   })
 })
 
@@ -1289,7 +1290,7 @@ native('staff shell (GPUI native)', () => {
     expect(typeof button?.id).toBe('number')
     const el = renderer.getElement(button!.id as number)
     expect(el?.events.has('mouseDown')).toBe(true)
-    expect(el?.events.has('click')).toBe(false)
+    expect(el?.events.has('click')).toBe(true)
     const titleHit = T.layout.titlebarHeight - T.stroke.hairline
     expect(button?.bounds?.width ?? 0).toBeGreaterThanOrEqual(titleHit)
     expect(button?.bounds?.height ?? 0).toBeGreaterThanOrEqual(titleHit)

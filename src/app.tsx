@@ -1509,6 +1509,10 @@ function Titlebar({
           if (event.isRightClick || event.button === 2) return
           onInspect()
         }}
+        onClick={(event) => {
+          if (event.isRightClick || event.button === 2) return
+          onInspect()
+        }}
       >
         <DeskMark />
       </div>
