@@ -24,6 +24,7 @@ import {
   type Agent,
   type FeedItem,
   type GoalRun,
+  type JobHandle,
   type MouthState,
   type PendingSendView,
   type WidgetAnswer,
@@ -167,6 +168,29 @@ function persistIntroIfUserSpoke(session: Session): void {
   for (const id of Object.keys(session.threads)) {
     if (hasUserMessage(session, id)) markIntroPlayedAt(id)
   }
+}
+
+function rememberJobSpoken(store: StaffStore, job: JobHandle, spoken: string, pmJobId?: string): void {
+  if (job.kind === 'box-shell' || job.kind === 'promote' || job.kind === 'ship') return
+  const taskKey = claimTaskKey({
+    ownerAgentId: job.ownerAgentId,
+    kind: job.kind,
+    goal: job.goal,
+  })
+  const repo = claimRepoForJob(job)
+  if (job.kind === 'analyze' && isLiveAnalyzeGoal(job.goal)) {
+    store.staleClaims({ ownerAgentId: job.ownerAgentId, repo, taskKey })
+  }
+  store.remember({
+    ownerAgentId: job.ownerAgentId,
+    text: spoken,
+    source: 'job',
+    jobId: pmJobId,
+    taskKey,
+    repo,
+    artifactKind: job.kind,
+    freshness: 'fresh',
+  })
 }
 
 function playIntro(session: Session, agentId: string): Session {
@@ -347,27 +371,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             setSession((current) => noteJobStatus(current, job.id, spoken))
           },
           onComplete: (spoken) => {
-            if (job.kind !== 'box-shell' && job.kind !== 'promote' && job.kind !== 'ship') {
-              const taskKey = claimTaskKey({
-                ownerAgentId: job.ownerAgentId,
-                kind: job.kind,
-                goal: job.goal,
-              })
-              const repo = claimRepoForJob(job)
-              if (job.kind === 'analyze' && isLiveAnalyzeGoal(job.goal)) {
-                store.staleClaims({ ownerAgentId: job.ownerAgentId, repo, taskKey })
-              }
-              store.remember({
-                ownerAgentId: job.ownerAgentId,
-                text: spoken,
-                source: 'job',
-                jobId: pmIdentity,
-                taskKey,
-                repo,
-                artifactKind: job.kind,
-                freshness: 'fresh',
-              })
-            }
+            rememberJobSpoken(store, job, spoken, pmIdentity)
             setSession((current) => {
               const next = completeJob(current, job.id, spoken)
               bindNewUserAttachments(store, current, next)
