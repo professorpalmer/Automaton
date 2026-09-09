@@ -5,6 +5,7 @@ import { motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
+import { useRestingStyle } from './resting-motion'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
 
@@ -453,8 +454,10 @@ const FrozenMark = React.memo(function FrozenMark({
   width,
   height,
   unread,
-  pose,
-  dragging,
+  meltLeft,
+  meltTop,
+  meltWidth,
+  meltHeight,
 }: {
   shape: string
   fill: string
@@ -463,10 +466,11 @@ const FrozenMark = React.memo(function FrozenMark({
   width: number
   height: number
   unread: number
-  pose: BlobMelt
-  dragging: boolean
+  meltLeft: number
+  meltTop: number
+  meltWidth: number
+  meltHeight: number
 }) {
-  const box = dragging ? { left: 0, top: 0, width, height } : poseLayout(pose, width, height)
   return (
     <div
       style={{
@@ -479,23 +483,19 @@ const FrozenMark = React.memo(function FrozenMark({
         pointerEvents: 'none',
       }}
     >
-      <motion.div
-        initial={false}
-        animate={{
-          left: box.left,
-          top: box.top,
-          width: box.width,
-          height: box.height,
-        }}
-        transition={dragging ? { type: 'tween' as const, duration: 0 } : BODY_SPRING}
+      <div
         style={{
           position: 'absolute',
+          left: meltLeft,
+          top: meltTop,
+          width: meltWidth,
+          height: meltHeight,
           overflow: 'hidden',
           pointerEvents: 'none',
         }}
       >
         <BodyGlyph shape={shape} fill={fill} />
-      </motion.div>
+      </div>
       {unread > 0 ? (
         <div
           style={{
@@ -640,7 +640,32 @@ export function SisterBlob({
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
   const melt: BlobMelt = pose
+  const meltBox = pointer.down ? { left: 0, top: 0, width: glyphWidth, height: glyphHeight } : poseLayout(melt, glyphWidth, glyphHeight)
   const eyes = entered ? busyEyeLayout(look, live && blink, eyeKind, glance, mark.shape) : []
+  const leftEye = eyes[0]
+  const rightEye = eyes[1]
+  const body = useRestingStyle(
+    {
+      plate: selected ? 1 : 0,
+      meltLeft: meltBox.left,
+      meltTop: meltBox.top,
+      meltWidth: meltBox.width,
+      meltHeight: meltBox.height,
+    },
+    BODY_SPRING,
+    { immediate: pointer.down },
+  )
+  const eyeMotion = useRestingStyle(
+    {
+      left: leftEye ? px(glyphLeft + leftEye.left + (pointer.down ? pointer.vx * 4 : 0)) : 0,
+      top: leftEye ? px(glyphTop + leftEye.top + (pointer.down ? pointer.vy * 4 : 0)) : 0,
+      rightLeft: rightEye ? px(glyphLeft + rightEye.left + (pointer.down ? pointer.vx * 4 : 0)) : 0,
+      rightTop: rightEye ? px(glyphTop + rightEye.top + (pointer.down ? pointer.vy * 4 : 0)) : 0,
+      lid: leftEye ? px(leftEye.lid) : T.blob.eye,
+    },
+    EYE_SPRING,
+    { immediate: pointer.down },
+  )
   const svg = useMemo(
     () => shapeSvgSource(mark.shape, fill, T.blob.size),
     [mark.shape, fill],
@@ -700,8 +725,8 @@ export function SisterBlob({
       <motion.div
         testId={`blob-plate-${agent.id}`}
         initial={false}
-        animate={{ opacity: selected ? 1 : 0 }}
-        transition={BODY_SPRING}
+        animate={{ opacity: body.plate }}
+        transition={{ duration: 0 }}
         style={{
           position: 'absolute',
           left: PLATE_INSET,
@@ -738,47 +763,52 @@ export function SisterBlob({
         width={glyphWidth}
         height={glyphHeight}
         unread={unread}
-        pose={melt}
-        dragging={pointer.down}
+        meltLeft={body.meltLeft}
+        meltTop={body.meltTop}
+        meltWidth={body.meltWidth}
+        meltHeight={body.meltHeight}
       />
-      {eyes.map((eye, side) => (
-        <motion.div
-          key={side}
-          testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
-          initial={false}
-          animate={{
-            left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
-            top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0)),
-          }}
-          transition={EYE_SPRING}
-          style={{
-            position: 'absolute',
-            width: eye.width,
-            height: eye.height,
-            overflow: 'hidden',
-            pointerEvents: 'none',
-          }}
-        >
-          <motion.div
-            initial={false}
-            animate={{ height: px(eye.lid) }}
-            transition={EYE_SPRING}
-            style={{
-              position: 'absolute',
-              left: 0,
-              top: 0,
-              width: eye.width,
-              overflow: 'hidden',
-              pointerEvents: 'none',
-            }}
-          >
-            <svg
-              source={eyeSvg}
-              style={svgStampStyle(T.catalog.black)}
-            />
-          </motion.div>
-        </motion.div>
-      ))}
+      {leftEye && rightEye ? (
+        <>
+          {(
+            [
+              { side: 0, left: eyeMotion.left, top: eyeMotion.top, eye: leftEye },
+              { side: 1, left: eyeMotion.rightLeft, top: eyeMotion.rightTop, eye: rightEye },
+            ] as const
+          ).map(({ side, left, top, eye }) => (
+            <div
+              key={side}
+              testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
+              style={{
+                position: 'absolute',
+                left,
+                top,
+                width: eye.width,
+                height: eye.height,
+                overflow: 'hidden',
+                pointerEvents: 'none',
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: 0,
+                  width: eye.width,
+                  height: eyeMotion.lid,
+                  overflow: 'hidden',
+                  pointerEvents: 'none',
+                }}
+              >
+                <svg
+                  source={eyeSvg}
+                  style={svgStampStyle(T.catalog.black)}
+                />
+              </div>
+            </div>
+          ))}
+        </>
+      ) : null}
     </div>
   )
 }
