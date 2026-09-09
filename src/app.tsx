@@ -1459,6 +1459,10 @@ function Titlebar({
   name: string
   onInspect: () => void
 }) {
+  const inspectArmed = useRef(false)
+  const inspect = () => {
+    onInspect()
+  }
   return (
     <div
       testId="titlebar"
@@ -1507,11 +1511,16 @@ function Titlebar({
         }}
         onMouseDown={(event) => {
           if (event.isRightClick || event.button === 2) return
-          onInspect()
+          inspectArmed.current = true
+          inspect()
         }}
         onClick={(event) => {
           if (event.isRightClick || event.button === 2) return
-          onInspect()
+          if (inspectArmed.current) {
+            inspectArmed.current = false
+            return
+          }
+          inspect()
         }}
       >
         <DeskMark />

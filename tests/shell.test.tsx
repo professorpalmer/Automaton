@@ -86,8 +86,11 @@ describe('app chords', () => {
     expect(beforeButton).not.toContain('onClick')
     expect(beforeButton).not.toContain('onMouseDown')
     expect(beforeButton).not.toContain('...HIT')
+    expect(title).toContain('inspectArmed')
     expect(button).toContain('onMouseDown')
     expect(button).toContain('onClick')
+    expect(button).toContain('inspectArmed.current')
+    expect(button).not.toMatch(/onClick=\{\(event\) => \{[^}]*onInspect\(\)/)
   })
 })
 
