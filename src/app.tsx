@@ -1635,12 +1635,6 @@ function paintedFeedCount(items: FeedItem[], thinking = false): number {
 }
 
 function ThinkingRow() {
-  const [step, setStep] = useState(0)
-  useEffect(() => {
-    if (runningTests()) return
-    const timer = setInterval(() => setStep((n) => n + 1), T.feed.thinkMs)
-    return () => clearInterval(timer)
-  }, [])
   return (
     <div
       testId="thinking"
@@ -1649,6 +1643,7 @@ function ThinkingRow() {
         flexDirection: 'row',
         justifyContent: 'flex-start',
         width: '100%',
+        minWidth: T.type.md * 3,
         paddingTop: T.feed.turn,
         paddingLeft: T.feed.gutter,
         paddingRight: T.feed.gutter,
@@ -1657,7 +1652,7 @@ function ThinkingRow() {
         color: T.ghost,
       }}
     >
-      {thinkingDots(step)}
+      {thinkingDots(3)}
     </div>
   )
 }

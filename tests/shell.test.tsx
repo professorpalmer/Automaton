@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, selectedGlance, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
+import { assertSeedFrames, blobClock, blobClockShouldHold, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, selectedGlance, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -391,6 +391,8 @@ describe('sister blob presentation', () => {
     expect(blobSrc).not.toMatch(/onFrame/)
     expect(blobSrc).not.toMatch(/layoutScroll|popLayout/)
     expect(blobSrc).toMatch(/useRestingStyle/)
+    expect(blobSrc).toMatch(/blobClockShouldHold/)
+    expect(blobSrc).not.toMatch(/layoutDuration/)
     expect(blobSrc).not.toMatch(/transition=\{BODY_SPRING\}/)
     expect(blobSrc).not.toMatch(/transition=\{EYE_SPRING\}/)
     expect(blobSrc).toMatch(/nextLook/)
@@ -470,8 +472,10 @@ describe('sister blob presentation', () => {
     expect(src).not.toMatch(/style\.hover/)
     expect(src).not.toMatch(/hover: \{ opacity: T\.blob\.hover \}/)
     expect(src).toMatch(/setBlink\(true\)/)
-    expect(src).toMatch(/px\(leftEye\.lid\)/)
+    expect(src).toMatch(/lids\.open/)
     expect(src).toMatch(/useRestingStyle/)
+    expect(src).toMatch(/blobClockShouldHold/)
+    expect(src).not.toMatch(/layoutDuration/)
     expect(src).not.toMatch(/transition=\{BODY_SPRING\}/)
     expect(src).not.toMatch(/transition=\{EYE_SPRING\}/)
     expect(src).toMatch(/EYE_ANCHOR/)
@@ -550,6 +554,8 @@ describe('sister blob presentation', () => {
     expect(app).toMatch(/alive=\{alive\}/)
     expect(app).toMatch(/working=\{working\}/)
     expect(app).toMatch(/selected \|\| working/)
+    expect(app).toMatch(/thinkingDots\(3\)/)
+    expect(app).not.toMatch(/setStep\(\(n\) => n \+ 1\), T\.feed\.thinkMs/)
   })
 
   test('a job handle is not an input, so it cannot think a mouth', () => {
@@ -583,6 +589,8 @@ describe('sister blob presentation', () => {
   test('idle blobs do not wander; working blobs squash on the clock', () => {
     expect(blobNeedsClock(false)).toBe(false)
     expect(blobNeedsClock(true)).toBe(true)
+    expect(blobClockShouldHold(true)).toBe(true)
+    expect(blobClockShouldHold(false)).toBe(false)
     const rest = poseLayout('rest')
     expect(rest).toEqual({ left: 0, top: 0, width: 38, height: 38 })
     const idleStrip = [0, 1, 2, 3, 4].map(() => poseLayout('rest'))

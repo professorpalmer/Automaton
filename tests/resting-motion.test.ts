@@ -12,6 +12,7 @@ import {
   stepSpringChannel,
   subscribeSpringTick,
 } from '../src/resting-motion'
+import { blobClockShouldHold } from '../src/blob'
 import { T } from '../src/tokens'
 
 const SOFT = { type: 'spring' as const, stiffness: 28, damping: 8, mass: 1.25 }
@@ -20,6 +21,8 @@ const EYE = { type: 'spring' as const, stiffness: 13, damping: 14, mass: 1 }
 describe('resting spring clock', () => {
   test('frame cadence matches gpuix DEFAULT_FRAME_MS and does not replace it', () => {
     expect(SPRING_FRAME_MS).toBe(8)
+    expect(blobClockShouldHold(springClockBusy())).toBe(false)
+    expect(blobClockShouldHold(true)).toBe(true)
   })
 
   test('skips no-op and sub-pixel publishes', () => {

@@ -5,7 +5,7 @@ import { motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
-import { useRestingStyle } from './resting-motion'
+import { springClockBusy, useRestingStyle } from './resting-motion'
 import { runningTests } from './runtime/test-env'
 import { T } from './tokens'
 
@@ -30,7 +30,6 @@ export type BlobMotion = {
   lift: number
   weights: BlobWeights
   duration: number
-  layoutDuration: number
   delay: number
   ease: 'easeOut' | 'easeInOut'
 }
@@ -123,6 +122,11 @@ export function blobNeedsClock(alive: boolean): boolean {
   return alive
 }
 
+/** Hold look/pose beats while a spring is still painting. Do not stack retargets. */
+export function blobClockShouldHold(springBusy: boolean): boolean {
+  return springBusy
+}
+
 function hold(weight: keyof BlobWeights): BlobWeights {
   return { ...ZERO, [weight]: 1 }
 }
@@ -140,7 +144,6 @@ export function presentBlob(view: BlobView): BlobMotion {
       lift: 0,
       weights: hold('rest'),
       duration: T.motion.enter,
-      layoutDuration: T.motion.enter,
       delay,
       ease: 'easeOut',
     }
@@ -152,7 +155,6 @@ export function presentBlob(view: BlobView): BlobMotion {
       lift: 0,
       weights: hold('body'),
       duration: T.motion.selected,
-      layoutDuration: T.motion.selected,
       delay,
       ease: 'easeOut',
     }
@@ -164,7 +166,6 @@ export function presentBlob(view: BlobView): BlobMotion {
       lift: 0,
       weights: hold('selected'),
       duration: T.motion.selected,
-      layoutDuration: T.motion.selected,
       delay,
       ease: 'easeOut',
     }
@@ -175,7 +176,6 @@ export function presentBlob(view: BlobView): BlobMotion {
     lift: 0,
     weights: hold('rest'),
     duration: T.blob.breatheMs / 1000,
-    layoutDuration: T.motion.selected,
     delay,
     ease: 'easeInOut',
   }
@@ -421,31 +421,6 @@ function svgStampStyle(tint: string) {
   }
 }
 
-const BodyGlyph = React.memo(function BodyGlyph({
-  shape,
-  fill,
-}: {
-  shape: string
-  fill: string
-}) {
-  const bodySvg = useMemo(() => shapeSvgSource(shape, fill, T.blob.size), [shape, fill])
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: 0,
-        top: 0,
-        width: '100%',
-        height: '100%',
-        overflow: 'hidden',
-        pointerEvents: 'none',
-      }}
-    >
-      <svg source={bodySvg} style={svgStampStyle(fill)} />
-    </div>
-  )
-})
-
 const FrozenMark = React.memo(function FrozenMark({
   shape,
   fill,
@@ -454,10 +429,7 @@ const FrozenMark = React.memo(function FrozenMark({
   width,
   height,
   unread,
-  meltLeft,
-  meltTop,
-  meltWidth,
-  meltHeight,
+  pose,
 }: {
   shape: string
   fill: string
@@ -466,11 +438,10 @@ const FrozenMark = React.memo(function FrozenMark({
   width: number
   height: number
   unread: number
-  meltLeft: number
-  meltTop: number
-  meltWidth: number
-  meltHeight: number
+  pose: BlobPose
 }) {
+  const stamps = useMemo(() => poseSvgStamps(shape, fill, T.blob.size), [shape, fill])
+  const stamp = pose === 'wide' ? stamps.wide : pose === 'tall' ? stamps.tall : stamps.rest
   return (
     <div
       style={{
@@ -486,15 +457,15 @@ const FrozenMark = React.memo(function FrozenMark({
       <div
         style={{
           position: 'absolute',
-          left: meltLeft,
-          top: meltTop,
-          width: meltWidth,
-          height: meltHeight,
+          left: 0,
+          top: 0,
+          width: '100%',
+          height: '100%',
           overflow: 'hidden',
           pointerEvents: 'none',
         }}
       >
-        <BodyGlyph shape={shape} fill={fill} />
+        <svg source={stamp} style={svgStampStyle(fill)} />
       </div>
       {unread > 0 ? (
         <div
@@ -576,12 +547,14 @@ export function SisterBlob({
     }
     setLook((n) => nextLook(agent.id, n))
     const wander = setInterval(() => {
+      if (blobClockShouldHold(springClockBusy())) return
       setLook((n) => nextLook(agent.id, n))
     }, clock.wanderMs)
     let poseTimer: ReturnType<typeof setInterval> | undefined
     if (busyBody) {
       setPoseLook((n) => nextLook(agent.id, n))
       poseTimer = setInterval(() => {
+        if (blobClockShouldHold(springClockBusy())) return
         setPoseLook((n) => nextLook(agent.id, n))
       }, bodyClock.wanderMs)
     } else {
@@ -639,44 +612,26 @@ export function SisterBlob({
   const rawPose = !busyBody || poseLook === bodyClock.lookStart ? 'rest' : workPose(agent.id, poseLook)
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
-  const melt: BlobMelt = pose
-  const meltBox = pointer.down ? { left: 0, top: 0, width: glyphWidth, height: glyphHeight } : poseLayout(melt, glyphWidth, glyphHeight)
-  const eyes = entered ? busyEyeLayout(look, live && blink, eyeKind, glance, mark.shape) : []
+  const eyes = entered ? busyEyeLayout(look, false, eyeKind, glance, mark.shape) : []
   const leftEye = eyes[0]
   const rightEye = eyes[1]
-  const body = useRestingStyle(
-    {
-      plate: selected ? 1 : 0,
-      meltLeft: meltBox.left,
-      meltTop: meltBox.top,
-      meltWidth: meltBox.width,
-      meltHeight: meltBox.height,
-    },
+  const plate = useRestingStyle(
+    { opacity: selected ? 1 : 0 },
     BODY_SPRING,
     { immediate: pointer.down },
   )
-  const eyeMotion = useRestingStyle(
-    {
-      left: leftEye ? px(glyphLeft + leftEye.left + (pointer.down ? pointer.vx * 4 : 0)) : 0,
-      top: leftEye ? px(glyphTop + leftEye.top + (pointer.down ? pointer.vy * 4 : 0)) : 0,
-      rightLeft: rightEye ? px(glyphLeft + rightEye.left + (pointer.down ? pointer.vx * 4 : 0)) : 0,
-      rightTop: rightEye ? px(glyphTop + rightEye.top + (pointer.down ? pointer.vy * 4 : 0)) : 0,
-      lid: leftEye ? px(leftEye.lid) : T.blob.eye,
-    },
+  const lids = useRestingStyle(
+    { open: live && blink ? 0 : 1 },
     EYE_SPRING,
-    { immediate: pointer.down },
   )
-  const svg = useMemo(
-    () => shapeSvgSource(mark.shape, fill, T.blob.size),
-    [mark.shape, fill],
-  )
+  const svg = useMemo(() => shapeSvgSource(mark.shape, fill, T.blob.size), [mark.shape, fill])
   const speed = Math.hypot(pointer.vx, pointer.vy)
   if (pointer.down && speed > 0.35) {
     smears.current = [{ x: glyphLeft, y: glyphTop, o: 0.35 }, ...smears.current].slice(0, 5)
   } else {
     smears.current = smears.current.map((s) => ({ ...s, o: s.o * 0.72 })).filter((s) => s.o > 0.04)
   }
-  const plate = slot - PLATE_INSET * 2
+  const plateBox = slot - PLATE_INSET * 2
 
   return (
     <div
@@ -725,14 +680,14 @@ export function SisterBlob({
       <motion.div
         testId={`blob-plate-${agent.id}`}
         initial={false}
-        animate={{ opacity: body.plate }}
+        animate={{ opacity: plate.opacity }}
         transition={{ duration: 0 }}
         style={{
           position: 'absolute',
           left: PLATE_INSET,
           top: PLATE_INSET,
-          width: plate,
-          height: plate,
+          width: plateBox,
+          height: plateBox,
           borderRadius: PLATE_RADIUS,
           backgroundColor: T.selected,
           pointerEvents: 'none',
@@ -763,48 +718,34 @@ export function SisterBlob({
         width={glyphWidth}
         height={glyphHeight}
         unread={unread}
-        meltLeft={body.meltLeft}
-        meltTop={body.meltTop}
-        meltWidth={body.meltWidth}
-        meltHeight={body.meltHeight}
+        pose={pose}
       />
       {leftEye && rightEye ? (
         <>
           {(
             [
-              { side: 0, left: eyeMotion.left, top: eyeMotion.top, eye: leftEye },
-              { side: 1, left: eyeMotion.rightLeft, top: eyeMotion.rightTop, eye: rightEye },
+              { side: 0, eye: leftEye },
+              { side: 1, eye: rightEye },
             ] as const
-          ).map(({ side, left, top, eye }) => (
+          ).map(({ side, eye }) => (
             <div
               key={side}
               testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
               style={{
                 position: 'absolute',
-                left,
-                top,
+                left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
+                top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0)),
                 width: eye.width,
                 height: eye.height,
                 overflow: 'hidden',
                 pointerEvents: 'none',
+                opacity: lids.open,
               }}
             >
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  width: eye.width,
-                  height: eyeMotion.lid,
-                  overflow: 'hidden',
-                  pointerEvents: 'none',
-                }}
-              >
-                <svg
-                  source={eyeSvg}
-                  style={svgStampStyle(T.catalog.black)}
-                />
-              </div>
+              <svg
+                source={eyeSvg}
+                style={svgStampStyle(T.catalog.black)}
+              />
             </div>
           ))}
         </>
