@@ -24,6 +24,7 @@ import {
   type Agent,
   type FeedItem,
   type GoalRun,
+  type JobHandle,
   type MouthState,
   type PendingSendView,
   type WidgetAnswer,
@@ -102,6 +103,7 @@ import {
   fulfillSecretRequest,
   dismissSecretRequest,
   type Session,
+  type TerminalJobLook,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
 import { applyChromeToTokens, railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
@@ -169,6 +171,29 @@ function persistIntroIfUserSpoke(session: Session): void {
   }
 }
 
+function rememberJobSpoken(store: StaffStore, job: JobHandle, spoken: string, pmJobId?: string): void {
+  if (job.kind === 'box-shell' || job.kind === 'promote' || job.kind === 'ship') return
+  const taskKey = claimTaskKey({
+    ownerAgentId: job.ownerAgentId,
+    kind: job.kind,
+    goal: job.goal,
+  })
+  const repo = claimRepoForJob(job)
+  if (job.kind === 'analyze' && isLiveAnalyzeGoal(job.goal)) {
+    store.staleClaims({ ownerAgentId: job.ownerAgentId, repo, taskKey })
+  }
+  store.remember({
+    ownerAgentId: job.ownerAgentId,
+    text: spoken,
+    source: 'job',
+    jobId: pmJobId,
+    taskKey,
+    repo,
+    artifactKind: job.kind,
+    freshness: 'fresh',
+  })
+}
+
 function playIntro(session: Session, agentId: string): Session {
   const played = readProfile(agentId)?.introPlayedAt ?? null
   if (hasUserMessage(session, agentId) && !played) markIntroPlayedAt(agentId)
@@ -182,7 +207,14 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     return openStaffStore()
   }, [providedStore])
   const [session, setSession] = useState<Session>(() => {
-    const seeded = hydrateSession(store.load() ?? emptySeed())
+    const loaded = store.load() ?? emptySeed()
+    const seeded = hydrateSession(loaded, undefined, {
+      onSettled: (jobId, look: TerminalJobLook) => {
+        if (look.kind !== 'complete') return
+        const job = loaded.jobs.find((item) => item.id === jobId)
+        if (job) rememberJobSpoken(store, job, look.spoken, job.pmJobId)
+      },
+    })
     return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
   })
   const [pane, setPane] = useState<Pane>('none')
@@ -347,27 +379,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             setSession((current) => noteJobStatus(current, job.id, spoken))
           },
           onComplete: (spoken) => {
-            if (job.kind !== 'box-shell' && job.kind !== 'promote' && job.kind !== 'ship') {
-              const taskKey = claimTaskKey({
-                ownerAgentId: job.ownerAgentId,
-                kind: job.kind,
-                goal: job.goal,
-              })
-              const repo = claimRepoForJob(job)
-              if (job.kind === 'analyze' && isLiveAnalyzeGoal(job.goal)) {
-                store.staleClaims({ ownerAgentId: job.ownerAgentId, repo, taskKey })
-              }
-              store.remember({
-                ownerAgentId: job.ownerAgentId,
-                text: spoken,
-                source: 'job',
-                jobId: pmIdentity,
-                taskKey,
-                repo,
-                artifactKind: job.kind,
-                freshness: 'fresh',
-              })
-            }
+            rememberJobSpoken(store, job, spoken, pmIdentity)
             setSession((current) => {
               const next = completeJob(current, job.id, spoken)
               bindNewUserAttachments(store, current, next)

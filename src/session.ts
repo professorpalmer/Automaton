@@ -179,8 +179,26 @@ function setThread(session: Session, id: AgentId, patch: Partial<Thread>): Sessi
   }
 }
 
-/** Remount cannot finish a live mouth turn. Jobs keep `working`. */
-export function idleOrphanMouths(session: Session): Session {
+export type TerminalJobLook =
+  | { kind: 'complete'; spoken: string }
+  | { kind: 'fail'; spoken: string }
+  | { kind: 'wait_user'; spoken: string; source: GoalBlockerSource }
+
+export function applyTerminalJobLook(session: Session, jobId: string, look: TerminalJobLook): Session {
+  if (look.kind === 'complete') return completeJob(session, jobId, look.spoken)
+  if (look.kind === 'wait_user') return waitJobUser(session, jobId, look.spoken, look.source)
+  return failJob(session, jobId, look.spoken)
+}
+
+export type OrphanMouthLook = {
+  /** Live ensureDispatched watcher. Do not steal a turn that is still being watched. */
+  watching?: (jobId: string) => boolean
+  /** Attach an already-terminal PM job. Null means still running or unread. */
+  terminal?: (job: JobHandle) => TerminalJobLook | null
+}
+
+/** Remount cannot finish a live mouth turn. Jobs keep `working` unless PM is already terminal. */
+export function idleOrphanMouths(session: Session, look?: OrphanMouthLook): Session {
   let next = session
   for (const id of Object.keys(session.threads)) {
     const row = next.threads[id]
@@ -215,7 +233,16 @@ export function idleOrphanMouths(session: Session): Session {
     )
     next = setThread(next, id, { items })
   }
-  return { ...next, pendingApprovals: cancelPendingApprovals(next.pendingApprovals ?? []) }
+  next = { ...next, pendingApprovals: cancelPendingApprovals(next.pendingApprovals ?? []) }
+  if (!look?.terminal) return next
+  for (const job of next.jobs) {
+    if (job.status !== 'running' || !job.pmJobId) continue
+    if (look.watching?.(job.id)) continue
+    const hit = look.terminal(job)
+    if (!hit) continue
+    next = applyTerminalJobLook(next, job.id, hit)
+  }
+  return next
 }
 
 function append(session: Session, agentId: AgentId, item: FeedItem, focused: AgentId, id?: string): Session {
@@ -942,9 +969,8 @@ function criterionJob(goal: GoalRun, criterion: GoalCriterion, prior: string): J
 }
 
 function ackLine(name: string): string {
-  if (name === 'Kernel') return 'On it.'
   if (name === 'Research') return 'Looking.'
-  return 'Telling them.'
+  return 'On it.'
 }
 
 export function hasUserMessage(session: Session, agentId: AgentId): boolean {

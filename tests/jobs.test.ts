@@ -10,6 +10,8 @@ import {
   findReusableAnalyze,
   implementSeedRoot,
   isReusableAnalyzePrior,
+  isWatchingJob,
+  lookTerminalPm,
   normalizeGoal,
   resetJobsForTests,
   resolveBoundProductCwd,
@@ -398,6 +400,67 @@ describe('durable analyze dispatch', () => {
     expect(recorded.status).not.toContain('Done.')
     expect(recorded.complete).toEqual([FINDING])
     expect(recorded.fail).toEqual([])
+  })
+
+  test('lookTerminalPm is null while running and complete when refs have a gist', () => {
+    const running = lookTerminalPm(
+      'job_live',
+      () => ({ job: { status: 'running' } }),
+      () => [{ type: 'gist', claim: FINDING }],
+    )
+    expect(running).toBeNull()
+    const unread = lookTerminalPm(
+      'job_gone',
+      () => {
+        throw new Error('missing status')
+      },
+      () => [],
+    )
+    expect(unread).toBeNull()
+    expect(
+      lookTerminalPm(
+        'job_ready',
+        () => completeFinding().snap,
+        () => completeFinding().refs,
+      ),
+    ).toEqual({ kind: 'complete', spoken: FINDING })
+    expect(
+      lookTerminalPm(
+        'job_gist',
+        () => ({ job: { status: 'complete' }, delivery: { successful: true } }),
+        () => [{ type: 'gist', claim: 'Staff audit landed.' }],
+      ),
+    ).toEqual({ kind: 'complete', spoken: 'Staff audit landed.' })
+    expect(
+      lookTerminalPm(
+        'job_failed',
+        () => ({ job: { status: 'failed' } }),
+        () => [{ type: 'gist', claim: FINDING }],
+      ),
+    ).toEqual({ kind: 'fail', spoken: "Didn't land." })
+  })
+
+  test('remount while a watcher is live delivers an already-terminal PM job', async () => {
+    const first = hooks()
+    void ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), first, [], {
+      readStatus: () => ({ job: { status: 'running' } }),
+      readArtifactRefs: () => [],
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+      sleep: () => new Promise(() => undefined),
+    })
+    expect(isWatchingJob('job_local')).toBe(true)
+    const remount = hooks()
+    await ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), remount, [], {
+      ...live({ job_live: completeFinding() }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(remount.complete).toEqual([FINDING])
+    expect(remount.fail).toEqual([])
+    expect(first.complete).toEqual([])
   })
 
   test('immediate complete does not emit a keepalive status', async () => {

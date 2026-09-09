@@ -352,6 +352,48 @@ describe('teammate session', () => {
     expect(s.threads.staff.mouth).toBe('working')
     expect(s.threads.staff.mouth).not.toBe('answer')
     expect(pendingMouthTurns(s)).toHaveLength(0)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'On it.',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling them.',
+      ),
+    ).toBe(false)
+  })
+
+  test('idleOrphanMouths settles a terminal PM job and leaves a live watched turn working', () => {
+    let s = send(fresh(), 'check Puppetmaster and Marionette for prs or open issues')
+    const jobId = s.jobs[0]!.id
+    s = attachPmJob(s, jobId, 'job_pm_done')
+    expect(s.threads.staff.mouth).toBe('working')
+
+    const flying = idleOrphanMouths(s, { terminal: () => null })
+    expect(flying.jobs[0]?.status).toBe('running')
+    expect(flying.threads.staff.mouth).toBe('working')
+
+    const watched = idleOrphanMouths(s, {
+      watching: (id) => id === jobId,
+      terminal: () => ({ kind: 'complete', spoken: 'The repo audit is in.' }),
+    })
+    expect(watched.jobs[0]?.status).toBe('running')
+    expect(watched.threads.staff.mouth).toBe('working')
+
+    const done = idleOrphanMouths(s, {
+      terminal: () => ({ kind: 'complete', spoken: 'The repo audit is in.' }),
+    })
+    expect(done.jobs[0]?.status).toBe('complete')
+    expect(done.threads.staff.mouth).toBe('idle')
+    const last = done.threads.staff.items.at(-1)
+    expect(last?.kind === 'msg' && last.from === 'agent' ? last.text : '').toBe('The repo audit is in.')
+
+    const failed = idleOrphanMouths(s, {
+      terminal: () => ({ kind: 'fail', spoken: "Didn't land." }),
+    })
+    expect(failed.jobs[0]?.status).toBe('failed')
+    expect(failed.threads.staff.mouth).toBe('idle')
   })
 
   test('Staff ping plus a repo ask books analyze, not a presence check', () => {

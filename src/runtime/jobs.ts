@@ -76,6 +76,11 @@ export type DispatchSeams = {
   externalWaitMs?: number
 }
 
+export type TerminalPmLook =
+  | { kind: 'complete'; spoken: string }
+  | { kind: 'fail'; spoken: string }
+  | { kind: 'wait_user'; spoken: string; source: GoalBlockerSource }
+
 type Inflight = {
   pid?: number
   abandoned: boolean
@@ -101,6 +106,32 @@ export function abandonJob(localId: string): void {
     row.abandoned = true
     killProcessGroup(row.pid)
   }
+}
+
+export function isWatchingJob(jobId: string): boolean {
+  return inflight.has(jobId)
+}
+
+/** Readable terminal PM status. Null if still running or the live read is uncertain. */
+export function lookTerminalPm(
+  pmJobId: string,
+  statusOf: StatusReader,
+  refsOf: RefsReader,
+): TerminalPmLook | null {
+  let snap: StatusSnap
+  try {
+    snap = statusOf(pmJobId)
+  } catch {
+    return null
+  }
+  if (jobOutcome(snap) === 'running') return null
+  let refs: unknown = null
+  try {
+    refs = refsOf(pmJobId)
+  } catch {
+    refs = null
+  }
+  return deliveryFromSnap(snap, refs)
 }
 
 export function normalizeGoal(goal: string): string {
@@ -165,12 +196,20 @@ export async function ensureDispatched(
 ): Promise<void> {
   if (job.status !== 'running') return
   if (cancelled.has(job.id)) return
-  if (started.has(job.id)) return
+  const statusOf = seams.readStatus ?? ((pmJobId) => readStatus(pmJobId, PRODUCT_ROOT))
+  const refsOf = seams.readArtifactRefs ?? ((pmJobId) => readArtifactRefs(pmJobId, PRODUCT_ROOT))
+  if (started.has(job.id)) {
+    if (!job.pmJobId) return
+    const look = lookTerminalPm(job.pmJobId, statusOf, refsOf)
+    if (!look) return
+    const row = inflight.get(job.id)
+    if (row) row.abandoned = true
+    applyDelivery(look, hooks)
+    return
+  }
   started.add(job.id)
   const row: Inflight = { abandoned: false }
   inflight.set(job.id, row)
-  const statusOf = seams.readStatus ?? ((pmJobId) => readStatus(pmJobId, PRODUCT_ROOT))
-  const refsOf = seams.readArtifactRefs ?? ((pmJobId) => readArtifactRefs(pmJobId, PRODUCT_ROOT))
   try {
     if (job.pmJobId) {
       await attachExisting(job, row, hooks, statusOf, refsOf, seams)
@@ -310,6 +349,11 @@ async function attachExisting(
   const pmJobId = job.pmJobId
   if (!pmJobId) return
   hooks.onAttached(pmJobId)
+  const immediate = lookTerminalPm(pmJobId, statusOf, refsOf)
+  if (immediate) {
+    applyDelivery(immediate, hooks)
+    return
+  }
   await watchUntilTerminal(pmJobId, row, statusOf, seams, hooks, job)
   if (row.abandoned) return
   deliverTerminal(pmJobId, hooks, statusOf, refsOf)
@@ -440,6 +484,34 @@ function pmAuthDenialSpoken(error?: unknown, snap?: StatusSnap): string | null {
   return spokenAuthLine(parts)
 }
 
+function deliveryFromSnap(snap: StatusSnap, refs: unknown): TerminalPmLook {
+  if (jobOutcome(snap) !== 'complete') {
+    const auth = pmAuthDenialSpoken(undefined, snap)
+    if (auth) return { kind: 'wait_user', spoken: auth, source: 'job' }
+    return { kind: 'fail', spoken: "Didn't land." }
+  }
+  let spoken: string | null
+  try {
+    spoken = substantiveSpokenFromRefs(refs)
+  } catch {
+    spoken = null
+  }
+  if (!spoken) return { kind: 'fail', spoken: "Didn't land." }
+  return { kind: 'complete', spoken }
+}
+
+function applyDelivery(look: TerminalPmLook, hooks: DispatchHooks): void {
+  if (look.kind === 'complete') {
+    hooks.onComplete(look.spoken)
+    return
+  }
+  if (look.kind === 'wait_user' && hooks.onWaitingUser) {
+    hooks.onWaitingUser(look.spoken, look.source)
+    return
+  }
+  hooks.onFail(look.spoken)
+}
+
 function deliverTerminal(
   pmJobId: string,
   hooks: DispatchHooks,
@@ -461,23 +533,7 @@ function deliverTerminal(
   } catch {
     refs = null
   }
-  if (jobOutcome(snap) !== 'complete') {
-    const auth = pmAuthDenialSpoken(undefined, snap)
-    if (auth && hooks.onWaitingUser) hooks.onWaitingUser(auth, 'job')
-    else hooks.onFail("Didn't land.")
-    return
-  }
-  let spoken: string | null
-  try {
-    spoken = substantiveSpokenFromRefs(refs)
-  } catch {
-    spoken = null
-  }
-  if (!spoken) {
-    hooks.onFail("Didn't land.")
-    return
-  }
-  hooks.onComplete(spoken)
+  applyDelivery(deliveryFromSnap(snap, refs), hooks)
 }
 
 function sleep(ms: number): Promise<void> {

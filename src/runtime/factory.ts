@@ -1,8 +1,10 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { nextId, type Agent, type HomeBind } from '../domain'
-import type { Session } from '../session'
+import type { Session, TerminalJobLook } from '../session'
 import { addLiveAgent, idleOrphanMouths, normalizeSession } from '../session'
+import { isWatchingJob, lookTerminalPm } from './jobs'
+import { PRODUCT_ROOT, readArtifactRefs, readStatus, type StatusSnap } from './pm'
 import { MARK_BAKE_REV, MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
 import { T } from '../tokens'
 import { deal, markForId, seedOverride } from './deal'
@@ -176,7 +178,14 @@ export function markForAgent(id: string, home = automatonHome()): { shape: strin
   return markForId(id, readProfile(id, home))
 }
 
-export function hydrateSession(session: Session, home = automatonHome()): Session {
+export type HydrateSeams = {
+  readStatus?: (pmJobId: string) => StatusSnap
+  readArtifactRefs?: (pmJobId: string) => unknown
+  watching?: (jobId: string) => boolean
+  onSettled?: (jobId: string, look: TerminalJobLook) => void
+}
+
+export function hydrateSession(session: Session, home = automatonHome(), seams: HydrateSeams = {}): Session {
   ensureSeedProfiles(home)
   const onDisk = new Set(listProfileIds(home))
   onDisk.add('staff')
@@ -212,5 +221,15 @@ export function hydrateSession(session: Session, home = automatonHome()): Sessio
       next = addLiveAgent(next, live, false)
     }
   }
-  return idleOrphanMouths(next)
+  const statusOf = seams.readStatus ?? ((pmJobId: string) => readStatus(pmJobId, PRODUCT_ROOT))
+  const refsOf = seams.readArtifactRefs ?? ((pmJobId: string) => readArtifactRefs(pmJobId, PRODUCT_ROOT))
+  return idleOrphanMouths(next, {
+    watching: seams.watching ?? isWatchingJob,
+    terminal: (job) => {
+      if (!job.pmJobId) return null
+      const hit = lookTerminalPm(job.pmJobId, statusOf, refsOf)
+      if (hit) seams.onSettled?.(job.id, hit)
+      return hit
+    },
+  })
 }

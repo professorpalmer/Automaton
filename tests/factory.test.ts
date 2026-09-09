@@ -150,6 +150,138 @@ describe('agent factory', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
+  test('hydrate completes a running job whose PM job is already terminal', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = {
+      ...threads.staff,
+      mouth: 'working',
+      items: [
+        { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: 'audit Automaton' },
+        { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'On it.' },
+      ],
+    }
+    const next = hydrateSession(
+      {
+        ...seedSession(),
+        threads,
+        jobs: [
+          {
+            id: 'job_staff',
+            ownerAgentId: 'staff',
+            goal: 'audit the Automaton repo',
+            status: 'running',
+            kind: 'analyze',
+            pmJobId: 'job_4bf91c00a13c',
+            goalId: 'goal_staff',
+            criterionId: 'crit_staff',
+          },
+        ],
+        goals: [
+          {
+            id: 'goal_staff',
+            text: 'audit the Automaton repo',
+            coordinatorId: 'staff',
+            ownerAgentId: 'staff',
+            criteria: [
+              {
+                id: 'crit_staff',
+                label: 'audit',
+                kind: 'analyze',
+                work: 'audit the Automaton repo',
+                status: 'running',
+              },
+            ],
+            receipts: [],
+            status: 'running',
+            activeCriterionId: 'crit_staff',
+          },
+        ],
+      },
+      home,
+      {
+        readStatus: () => ({ job: { status: 'complete' }, delivery: { successful: true } }),
+        readArtifactRefs: () => [{ type: 'gist', claim: 'Staff already finished the audit.' }],
+        watching: () => false,
+      },
+    )
+    expect(next.jobs[0]?.status).toBe('complete')
+    expect(next.goals?.[0]?.status).toBe('complete')
+    expect(next.threads.staff.mouth).toBe('idle')
+    const last = next.threads.staff.items.at(-1)
+    expect(last?.kind === 'msg' && last.from === 'agent' ? last.text : '').toBe(
+      'Staff already finished the audit.',
+    )
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('hydrate fails a running job whose PM job already failed', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = { ...threads.staff, mouth: 'working' }
+    const next = hydrateSession(
+      {
+        ...seedSession(),
+        threads,
+        jobs: [
+          {
+            id: 'job_staff',
+            ownerAgentId: 'staff',
+            goal: 'audit the Automaton repo',
+            status: 'running',
+            kind: 'analyze',
+            pmJobId: 'job_failed_pm',
+          },
+        ],
+      },
+      home,
+      {
+        readStatus: () => ({ job: { status: 'failed' } }),
+        readArtifactRefs: () => [],
+        watching: () => false,
+      },
+    )
+    expect(next.jobs[0]?.status).toBe('failed')
+    expect(next.threads.staff.mouth).toBe('idle')
+    const last = next.threads.staff.items.at(-1)
+    expect(last?.kind === 'msg' && last.from === 'agent' ? last.text : '').toBe("Didn't land.")
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('hydrate leaves a working mouth when the attached PM job is still running', () => {
+    resetIdsForTests()
+    const home = tmpHome()
+    const threads = emptyThreads(DEFAULT_AGENTS)
+    threads.staff = { ...threads.staff, mouth: 'working' }
+    const next = hydrateSession(
+      {
+        ...seedSession(),
+        threads,
+        jobs: [
+          {
+            id: 'job_staff',
+            ownerAgentId: 'staff',
+            goal: 'audit the Automaton repo',
+            status: 'running',
+            kind: 'analyze',
+            pmJobId: 'job_still_running',
+          },
+        ],
+      },
+      home,
+      {
+        readStatus: () => ({ job: { status: 'running' } }),
+        readArtifactRefs: () => [],
+        watching: () => true,
+      },
+    )
+    expect(next.jobs[0]?.status).toBe('running')
+    expect(next.threads.staff.mouth).toBe('working')
+    rmSync(home, { recursive: true, force: true })
+  })
+
   test('applyHomeBinds writes the github slug onto the profile', () => {
     resetIdsForTests()
     const home = tmpHome()
