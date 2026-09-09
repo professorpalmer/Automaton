@@ -79,10 +79,19 @@ describe('app chords', () => {
     const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     const title = src.split('function Titlebar(')[1]?.split('function SpokenLine(')[0] ?? ''
     const beforeButton = title.split('testId="titlebar-computer"')[0] ?? ''
+    const button = title.split('testId="titlebar-computer"')[1] ?? ''
     expect(title).toContain('testId="titlebar-computer"')
     expect(beforeButton).toContain('testId="titlebar"')
     expect(beforeButton).not.toContain('onClick={onInspect}')
+    expect(beforeButton).not.toContain('onClick')
+    expect(beforeButton).not.toContain('onMouseDown')
     expect(beforeButton).not.toContain('...HIT')
+    expect(src).toContain('const inspectArmed = { current: false }')
+    expect(title).toContain('inspectArmed')
+    expect(button).toContain('onMouseDown')
+    expect(button).toContain('onClick')
+    expect(button).toContain('inspectArmed.current')
+    expect(button).not.toMatch(/onClick=\{\(event\) => \{[^}]*onInspect\(\)/)
   })
 })
 
@@ -192,6 +201,15 @@ function clickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], te
     Math.floor(bounds.y + bounds.height / 2),
   )
 }
+
+function mouseDownTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
+  const bounds = boundsFor(renderer, testId)
+  renderer.nativeSimulateMouseDown(
+    Math.floor(bounds.x + Math.min(40, bounds.width / 2)),
+    Math.floor(bounds.y + bounds.height / 2),
+  )
+}
+
 
 function rightClickTestId(renderer: ReturnType<typeof createTestRoot>['renderer'], testId: string) {
   const bounds = boundsFor(renderer, testId)
@@ -1266,6 +1284,28 @@ native('staff shell (GPUI native)', () => {
     renderer.flush()
     expect(feedOffset(renderer)?.[1] ?? 0).toBeLessThan(0)
     expect(renderer.getPaintedText().join(' ')).toContain('the tail has to move')
+  })
+
+  test('titlebar computer button inspects on mouseDown, not the blank bar', () => {
+    const { render, renderer } = createTestRoot()
+    render(<App store={testStore()} />)
+    renderer.flush()
+    const tree = asTree(JSON.parse(renderer.getAutomationTree()))
+    const button = findTestId(tree, 'titlebar-computer')
+    expect(typeof button?.id).toBe('number')
+    const el = renderer.getElement(button!.id as number)
+    expect(el?.events.has('click')).toBe(true)
+    expect(el?.events.has('mouseDown')).toBe(false)
+    mouseDownTestId(renderer, 'titlebar-name')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
+    clickTestId(renderer, 'titlebar-computer')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBeGreaterThan(0)
+    clickTestId(renderer, 'titlebar-computer')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
   })
 
   test('titlebar computer button opens inspector and rail Settings paints usage chrome', () => {

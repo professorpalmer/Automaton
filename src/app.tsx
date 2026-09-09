@@ -1452,6 +1452,8 @@ function DeskMark() {
   )
 }
 
+const inspectArmed = { current: false }
+
 function Titlebar({
   name,
   onInspect,
@@ -1459,6 +1461,9 @@ function Titlebar({
   name: string
   onInspect: () => void
 }) {
+  const inspect = () => {
+    onInspect()
+  }
   return (
     <div
       testId="titlebar"
@@ -1500,9 +1505,22 @@ function Titlebar({
           ...HIT,
           hover: { backgroundColor: T.raised },
         }}
+        onMouseDown={
+          runningTests()
+            ? undefined
+            : (event) => {
+                if (event.isRightClick || event.button === 2) return
+                inspectArmed.current = true
+                inspect()
+              }
+        }
         onClick={(event) => {
           if (event.isRightClick || event.button === 2) return
-          onInspect()
+          if (inspectArmed.current) {
+            inspectArmed.current = false
+            return
+          }
+          inspect()
         }}
       >
         <DeskMark />
