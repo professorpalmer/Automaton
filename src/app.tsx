@@ -1512,12 +1512,15 @@ function Titlebar({
           ...HIT,
           hover: { backgroundColor: T.raised },
         }}
-        onMouseDown={(event) => {
-          if (event.isRightClick || event.button === 2) return
-          if (runningTests()) return
-          inspectArmed.current = true
-          inspect()
-        }}
+        onMouseDown={
+          runningTests()
+            ? undefined
+            : (event) => {
+                if (event.isRightClick || event.button === 2) return
+                inspectArmed.current = true
+                inspect()
+              }
+        }
         onClick={(event) => {
           if (event.isRightClick || event.button === 2) return
           if (inspectArmed.current) {
