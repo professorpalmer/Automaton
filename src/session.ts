@@ -942,9 +942,8 @@ function criterionJob(goal: GoalRun, criterion: GoalCriterion, prior: string): J
 }
 
 function ackLine(name: string): string {
-  if (name === 'Kernel') return 'On it.'
   if (name === 'Research') return 'Looking.'
-  return 'Telling them.'
+  return 'On it.'
 }
 
 export function hasUserMessage(session: Session, agentId: AgentId): boolean {

@@ -10,6 +10,8 @@ import {
   findReusableAnalyze,
   implementSeedRoot,
   isReusableAnalyzePrior,
+  isWatchingJob,
+  lookTerminalPm,
   normalizeGoal,
   resetJobsForTests,
   resolveBoundProductCwd,
@@ -371,7 +373,7 @@ describe('durable analyze dispatch', () => {
       sleep: async () => undefined,
       maxUnavailableStatusReads: WATCH_UNAVAILABLE_GRACE,
     })
-    expect(reads).toBe(WATCH_UNAVAILABLE_GRACE + 1)
+    expect(reads).toBe(WATCH_UNAVAILABLE_GRACE + 2)
     expect(recorded.attached).toEqual(['job_gone'])
     expect(recorded.complete).toEqual([])
     expect(recorded.fail).toEqual(["Didn't land."])
@@ -383,7 +385,7 @@ describe('durable analyze dispatch', () => {
     await ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), recorded, [], {
       readStatus: () => {
         reads += 1
-        if (reads < 3) return { job: { status: 'running' } }
+        if (reads < 4) return { job: { status: 'running' } }
         return completeFinding().snap
       },
       readArtifactRefs: () => completeFinding().refs,
@@ -400,16 +402,101 @@ describe('durable analyze dispatch', () => {
     expect(recorded.fail).toEqual([])
   })
 
+  test('lookTerminalPm is null while running and complete when refs have a gist', () => {
+    const running = lookTerminalPm(
+      'job_live',
+      () => ({ job: { status: 'running' } }),
+      () => [{ type: 'gist', claim: FINDING }],
+    )
+    expect(running).toBeNull()
+    const unread = lookTerminalPm(
+      'job_gone',
+      () => {
+        throw new Error('missing status')
+      },
+      () => [],
+    )
+    expect(unread).toBeNull()
+    expect(
+      lookTerminalPm(
+        'job_ready',
+        () => completeFinding().snap,
+        () => completeFinding().refs,
+      ),
+    ).toEqual({ kind: 'complete', spoken: FINDING })
+    expect(
+      lookTerminalPm(
+        'job_gist',
+        () => ({ job: { status: 'complete' }, delivery: { successful: true } }),
+        () => [{ type: 'gist', claim: 'Staff audit landed.' }],
+      ),
+    ).toEqual({ kind: 'complete', spoken: 'Staff audit landed.' })
+    expect(
+      lookTerminalPm(
+        'job_failed',
+        () => ({ job: { status: 'failed' } }),
+        () => [{ type: 'gist', claim: FINDING }],
+      ),
+    ).toEqual({ kind: 'fail', spoken: "Didn't land." })
+  })
+
+  test('remount while a watcher is live delivers an already-terminal PM job', async () => {
+    const first = hooks()
+    void ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), first, [], {
+      readStatus: () => ({ job: { status: 'running' } }),
+      readArtifactRefs: () => [],
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+      sleep: () => new Promise(() => undefined),
+    })
+    expect(isWatchingJob('job_local')).toBe(true)
+    const remount = hooks()
+    await ensureDispatched(job({ id: 'job_local', pmJobId: 'job_live' }), remount, [], {
+      ...live({ job_live: completeFinding() }),
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+    })
+    expect(remount.complete).toEqual([FINDING])
+    expect(remount.fail).toEqual([])
+    expect(first.complete).toEqual([])
+  })
+
   test('immediate complete does not emit a keepalive status', async () => {
     const recorded = hooks()
+    let slept = 0
     await ensureDispatched(job({ id: 'job_quick', pmJobId: 'job_ready' }), recorded, [], {
       ...live({ job_ready: completeFinding() }),
       spawn: async () => {
         throw new Error('must not spawn')
       },
+      sleep: async () => {
+        slept += 1
+      },
     })
+    expect(slept).toBe(0)
     expect(recorded.status).toEqual([])
     expect(recorded.complete).toEqual([FINDING])
+  })
+
+  test('already-failed PM job skips watch and fails immediately', async () => {
+    const recorded = hooks()
+    let slept = 0
+    await ensureDispatched(job({ id: 'job_dead', pmJobId: 'job_4bf91c00a13c' }), recorded, [], {
+      readStatus: () => ({ job: { status: 'failed' } }),
+      readArtifactRefs: () => [{ type: 'gist', claim: FINDING }],
+      spawn: async () => {
+        throw new Error('must not spawn')
+      },
+      sleep: async () => {
+        slept += 1
+      },
+    })
+    expect(slept).toBe(0)
+    expect(recorded.attached).toEqual(['job_4bf91c00a13c'])
+    expect(recorded.complete).toEqual([])
+    expect(recorded.fail).toEqual(["Didn't land."])
   })
 
   test('complete with no finding fails closed instead of speaking Done.', async () => {

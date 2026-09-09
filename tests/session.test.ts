@@ -352,6 +352,16 @@ describe('teammate session', () => {
     expect(s.threads.staff.mouth).toBe('working')
     expect(s.threads.staff.mouth).not.toBe('answer')
     expect(pendingMouthTurns(s)).toHaveLength(0)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'On it.',
+      ),
+    ).toBe(true)
+    expect(
+      s.threads.staff.items.some(
+        (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling them.',
+      ),
+    ).toBe(false)
   })
 
   test('Staff ping plus a repo ask books analyze, not a presence check', () => {
