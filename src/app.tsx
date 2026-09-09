@@ -1401,6 +1401,57 @@ function Rail({
     </div>
   )
 }
+function DeskMark() {
+  const size = T.size.badge
+  const screenH = 9
+  const neckW = T.space.xxs
+  const neckH = T.space.xs
+  const baseW = 10
+  const baseH = T.space.xxs
+  return (
+    <div
+      testId="titlebar-computer-icon"
+      style={{
+        width: size,
+        height: size,
+        position: 'relative',
+        pointerEvents: 'none',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          left: 0,
+          top: 0,
+          width: size,
+          height: screenH,
+          backgroundColor: T.secondary,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: (size - neckW) / 2,
+          top: screenH,
+          width: neckW,
+          height: neckH,
+          backgroundColor: T.secondary,
+        }}
+      />
+      <div
+        style={{
+          position: 'absolute',
+          left: (size - baseW) / 2,
+          top: screenH + neckH,
+          width: baseW,
+          height: baseH,
+          backgroundColor: T.secondary,
+        }}
+      />
+    </div>
+  )
+}
+
 function Titlebar({
   name,
   onInspect,
@@ -1422,10 +1473,8 @@ function Titlebar({
         borderBottomWidth: T.stroke.hairline,
         borderBottomColor: T.border,
         backgroundColor: T.clear,
-        ...HIT,
         flexShrink: 0,
       }}
-      onClick={onInspect}
     >
       <img
         src={MARK_PATH}
@@ -1438,6 +1487,25 @@ function Titlebar({
       </div>
       <div testId="titlebar-name" style={{ fontSize: T.type.sm, color: T.secondary }}>
         {name}
+      </div>
+      <div style={{ flexGrow: 1 }} />
+      <div
+        testId="titlebar-computer"
+        style={{
+          paddingLeft: T.space.xs,
+          paddingRight: T.space.xs,
+          paddingTop: T.space.xs,
+          paddingBottom: T.space.xs,
+          borderRadius: T.radius.sm,
+          ...HIT,
+          hover: { backgroundColor: T.raised },
+        }}
+        onClick={(event) => {
+          if (event.isRightClick || event.button === 2) return
+          onInspect()
+        }}
+      >
+        <DeskMark />
       </div>
     </div>
   )

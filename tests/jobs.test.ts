@@ -608,6 +608,17 @@ describe('bound product home', () => {
     expect(
       resolveJobCwd(
         job({
+          id: 'job_audit_slash_rev',
+          goal: 'audit of Automaton via codegraph/puppetmaster',
+        }),
+        '/fallback-automaton',
+        home,
+        projects,
+      ),
+    ).toBe(auto)
+    expect(
+      resolveJobCwd(
+        job({
           id: 'job_audit_it',
           goal: 'audit of it via puppetmaster/codegraph',
           objective: 'Need an audit of Automaton via puppetmaster/codegraph',

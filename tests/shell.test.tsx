@@ -617,6 +617,8 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(tree, 'titlebar-brand')?.text ?? findTestId(tree, 'titlebar-brand')?.children?.[0]?.text).toBe(
       'Automaton',
     )
+    expect(findTestId(tree, 'titlebar-computer')).toBeTruthy()
+    expect(findTestId(tree, 'titlebar-computer-icon')).toBeTruthy()
     expect(findTestId(tree, 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
     expect(findTestId(tree, 'desk-stage')).toBeFalsy()
     expect(findTestId(tree, 'send')?.text ?? findTestId(tree, 'send')?.children?.[0]?.text).toBe('Send')
@@ -1237,11 +1239,15 @@ native('staff shell (GPUI native)', () => {
     expect(renderer.getPaintedText().join(' ')).toContain('the tail has to move')
   })
 
-  test('titlebar opens inspector and rail Settings paints usage chrome', () => {
+  test('titlebar computer button opens inspector and rail Settings paints usage chrome', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const { render, renderer } = createTestRoot()
     render(<App store={testStore()} />)
     clickTestId(renderer, 'titlebar')
+    renderer.flush()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector')).toBeFalsy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
+    clickTestId(renderer, 'titlebar-computer')
     renderer.flush()
     const inspectorShot = 'artifacts/shots/shell-inspector.png'
     renderer.captureScreenshot(inspectorShot)
