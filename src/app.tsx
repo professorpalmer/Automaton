@@ -35,6 +35,18 @@ import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, wat
 import { clockDuration, runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import { copyTextToClipboard } from './runtime/clipboard'
+import {
+  STREAM_COMMIT_MS,
+  cancelFeedPin,
+  feedFollowFromPark,
+  feedGrowKey,
+  feedPinIdentity,
+  pinFeedTail,
+  readFeedOffsetY,
+  scheduleFeedPin,
+  shouldPinFeedTail,
+} from './runtime/feed-pin'
+import { feedRowFingerprint, sameFeedRowFingerprint } from './runtime/feed-row'
 import { copyFeedSelection, feedMsgIds, hitMsgIdAtY, selectFeedRange } from './runtime/feed-select'
 import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from './runtime/jobs'
 import { cloneAgent, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
@@ -1608,30 +1620,6 @@ const feedLane = {
   paddingRight: T.feed.gutter,
 }
 
-function feedTailKey(items: FeedItem[], dockPad: number, thinking: boolean): string {
-  const last = items.at(-1)
-  if (!last) return `empty:${dockPad}:${thinking ? 't' : 'f'}`
-  const grown = last.kind === 'msg' ? last.text.length : 0
-  return `${items.length}:${last.id}:${grown}:${dockPad}:${thinking ? 't' : 'f'}`
-}
-
-const FEED_TAIL = -1_000_000
-
-function pinFeedTail(
-  renderer: {
-    scrollTo?: (id: number, x: number, y: number) => void
-    scrollToItem?: (id: number, index: number) => void
-  } | null,
-  node: { id: number } | null,
-  items: FeedItem[],
-  thinking: boolean,
-) {
-  if (!renderer || !node) return
-  const count = paintedFeedCount(items, thinking)
-  if (count > 0) renderer.scrollToItem?.(node.id, count - 1)
-  renderer.scrollTo?.(node.id, 0, FEED_TAIL)
-}
-
 function RelayMark({
   lane,
   peerId,
@@ -1707,19 +1695,6 @@ function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
   )
 }
 
-function paintedFeedCount(items: FeedItem[], thinking = false): number {
-  if (items.length === 0) return 1
-  let count = 0
-  for (const item of items) {
-    if (item.kind === 'relay' && item.lane === 'from') continue
-    if (item.kind === 'agent_note') continue
-    if (item.kind === 'relay' || item.kind === 'msg' || item.kind === 'widget' || item.kind === 'secret-request') {
-      count += 1
-    }
-  }
-  return thinking ? count + 1 : count
-}
-
 function ThinkingRow() {
   return (
     <div
@@ -1742,6 +1717,270 @@ function ThinkingRow() {
     </div>
   )
 }
+
+type FeedIo = {
+  items: FeedItem[]
+  agents: Agent[]
+  selectAll: () => void
+  copySelection: () => boolean
+  copyBubble: (id: string, text: string) => void
+  extendDrag: (event: { x?: number; y?: number }) => void
+  setSelectedIds: (ids: Set<string>) => void
+  lastClicked: { current: string | null }
+  dragFrom: { current: string | null }
+  dragging: { current: boolean }
+  rowEls: Map<string, { id: number }>
+}
+
+const FeedRelayRow = React.memo(function FeedRelayRow({
+  item,
+  agents,
+}: {
+  fingerprint: string
+  item: Extract<FeedItem, { kind: 'relay' }>
+  agents: Agent[]
+}) {
+  return (
+    <div style={feedLane}>
+      <RelayMark lane={item.lane} peerId={item.peerId} agents={agents} />
+    </div>
+  )
+}, sameFeedRowFingerprint)
+
+const FeedWidgetRow = React.memo(function FeedWidgetRow({
+  item,
+  onAnswer,
+  onDismiss,
+}: {
+  fingerprint: string
+  item: Extract<FeedItem, { kind: 'widget' }>
+  onAnswer?: (id: string, answer: WidgetAnswer) => void
+  onDismiss?: (id: string) => void
+}) {
+  return (
+    <div style={{ width: '100%', paddingTop: T.feed.turn }}>
+      <QuestionCard
+        testId={`widget-${item.id}`}
+        widget={item.widget}
+        status={item.status}
+        answer={item.answer}
+        onAnswer={(answer) => onAnswer?.(item.id, answer)}
+        onDismiss={() => onDismiss?.(item.id)}
+      />
+    </div>
+  )
+}, sameFeedRowFingerprint)
+
+const FeedSecretRow = React.memo(function FeedSecretRow({
+  item,
+  onSave,
+  onDismiss,
+}: {
+  fingerprint: string
+  item: Extract<FeedItem, { kind: 'secret-request' }>
+  onSave?: (id: string, value: string) => void
+  onDismiss?: (id: string) => void
+}) {
+  return (
+    <div style={{ width: '100%', paddingTop: T.feed.turn }}>
+      <SecretRequestCard
+        testId={`secret-request-${item.id}`}
+        connectorName={connectorDisplayName(item.connectorId)}
+        status={item.status}
+        configured={item.configured}
+        onSave={(value) => onSave?.(item.id, value)}
+        onDismiss={() => onDismiss?.(item.id)}
+      />
+    </div>
+  )
+}, sameFeedRowFingerprint)
+
+const FeedMsgRow = React.memo(function FeedMsgRow({
+  item,
+  mine,
+  fromPeer,
+  showClock,
+  gapBefore,
+  fromStore,
+  files,
+  selected,
+  copied,
+  agents,
+  io,
+}: {
+  fingerprint: string
+  item: Extract<FeedItem, { kind: 'msg' }>
+  mine: boolean
+  fromPeer: string | null
+  showClock: boolean
+  gapBefore: number
+  fromStore: boolean
+  files: { id: string; path: string; kind: 'image' | 'file' }[]
+  selected: boolean
+  copied: boolean
+  agents: Agent[]
+  io: { current: FeedIo }
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'stretch',
+        width: '100%',
+        paddingTop: gapBefore,
+      }}
+    >
+      {showClock && item.at != null ? <TimeMark at={item.at} /> : null}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: fromPeer ? 'stretch' : mine ? 'flex-end' : 'flex-start',
+          gap: T.space.sm,
+          width: '100%',
+          paddingLeft: mine ? 0 : T.feed.gutter,
+        }}
+      >
+        {files.map((file) => (
+          <div
+            key={file.id}
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+            }}
+          >
+            {file.kind === 'image' ? (
+              <div testId={`thumb-${file.id}`}>
+                <img
+                  src={file.path}
+                  objectFit="contain"
+                  alt=""
+                  style={{
+                    width: T.attach.thumb,
+                    height: T.attach.thumb,
+                  }}
+                />
+              </div>
+            ) : (
+              <div testId={`file-${file.id}`}>
+                <code code={file.path} language="text" theme={CHAT_THEME} />
+              </div>
+            )}
+            {mine ? <FeedGutterEnd /> : null}
+          </div>
+        ))}
+        {item.text ? (
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              alignItems: 'flex-start',
+            }}
+          >
+            <div
+              testId={mine ? 'bubble-mine' : 'bubble-theirs'}
+              ref={(node: { id: number } | null) => {
+                if (node) io.current.rowEls.set(item.id, node)
+                else io.current.rowEls.delete(item.id)
+              }}
+              style={{
+                maxWidth: T.feed.max,
+                backgroundColor: selected ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
+                borderRadius: T.radius.xl,
+                borderWidth: selected || !mine ? T.stroke.hairline : T.stroke.none,
+                borderColor: selected ? T.borderStrong : mine ? T.clear : T.border,
+                paddingTop: T.feed.padY,
+                paddingBottom: T.feed.padY,
+                paddingLeft: T.feed.padX,
+                paddingRight: T.feed.padX,
+                fontSize: T.type.md,
+                lineHeight: T.line.lg,
+                minHeight: T.line.lg,
+                color: T.text,
+                userSelect: 'none' as const,
+              }}
+              onKeyDown={(event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } }) => {
+                if (selectAllChord(event)) io.current.selectAll()
+                if (copyChord(event)) io.current.copySelection()
+              }}
+              onMouseDown={(event) => {
+                if (event.isRightClick || event.button === 2) {
+                  io.current.copyBubble(item.id, item.text)
+                  return
+                }
+                const live = io.current
+                const anchor = live.lastClicked.current
+                live.lastClicked.current = item.id
+                if (event.modifiers?.shift && anchor) {
+                  live.dragging.current = false
+                  live.dragFrom.current = anchor
+                  live.setSelectedIds(new Set(selectFeedRange(feedMsgIds(live.items), anchor, item.id)))
+                  return
+                }
+                live.dragging.current = true
+                live.dragFrom.current = item.id
+                live.setSelectedIds(new Set([item.id]))
+              }}
+              onMouseEnter={() => {
+                const live = io.current
+                if (!live.dragging.current || !live.dragFrom.current) return
+                live.setSelectedIds(new Set(selectFeedRange(feedMsgIds(live.items), live.dragFrom.current, item.id)))
+              }}
+              onMouseMove={(event) => io.current.extendDrag(event)}
+              onMouseUp={() => {
+                io.current.dragging.current = false
+              }}
+            >
+              <div testId={`msg-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
+              {selected ? (
+                <div testId={`sel-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
+              ) : null}
+              {mine ? (
+                item.text
+              ) : (
+                <div style={{ pointerEvents: 'none' }}>
+                  <markdown source={item.text} theme={CHAT_THEME} />
+                </div>
+              )}
+            </div>
+            {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
+          </div>
+        ) : null}
+        {copied ? (
+          <div
+            testId="copied-mark"
+            style={{
+              fontSize: T.type.xs,
+              color: T.tertiary,
+              paddingLeft: mine ? 0 : T.space.md,
+              alignSelf: mine ? 'flex-end' : 'flex-start',
+            }}
+          >
+            Copied
+          </div>
+        ) : null}
+        {fromStore ? (
+          <div
+            testId="query-hit"
+            style={{
+              fontSize: T.type.xs,
+              color: T.tertiary,
+              marginTop: T.space.xxs,
+              paddingLeft: T.space.md,
+            }}
+          >
+            answered from store
+          </div>
+        ) : null}
+        {fromPeer ? (
+          <RelayMark key={`from-${item.id}`} lane="from" peerId={fromPeer} agents={agents} />
+        ) : null}
+      </div>
+    </div>
+  )
+}, sameFeedRowFingerprint)
 
 export const Feed = forwardRef<FeedApi, {
   items: FeedItem[]
@@ -1772,7 +2011,8 @@ export const Feed = forwardRef<FeedApi, {
   const listRef = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
   const thinking = feedThinking(mouth, items)
-  const pin = feedTailKey(items, dockPad, thinking)
+  const pinIdentity = feedPinIdentity(items, dockPad, thinking)
+  const growKey = feedGrowKey(items)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
   const lastClicked = useRef<string | null>(null)
@@ -1780,6 +2020,22 @@ export const Feed = forwardRef<FeedApi, {
   const dragging = useRef(false)
   const rowEls = useRef(new Map<string, { id: number }>())
   const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pinTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const parkedY = useRef<number | null>(null)
+  const pinnedOnce = useRef(false)
+  const io = useRef<FeedIo>({
+    items,
+    agents,
+    selectAll: () => {},
+    copySelection: () => false,
+    copyBubble: () => {},
+    extendDrag: () => {},
+    setSelectedIds,
+    lastClicked,
+    dragFrom,
+    dragging,
+    rowEls: rowEls.current,
+  })
   const flashCopied = (id: string) => {
     setCopiedId(id)
     if (copyTimer.current) clearTimeout(copyTimer.current)
@@ -1821,10 +2077,40 @@ export const Feed = forwardRef<FeedApi, {
     if (!toId) return
     setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, toId)))
   }
+  io.current = {
+    items,
+    agents,
+    selectAll,
+    copySelection,
+    copyBubble,
+    extendDrag,
+    setSelectedIds,
+    lastClicked,
+    dragFrom,
+    dragging,
+    rowEls: rowEls.current,
+  }
   useImperativeHandle(api, () => ({ selectAll, copy: copySelection }), [items, selectedIds])
+  const runPin = (reason: 'mount' | 'identity' | 'grow') => {
+    const follow = feedFollowFromPark(readFeedOffsetY(renderer, listRef.current), parkedY.current)
+    if (!shouldPinFeedTail({ reason, ...follow })) return
+    const next = pinFeedTail(renderer, listRef.current, items, thinking)
+    if (next != null) parkedY.current = next
+    pinnedOnce.current = true
+  }
   useEffect(() => {
-    pinFeedTail(renderer, listRef.current, items, thinking)
-  }, [pin, items, renderer, thinking])
+    cancelFeedPin(pinTimer)
+    runPin(pinnedOnce.current ? 'identity' : 'mount')
+  }, [pinIdentity, renderer, thinking])
+  useEffect(() => {
+    if (!pinnedOnce.current) return
+    scheduleFeedPin(
+      () => runPin('grow'),
+      pinTimer,
+      runningTests() ? 0 : STREAM_COMMIT_MS,
+    )
+  }, [growKey, renderer])
+  useEffect(() => () => cancelFeedPin(pinTimer), [])
   return (
     <virtual-list
       ref={listRef}
@@ -1862,39 +2148,51 @@ export const Feed = forwardRef<FeedApi, {
       {items.map((item, index) => {
         if (item.kind === 'relay') {
           if (item.lane === 'from') return null
-          return (
-            <div key={item.id} style={feedLane}>
-              <RelayMark lane={item.lane} peerId={item.peerId} agents={agents} />
-            </div>
-          )
+          const peer = agents.find((agent) => agent.id === item.peerId)
+          const fingerprint = feedRowFingerprint({
+            kind: 'relay',
+            id: item.id,
+            lane: item.lane,
+            peerId: item.peerId,
+            peerLabel: peer?.name ?? item.peerId,
+          })
+          return <FeedRelayRow key={item.id} fingerprint={fingerprint} item={item} agents={agents} />
         }
         if (item.kind === 'agent_note') return null
         if (item.kind === 'widget') {
+          const fingerprint = feedRowFingerprint({
+            kind: 'widget',
+            id: item.id,
+            status: item.status,
+            answer: item.answer,
+            text: item.widget.prompt,
+          })
           return (
-            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
-              <QuestionCard
-                testId={`widget-${item.id}`}
-                widget={item.widget}
-                status={item.status}
-                answer={item.answer}
-                onAnswer={(answer) => onAnswerWidget?.(item.id, answer)}
-                onDismiss={() => onDismissWidget?.(item.id)}
-              />
-            </div>
+            <FeedWidgetRow
+              key={item.id}
+              fingerprint={fingerprint}
+              item={item}
+              onAnswer={onAnswerWidget}
+              onDismiss={onDismissWidget}
+            />
           )
         }
         if (item.kind === 'secret-request') {
+          const fingerprint = feedRowFingerprint({
+            kind: 'secret-request',
+            id: item.id,
+            status: item.status,
+            configured: item.configured,
+            connectorId: item.connectorId,
+          })
           return (
-            <div key={item.id} style={{ width: '100%', paddingTop: T.feed.turn }}>
-              <SecretRequestCard
-                testId={`secret-request-${item.id}`}
-                connectorName={connectorDisplayName(item.connectorId)}
-                status={item.status}
-                configured={item.configured}
-                onSave={(value) => onSaveSecret?.(item.id, value)}
-                onDismiss={() => onDismissSecret?.(item.id)}
-              />
-            </div>
+            <FeedSecretRow
+              key={item.id}
+              fingerprint={fingerprint}
+              item={item}
+              onSave={onSaveSecret}
+              onDismiss={onDismissSecret}
+            />
           )
         }
         if (item.kind !== 'msg') return null
@@ -1903,167 +2201,52 @@ export const Feed = forwardRef<FeedApi, {
         const mine = item.from === 'user' && !fromPeer
         const prev = previousPaintedFeedItem(items, index)
         const showClock = shouldShowFeedClock(prev, item)
-        const gapBefore = showClock ? 0 : sameFeedVoice(prev, item, Boolean(fromPeer)) ? T.feed.stack : T.feed.turn
+        const gapBefore = prev
+          ? showClock
+            ? 0
+            : sameFeedVoice(prev, item, Boolean(fromPeer))
+              ? T.feed.stack
+              : T.feed.turn
+          : 0
         const userItemId = mine ? null : precedingUserId(items, index)
         const fromStore = userItemId ? storeAnswer(userItemId) : false
         const files = item.attachmentIds?.length ? attachmentsFor?.(item.attachmentIds) ?? [] : []
+        const selected = selectedIds.has(item.id)
+        const copied = copiedId === item.id
+        const peer = fromPeer ? agents.find((agent) => agent.id === fromPeer) : undefined
+        const fingerprint = feedRowFingerprint({
+          kind: 'msg',
+          id: item.id,
+          text: item.text,
+          from: item.from,
+          at: item.at,
+          selected,
+          copied,
+          fromStore,
+          fromPeer,
+          showClock,
+          gap: gapBefore,
+          mine,
+          files,
+          attachmentIds: item.attachmentIds,
+          peerLabel: peer?.name ?? fromPeer ?? undefined,
+        })
         return (
-          <div
+          <FeedMsgRow
             key={item.id}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: 'stretch',
-              width: '100%',
-              paddingTop: prev ? gapBefore : 0,
-            }}
-          >
-            {showClock && item.at != null ? <TimeMark at={item.at} /> : null}
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: fromPeer ? 'stretch' : mine ? 'flex-end' : 'flex-start',
-                gap: T.space.sm,
-                width: '100%',
-                paddingLeft: mine ? 0 : T.feed.gutter,
-              }}
-            >
-            {files.map((file) => (
-            <div
-              key={file.id}
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-              }}
-            >
-              {file.kind === 'image' ? (
-                <div testId={`thumb-${file.id}`}>
-                  <img
-                    src={file.path}
-                    objectFit="contain"
-                    alt=""
-                    style={{
-                      width: T.attach.thumb,
-                      height: T.attach.thumb,
-                    }}
-                  />
-                </div>
-              ) : (
-                <div testId={`file-${file.id}`}>
-                  <code code={file.path} language="text" theme={CHAT_THEME} />
-                </div>
-              )}
-              {mine ? <FeedGutterEnd /> : null}
-            </div>
-            ))}
-            {item.text ? (
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'row',
-                alignItems: 'flex-start',
-              }}
-            >
-            <div
-              testId={mine ? 'bubble-mine' : 'bubble-theirs'}
-              ref={(node: { id: number } | null) => {
-                if (node) rowEls.current.set(item.id, node)
-                else rowEls.current.delete(item.id)
-              }}
-              style={{
-                maxWidth: T.feed.max,
-                backgroundColor: selectedIds.has(item.id) ? (mine ? T.raised : T.selected) : mine ? T.selected : T.composer,
-                borderRadius: T.radius.xl,
-                borderWidth: selectedIds.has(item.id) || !mine ? T.stroke.hairline : T.stroke.none,
-                borderColor: selectedIds.has(item.id) ? T.borderStrong : mine ? T.clear : T.border,
-                paddingTop: T.feed.padY,
-                paddingBottom: T.feed.padY,
-                paddingLeft: T.feed.padX,
-                paddingRight: T.feed.padX,
-                fontSize: T.type.md,
-                lineHeight: T.line.lg,
-                minHeight: T.line.lg,
-                color: T.text,
-                userSelect: 'none' as const,
-              }}
-              onKeyDown={(event: { key?: string; modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean } }) => {
-                if (selectAllChord(event)) selectAll()
-                if (copyChord(event)) copySelection()
-              }}
-              onMouseDown={(event) => {
-                if (event.isRightClick || event.button === 2) {
-                  copyBubble(item.id, item.text)
-                  return
-                }
-                const anchor = lastClicked.current
-                lastClicked.current = item.id
-                if (event.modifiers?.shift && anchor) {
-                  dragging.current = false
-                  dragFrom.current = anchor
-                  setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), anchor, item.id)))
-                  return
-                }
-                dragging.current = true
-                dragFrom.current = item.id
-                setSelectedIds(new Set([item.id]))
-              }}
-              onMouseEnter={() => {
-                if (!dragging.current || !dragFrom.current) return
-                setSelectedIds(new Set(selectFeedRange(feedMsgIds(items), dragFrom.current, item.id)))
-              }}
-              onMouseMove={extendDrag}
-              onMouseUp={() => {
-                dragging.current = false
-              }}
-            >
-              <div testId={`msg-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
-              {selectedIds.has(item.id) ? (
-                <div testId={`sel-${item.id}`} style={{ width: T.stroke.hairline, height: T.stroke.hairline }} />
-              ) : null}
-              {mine ? (
-                item.text
-              ) : (
-                <div style={{ pointerEvents: 'none' }}>
-                  <markdown source={item.text} theme={CHAT_THEME} />
-                </div>
-              )}
-            </div>
-            {mine ? <FeedGutterEnd pad={T.feed.padX} /> : null}
-            </div>
-            ) : null}
-            {copiedId === item.id ? (
-              <div
-                testId="copied-mark"
-                style={{
-                  fontSize: T.type.xs,
-                  color: T.tertiary,
-                  paddingLeft: mine ? 0 : T.space.md,
-                  alignSelf: mine ? 'flex-end' : 'flex-start',
-                }}
-              >
-                Copied
-              </div>
-            ) : null}
-            {fromStore ? (
-              <div
-                testId="query-hit"
-                style={{
-                  fontSize: T.type.xs,
-                  color: T.tertiary,
-                  marginTop: T.space.xxs,
-                  paddingLeft: T.space.md,
-                }}
-              >
-                answered from store
-              </div>
-            ) : null}
-            {fromPeer ? (
-              <RelayMark key={`from-${item.id}`} lane="from" peerId={fromPeer} agents={agents} />
-            ) : null}
-            </div>
-          </div>
+            fingerprint={fingerprint}
+            item={item}
+            mine={mine}
+            fromPeer={fromPeer}
+            showClock={showClock}
+            gapBefore={gapBefore}
+            fromStore={fromStore}
+            files={files}
+            selected={selected}
+            copied={copied}
+            agents={agents}
+            io={io}
+          />
         )
       })}
       {thinking ? <ThinkingRow /> : null}
