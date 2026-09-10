@@ -66,6 +66,19 @@ restates that line and does not start a new mouth turn. Jobs do not
 pixel-click the shared computer. Take control is the operator on that
 X display.
 
+## Watch, hydrate, and cwd
+
+Job watch and `attachExisting` read PM status/refs asynchronously on the
+hot path (no blocking `spawnSync` there). The poll interval is
+`WATCH_POLL_MS` (2500). When Staff hydrates onto a job that is already
+terminal in Puppetmaster, `attachExisting` settles it with `completeJob`
+instead of leaving a flying strip forever.
+
+Land and promote resolve a checkout through `matchMachineProject` and
+related binders. Mentions of tooling (`puppetmaster`, `codegraph`, and
+similar) must not steal this Automaton tree as the land/promote cwd when
+the user named another product.
+
 ## Probes
 
 ```sh

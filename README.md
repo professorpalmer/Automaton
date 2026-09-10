@@ -40,7 +40,11 @@ uses a sandbox.
 
 Layout:
 
-- `@gpuix/react` on Zed GPUI (`src/main.tsx`)
+- `@gpuix/react` on Zed GPUI (`src/main.tsx`), pinned to
+  `file:vendor/gpuix-react-0.6.1.tgz` (parked spring MotionDiv leases).
+  Automaton consumes `@gpuix`; it does not publish that npm scope.
+- Idle parks: `src/resting-motion.ts` (blob springs),
+  `src/runtime/feed-pin.ts` / `feed-row.ts` (tail pin + row fingerprints)
 - Domain and session: `src/domain.ts`, `src/session.ts`
 - Durable SQLite: `src/runtime/store.ts`
 - Mouth: `src/runtime/mouth.ts`
