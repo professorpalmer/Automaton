@@ -5,7 +5,7 @@
     "": {
       "name": "automaton",
       "dependencies": {
-        "@gpuix/react": "0.6.0",
+        "@gpuix/react": "file:vendor/gpuix-react-0.6.1.tgz",
         "react": "^19.2.4",
       },
       "devDependencies": {
@@ -23,7 +23,7 @@
 
     "@gpuix/native-win32-x64-msvc": ["@gpuix/native-win32-x64-msvc@0.6.0", "", { "os": "win32", "cpu": "x64" }, "sha512-/b76q0dAmy3HPZTQI0G4lbbSjqDTKDaN/bVmI75UJP06Kh+soMoizCC1E8vLlNRI6Q77+ClKWUvu/j0SdbDRVQ=="],
 
-    "@gpuix/react": ["@gpuix/react@0.6.0", "", { "dependencies": { "@gpuix/native": "^0.6.0", "eventsource-parser": "^4.1.0", "react-reconciler": "^0.31.0", "zod": "^4.4.3" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-b0XS5aSC0L8jcv2KYD3RKUIWZnNOeSU2X6vvkflZizNnbN+AuaObK+FfS8AZzo1G+NITgY7IzIojXRs+oxQABQ=="],
+    "@gpuix/react": ["@gpuix/react@vendor/gpuix-react-0.6.1.tgz", { "dependencies": { "@gpuix/native": "^0.6.0", "eventsource-parser": "^4.1.0", "react-reconciler": "^0.31.0", "zod": "^4.4.3" }, "peerDependencies": { "react": "^18.0.0 || ^19.0.0" } }, "sha512-1F7nXh7MLJcRwLGYDWlxD8WSwBD0bdzrAMKaNYWNBRUcTwoBTY7ra0hMOMgJ1A5pdvRzlWnWGdSaQBngywyG0w=="],
 
     "@types/react": ["@types/react@19.2.18", "", { "dependencies": { "csstype": "^3.2.2" } }, "sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w=="],
 
