@@ -9,7 +9,9 @@ PTY. Land and ship are host git/gh jobs, not mouths. Workers never appear as
 chat.
 
 The native face is React authored and rendered through Zed GPUI using
-`@gpuix/react`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
+`@gpuix/react`, pinned to `file:vendor/gpuix-react-0.6.1.tgz` (spring lease
+parking). Automaton consumes that package; it does not publish the `@gpuix`
+npm scope. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
 Jobs live in `src/runtime/pm.ts` and `src/runtime/jobs.ts`. Implement workers
 use a sandbox cwd and never this checkout. Visual tokens live in
 `src/tokens.ts`.
@@ -37,6 +39,14 @@ or noVNC. Do not bill a hosted computer-use vendor.
 
 Invariants:
 
+- Idle GPUI sleeps: no idle `MotionDiv` / spring ticks on sisters
+  (`src/resting-motion.ts`). Feed grow ticks coalesce and pin the tail
+  (`src/runtime/feed-pin.ts`); row fingerprints avoid wholesale rebuilds
+  (`src/runtime/feed-row.ts`).
+- PM watch/attach uses async status/refs (`WATCH_POLL_MS` 2500). Already-
+  terminal jobs settle on hydrate via `attachExisting`. Tooling words
+  (`puppetmaster`, `codegraph`, …) must not steal land/promote cwd from
+  `matchMachineProject`.
 - Running a job is not mouth busy. Composer stays Send. A live mouth does not lock Send; mid-turn words wait on a steer queue.
 - Fan-out to 3+ automata needs confirmation. Dismiss means no send.
 - Completion continues leftover steps from the original ask. Staff owns
