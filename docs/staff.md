@@ -3,7 +3,9 @@
 Native staff is a GPUI window authored in React (`src/app.tsx`). There is no
 Electron shell and no webview. The product name is **Automaton**. The
 titlebar shows that mark and word, then the focused mouth (Chief of Staff
-until you switch). The window is frosted (`windowBackground: 'blurred'`) so the desktop
+until you switch). A titlebar computer control opens the inspector (same
+surface as Cmd+Shift+I); the rest of the titlebar chrome does not. The
+window is frosted (`windowBackground: 'blurred'`) so the desktop
 shows through the chrome. Titlebar stays transparent; rail and composer
 stay clickable.
 
@@ -24,7 +26,13 @@ Cmd+Plus / Cmd+Minus zoom the editor instead of this window.
 
 The brand mark is the white control-bar marionette (`brand/mark.svg`). Rail
 blobs are baked poses (`src/marks/`). Mouth busy thinks with wandering
-eyes on an eyeless body; a flying job does not. Idle stays the rest PNG.
+eyes on an eyeless body; a flying job does not. Idle stays the rest PNG
+and parks springs via `src/resting-motion.ts` so idle GPUI is not rebuilt
+every frame.
+
+Streaming feed growth pins the tail (`src/runtime/feed-pin.ts`, ~120ms
+coalesce) and fingerprints rows (`src/runtime/feed-row.ts`) so last-line
+growth does not rebuild earlier bubbles.
 
 ## Composer
 
@@ -72,8 +80,9 @@ the sister's checkout instead of a bare mouth turn.
 
 ## Inspector
 
-Cmd+Shift+I opens the inspector: computer status, screen thumbnail, and
-Take control. Settings holds OpenRouter and the model plane.
+The titlebar computer control and Cmd+Shift+I open the inspector: computer
+status, screen thumbnail, and Take control. Settings holds OpenRouter and
+the model plane.
 
 ## Related
 
