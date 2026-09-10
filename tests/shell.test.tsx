@@ -59,6 +59,20 @@ describe('onSend scheduling', () => {
     expect(feed).not.toContain('initial={{ opacity: 0 }}')
     expect(feed).not.toMatch(/initial=\{\{\s*opacity:\s*0/)
   })
+
+  test('Feed pin identity ignores last-text length and memos painted rows', () => {
+    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
+    expect(src).toContain('feedPinIdentity')
+    expect(src).toContain('STREAM_COMMIT_MS')
+    expect(src).toContain('feedRowFingerprint')
+    expect(src).toContain('sameFeedRowFingerprint')
+    expect(src).not.toMatch(/last\.text\.length/)
+    expect(src).toContain('React.memo(function FeedMsgRow')
+    const think = src.slice(src.indexOf('function ThinkingRow()'), src.indexOf('type FeedIo'))
+    expect(think).toContain('thinkingDots(3)')
+    expect(think).not.toContain('setInterval')
+    expect(think).not.toContain('useState')
+  })
 })
 
 describe('app chords', () => {
