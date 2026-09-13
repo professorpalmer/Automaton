@@ -1,7 +1,7 @@
 # MCP catalog (in-app plugins)
 
 Browse / install curated Model Context Protocol connectors from Settings.
-Version follows package (`0.2.0` after P0 cut).
+Version follows package (`0.3.0` after P1 cut).
 
 This is **not** the OpenRouter Connectors row. OpenRouter is the mouth HTTP
 provider (`src/runtime/connectors.ts`). MCP entries are a separate catalog
@@ -56,7 +56,7 @@ Never ask the user to paste a token in chat.
 
 `discoverTools(id)` returns declared tool names from a local `SCHEMA_HINTS`
 map (published docs) for **installed** entries. Not installed → empty tools +
-**Need**. Live MCP stdio/HTTP client is **not** wired in 0.1.0; `callMcpTool`
+**Need**. Live MCP stdio/HTTP client is **not** wired in 0.3.0; `callMcpTool`
 returns an honest stub message after schema + auth checks. Do not scrape
 cookies or invent transports.
 

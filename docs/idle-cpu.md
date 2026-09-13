@@ -3,7 +3,7 @@
 With Automaton open, no stream, feed at rest — the process must not multi-core
 thrash. Parks already shipped in prior PRs; this page is the re-verify contract.
 
-Package / Info.plist stay **0.2.0** for this band.
+Package / Info.plist are **0.3.0** (P1 band cut).
 
 ## Measured (2026-09-12 CT, Cary’s MacBook Pro)
 

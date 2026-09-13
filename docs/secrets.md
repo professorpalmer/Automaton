@@ -3,7 +3,7 @@
 When Staff needs a key or token, mouths emit an in-app **secret-request** card —
 never ask the operator to paste into chat.
 
-Version stays with package (`0.2.0`).
+Version stays with package (`0.3.0`).
 
 ## Card
 

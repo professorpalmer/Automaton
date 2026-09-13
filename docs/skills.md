@@ -3,7 +3,7 @@
 Product skills are markdown playbooks under `~/.automaton/skills/<id>/SKILL.md`.
 The **Settings → Skills** library is the primary UX (list id/name + one-line
 use-when description). The inspector may still import a URL and pin. Version
-follows package (`0.2.0`).
+follows package (`0.3.0`).
 
 Mouths stay **Send**. Coding still goes **Jobs → Puppetmaster** — skills are
 prompt layers, not implement workers.
