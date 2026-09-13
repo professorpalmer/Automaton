@@ -17,6 +17,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Secrets](docs/secrets.md) — secret-request card, masked entry, vault (never chat-paste)
 - [Version / releases](docs/version.md) — installed chrome, GitHub Latest notify (no auto-upgrade), doctor plist WARN
 - [Skills](docs/skills.md) — Settings library, local authoring, offer-once pin widget
+- [Idle CPU](docs/idle-cpu.md) — park inventory + Mac idle proof checklist
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run
@@ -55,7 +56,8 @@ Layout:
   `file:vendor/gpuix-react-0.6.1.tgz` (parked spring MotionDiv leases).
   Automaton consumes `@gpuix`; it does not publish that npm scope.
 - Idle parks: `src/resting-motion.ts` (blob springs),
-  `src/runtime/feed-pin.ts` / `feed-row.ts` (tail pin + row fingerprints)
+  `src/runtime/feed-pin.ts` / `feed-row.ts` (tail pin + row fingerprints);
+  proof checklist `docs/idle-cpu.md` / `bun run sample:idle-cpu`
 - Domain and session: `src/domain.ts`, `src/session.ts`
 - Durable SQLite: `src/runtime/store.ts`
 - Mouth: `src/runtime/mouth.ts`
