@@ -542,6 +542,38 @@ describe('mouth vs job', () => {
     expect(ask).not.toContain('one next step')
   })
 
+  test('clone URLs (https .git, git@, ssh) bind like page URLs', () => {
+    const roster = [
+      ...DEFAULT_AGENTS,
+      {
+        id: 'agent_p',
+        name: 'Puppetmaster',
+        title: '',
+        description: '',
+        color: '#777777',
+        hidden: false,
+      },
+    ]
+    const forms = [
+      'Point Puppetmaster at https://github.com/example/Puppetmaster.git',
+      'Point Puppetmaster at git@github.com:example/Puppetmaster.git',
+      'Point Puppetmaster at ssh://git@github.com/example/Puppetmaster.git',
+      'git clone git@github.com:example/Puppetmaster.git for Puppetmaster',
+    ]
+    for (const text of forms) {
+      expect(parseGithubHomes(text)).toEqual([
+        { slug: 'example/Puppetmaster', url: 'https://github.com/example/Puppetmaster' },
+      ])
+      expect(bindHomes(text, roster)).toEqual([
+        {
+          agentId: 'agent_p',
+          slug: 'example/Puppetmaster',
+          url: 'https://github.com/example/Puppetmaster',
+        },
+      ])
+    }
+  })
+
   test('github homes pair to roster names by repo slug', () => {
     const roster = [
       ...DEFAULT_AGENTS,

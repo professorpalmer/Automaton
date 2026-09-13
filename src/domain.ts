@@ -1168,15 +1168,29 @@ export type RepoHome = { slug: string; url: string }
 
 export type HomeBind = { agentId: AgentId; slug: string; url: string }
 
+/** GitHub page or clone URL (https / ssh / git@) → owner/repo + https clone URL for ensureHomeCheckout. */
 export function parseGithubHomes(text: string): RepoHome[] {
   const found: RepoHome[] = []
-  const pattern = /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/gi
-  for (const match of text.matchAll(pattern)) {
-    const owner = match[1]
-    const repo = match[2].replace(/\.git$/i, '')
+  const take = (owner: string, repoRaw: string) => {
+    const repo = repoRaw.replace(/\.git$/i, '')
+    if (!owner || !repo) return
+    // Path segments that are never a repo home (issues/PRs still bind via their repo prefix).
+    if (/^(issues|pull|pulls|tree|blob|commit|commits|actions|settings|wiki|projects|security|pulse)$/i.test(repo)) {
+      return
+    }
     const slug = `${owner}/${repo}`
     if (!found.some((row) => row.slug.toLowerCase() === slug.toLowerCase())) {
       found.push({ slug, url: `https://github.com/${slug}` })
+    }
+  }
+  const patterns: RegExp[] = [
+    /https?:\/\/(?:www\.)?github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/gi,
+    /git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/gi,
+    /ssh:\/\/git@github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)/gi,
+  ]
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      take(match[1], match[2])
     }
   }
   return found
