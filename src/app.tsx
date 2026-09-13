@@ -34,7 +34,7 @@ import {
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
 import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from './runtime/paste-hotkey'
-import { clockDuration, runningTests } from './runtime/test-env'
+import { runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import {
   checkLatestRelease,
@@ -144,13 +144,16 @@ import {
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
-import { applyChromeToTokens, railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
+import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
+import { Composer } from './chrome/composer'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
-import { CHAT_THEME, FIELD_THEME, T } from './tokens'
+import { motionTransition } from './motion'
+import { TokenProvider, toChatTheme, useTokenEnv, useTokens } from './theme'
+import { T } from './tokens'
 import { MARK_PATH, PRODUCT } from './brand'
-import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
+import { Chip, lastItemAt, modelFamily, Pill, railClock } from './ui'
 import { UpdateModal } from './update-modal'
 import { mouthModelFor } from './runtime/plane'
 
@@ -239,6 +242,16 @@ function playIntro(session: Session, agentId: string): Session {
 }
 
 export function App({ store: providedStore }: { store?: StaffStore } = {}) {
+  return (
+    <TokenProvider>
+      <StaffApp store={providedStore} />
+    </TokenProvider>
+  )
+}
+
+function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
+  const T = useTokens()
+  const { refresh: refreshTokens } = useTokenEnv()
   const store = useMemo(() => {
     if (providedStore) return providedStore
     adoptMarionetteOpenRouterKey()
@@ -250,8 +263,6 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   })
   const [pane, setPane] = useState<Pane>('none')
   const [planeTick, setPlaneTick] = useState(0)
-  const [chromeTick, setChromeTick] = useState(0)
-  void chromeTick
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
@@ -877,7 +888,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       <motion.div
         initial={false}
         animate={{ width: railWidth }}
-        transition={{ duration: railDragging ? 0 : clockDuration(T.motion.pane), ease: 'easeOut' }}
+        transition={motionTransition('railResize', { duration: railDragging ? 0 : undefined })}
         style={{
           width: railWidth,
           height: '100%',
@@ -1115,8 +1126,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onClose={() => setPane('none')}
                 onPlaneChange={() => setPlaneTick((n) => n + 1)}
                 onSkinChange={() => {
-                  applyChromeToTokens(readSkin())
-                  setChromeTick((n) => n + 1)
+                  refreshTokens()
                 }}
                 onCompactNow={() => {
                   const agentId = session.activeAgentId
@@ -1314,6 +1324,7 @@ function RailResize({
   onMove: (event: { x?: number }) => void
   onUp: () => void
 }) {
+  const T = useTokens()
   return (
     <div
       testId="rail-resize"
@@ -1353,6 +1364,7 @@ function RailMenu({
   onDelete: () => void
   onClose: () => void
 }) {
+  const T = useTokens()
   return (
     <div
       testId="rail-menu"
@@ -1379,7 +1391,7 @@ function RailMenu({
             paddingRight: T.space.md,
             paddingTop: T.space.sm,
             paddingBottom: T.space.sm,
-            color: T.ink,
+            color: T.text,
             fontSize: T.type.sm,
             whiteSpace: 'nowrap',
             ...HIT,
@@ -1426,6 +1438,7 @@ function RailMenu({
 }
 
 function PlusMark() {
+  const T = useTokens()
   return (
     <div
       testId="new-agent-icon"
@@ -1446,6 +1459,7 @@ function PlusMark() {
 }
 
 function GearMark() {
+  const T = useTokens()
   const size = T.size.badge
   const spoke = T.space.xxs
   const mid = (size - spoke) / 2
@@ -1510,6 +1524,7 @@ function Rail({
   onMenu: (id: string, event: { x?: number; y?: number }) => void
   onSettings: () => void
 }) {
+  const T = useTokens()
   void planeTick
   const agents = session.agents.filter((agent) => !agent.hidden)
   const compact = railIsCompact(width)
@@ -1681,6 +1696,7 @@ function Rail({
   )
 }
 function DeskMark() {
+  const T = useTokens()
   const size = T.size.badge
   const screenH = 9
   const neckW = T.space.xxs
@@ -1744,6 +1760,7 @@ function Titlebar({
   onInspect: () => void
   onJobs: () => void
 }) {
+  const T = useTokens()
   const inspect = () => {
     onInspect()
   }
@@ -1851,12 +1868,13 @@ function Titlebar({
 }
 
 function SpokenLine({ text }: { text: string }) {
+  const T = useTokens()
   return (
     <motion.div
       key={text}
       initial={{ opacity: 0.4 }}
       animate={{ opacity: 1 }}
-      transition={{ duration: clockDuration(T.motion.unread), ease: 'easeOut' }}
+      transition={motionTransition('unreadFade')}
       style={{
         fontSize: T.type.xs,
         color: T.tertiary,
@@ -1894,7 +1912,7 @@ function SlidePane({
       <motion.div
         initial={false}
         animate={{ width }}
-        transition={{ duration: clockDuration(T.motion.pane), ease: 'easeOut' }}
+        transition={motionTransition('paneIn')}
         style={{
           width,
           height: '100%',
@@ -1941,6 +1959,7 @@ function RelayMark({
   const peer = agents.find((agent) => agent.id === peerId)
   const mark = markFor(peer ?? { id: peerId })
   const rest = framePath(mark.shape, mark.tint, 'rest')
+  const T = useTokens()
   const label = lane === 'sent' ? `Sent to ${peer?.name ?? peerId}` : `Message from ${peer?.name ?? peerId}`
   return (
     <div
@@ -1969,6 +1988,7 @@ function RelayMark({
 }
 
 function TimeMark({ at }: { at: number }) {
+  const T = useTokens()
   return (
     <div
       testId="feed-clock"
@@ -1991,6 +2011,7 @@ function TimeMark({ at }: { at: number }) {
 }
 
 function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
+  const T = useTokens()
   return (
     <div
       testId="feed-gutter-end"
@@ -2005,6 +2026,7 @@ function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
 }
 
 function ThinkingRow() {
+  const T = useTokens()
   return (
     <div
       testId="thinking"
@@ -2066,6 +2088,7 @@ const FeedWidgetRow = React.memo(function FeedWidgetRow({
   onAnswer?: (id: string, answer: WidgetAnswer) => void
   onDismiss?: (id: string) => void
 }) {
+  const T = useTokens()
   return (
     <div style={{ width: '100%', paddingTop: T.feed.turn }}>
       <QuestionCard
@@ -2090,6 +2113,7 @@ const FeedSecretRow = React.memo(function FeedSecretRow({
   onSave?: (id: string, value: string) => void
   onDismiss?: (id: string) => void
 }) {
+  const T = useTokens()
   return (
     <div style={{ width: '100%', paddingTop: T.feed.turn }}>
       <SecretRequestCard
@@ -2133,6 +2157,8 @@ const FeedMsgRow = React.memo(function FeedMsgRow({
   agents: Agent[]
   io: { current: FeedIo }
 }) {
+  const T = useTokens()
+  const chatTheme = toChatTheme(T)
   return (
     <div
       style={{
@@ -2177,7 +2203,7 @@ const FeedMsgRow = React.memo(function FeedMsgRow({
               </div>
             ) : (
               <div testId={`file-${file.id}`}>
-                <code code={file.path} language="text" theme={CHAT_THEME} />
+                <code code={file.path} language="text" theme={chatTheme} />
               </div>
             )}
             {mine ? <FeedGutterEnd /> : null}
@@ -2253,7 +2279,7 @@ const FeedMsgRow = React.memo(function FeedMsgRow({
                 item.text
               ) : (
                 <div style={{ pointerEvents: 'none' }}>
-                  <markdown source={item.text} theme={CHAT_THEME} />
+                  <markdown source={item.text} theme={chatTheme} />
                 </div>
               )}
             </div>
@@ -2580,6 +2606,7 @@ function GoalBlockerPanel({
 }) {
   const criterion = goal.criteria.find((row) => row.id === goal.blocker?.criterionId)
   const owner = agents.find((agent) => agent.id === goal.ownerAgentId)
+  const T = useTokens()
   const context = [owner?.name, criterion?.label, goal.text].filter(Boolean).join(' · ')
   return (
     <div
@@ -2613,251 +2640,4 @@ function GoalBlockerPanel({
   )
 }
 
-export function Composer({
-  value,
-  pendingPaths,
-  locked,
-  queueing = false,
-  queued = 0,
-  stopping = false,
-  onChange,
-  onAttach,
-  onPaste,
-  onFocus,
-  onBlur,
-  onDropPending,
-  onSend,
-  onStop,
-}: {
-  value: string
-  pendingPaths: string[]
-  locked: boolean
-  queueing?: boolean
-  queued?: number
-  stopping?: boolean
-  onChange: (value: string) => void
-  onAttach: () => void
-  onPaste: () => void
-  onFocus?: () => void
-  onBlur?: () => void
-  onDropPending: (path: string) => void
-  onSend: () => void
-  onStop?: () => void
-}) {
-  const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
-  const steer =
-    queued > 0 ? `${queued} queued` : queueing ? 'Send queues until this turn ends' : null
-  return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        flexShrink: 0,
-        paddingLeft: T.feed.gutter,
-        paddingRight: T.feed.gutter,
-        paddingBottom: T.space.lg,
-        paddingTop: T.space.sm,
-      }}
-    >
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100%',
-          maxWidth: T.layout.contentMax,
-          backgroundColor: T.composer,
-          borderRadius: T.radius.xl,
-          borderWidth: T.stroke.hairline,
-          borderColor: T.border,
-          paddingTop: T.space.md,
-          paddingBottom: T.space.md,
-          position: 'relative',
-        }}
-      >
-        {pendingPaths.length > 0 ? (
-          <div
-            testId="pending-files"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: T.space.xxs,
-              paddingLeft: T.space.md,
-              paddingRight: T.space.md,
-              paddingBottom: T.space.xs,
-            }}
-          >
-            {pendingPaths.map((path, index) => (
-              <div
-                key={path}
-                style={{
-                  display: 'flex',
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: T.space.sm,
-                }}
-              >
-                <div style={{ fontSize: T.type.xs, color: T.tertiary, minWidth: 0, flexGrow: 1 }}>
-                  {path.split('/').pop()}
-                </div>
-                <div
-                  testId={`pending-drop-${index}`}
-                  style={{
-                    paddingLeft: T.space.sm,
-                    paddingRight: T.space.sm,
-                    paddingTop: T.space.control,
-                    paddingBottom: T.space.control,
-                    borderRadius: T.radius.sm,
-                    backgroundColor: T.raised,
-                    color: T.secondary,
-                    fontSize: T.type.xs,
-                    pointerEvents: 'auto',
-                    cursor: locked ? 'default' : 'pointer',
-                    userSelect: 'none',
-                  }}
-                  onClick={() => {
-                    if (!locked) onDropPending(path)
-                  }}
-                >
-                  Remove
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : null}
-        {value.length === 0 && pendingPaths.length === 0 ? (
-          <div
-            testId="composer-placeholder"
-            style={{
-              position: 'absolute',
-              left: T.space.md,
-              top: T.space.md,
-              color: T.text,
-              fontSize: T.type.md,
-              lineHeight: T.line.md,
-              pointerEvents: 'none',
-            }}
-          >
-            Message this automaton
-          </div>
-        ) : null}
-        <textarea
-          testId="composer"
-          value={value}
-          placeholder=""
-          minRows={1}
-          maxRows={4}
-          autoFocus
-          theme={FIELD_THEME}
-          style={{
-            width: '100%',
-            minWidth: 0,
-            fontSize: T.type.md,
-            lineHeight: T.line.md,
-            color: T.text,
-            backgroundColor: T.clear,
-            borderWidth: 0,
-            borderColor: T.clear,
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingBottom: T.space.xs,
-          }}
-          onChange={(event) => onChange(event.value ?? '')}
-          onFocus={onFocus}
-          onBlur={onBlur}
-          onSubmit={() => {
-            if (ready) onSend()
-          }}
-          onKeyDown={(event) => {
-            if (pasteChord(event)) onPaste()
-            if (copyChord(event) && !value) return
-            if (cutChord(event) && value) {
-              if (copyTextToClipboard(value)) onChange('')
-              return
-            }
-            if (quitChord(event)) quitAutomaton()
-          }}
-        />
-        <div
-          style={{
-            display: 'flex',
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            paddingLeft: T.space.md,
-            paddingRight: T.space.md,
-            paddingTop: T.space.sm,
-          }}
-        >
-          <div
-            testId="attach"
-            style={{
-              paddingLeft: T.space.md,
-              paddingRight: T.space.md,
-              paddingTop: T.space.control,
-              paddingBottom: T.space.control,
-              borderRadius: T.radius.md,
-              backgroundColor: T.raised,
-              color: T.text,
-              fontSize: T.type.sm,
-              ...HIT,
-              hover: { backgroundColor: T.selected },
-            }}
-            onClick={(event) => {
-              if (event.isRightClick || event.button === 2) return
-              onAttach()
-            }}
-            onMouseDown={(event) => {
-              if (event.isRightClick || event.button === 2) onPaste()
-            }}
-          >
-            +
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
-            {stopping ? (
-              <Chip testId="composer-stop" tone="ghost" onClick={() => onStop?.()}>
-                Stop
-              </Chip>
-            ) : null}
-            <div
-              testId="send"
-              style={{
-                paddingLeft: T.space.lg,
-                paddingRight: T.space.lg,
-                paddingTop: T.space.control,
-                paddingBottom: T.space.control,
-                borderRadius: T.radius.md,
-                ...toneFill('action', ready),
-                fontSize: T.type.sm,
-                ...HIT,
-                cursor: ready ? 'pointer' : 'default',
-                hover: ready ? { opacity: T.blob.hover } : undefined,
-                active: ready ? { opacity: T.blob.active } : undefined,
-              }}
-              onClick={() => {
-                if (ready) onSend()
-              }}
-            >
-              Send
-            </div>
-          </div>
-        </div>
-        {steer ? (
-          <div
-            testId="steer-hint"
-            style={{
-              paddingLeft: T.space.md,
-              paddingRight: T.space.md,
-              paddingTop: T.space.sm,
-              fontSize: T.type.xs,
-              color: T.ghost,
-            }}
-          >
-            {steer}
-          </div>
-        ) : null}
-      </div>
-    </div>
-  )
-}
+export { Composer } from './chrome/composer'

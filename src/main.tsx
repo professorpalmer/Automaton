@@ -2,10 +2,9 @@ import React from 'react'
 import { render } from '@gpuix/react'
 import { App } from './app'
 import { sweepHostChrome } from './runtime/chrome'
-import { applyChromeToTokens, chromeFromSkin, readSkin } from './runtime/skin'
+import { chromeFromSkin, readSkin } from './runtime/skin'
 import { T } from './tokens'
 
-applyChromeToTokens(readSkin())
 const chrome = chromeFromSkin(readSkin())
 
 function onDie() {

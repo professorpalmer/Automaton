@@ -1,26 +1,30 @@
 import React from 'react'
-import { T } from './tokens'
+import { useTokens } from './theme'
+import { DEFAULT_TOKENS, type Tokens } from './theme/tokens'
 
 export const HIT = {
   cursor: 'pointer' as const,
   userSelect: 'none' as const,
 }
 
-export const FIELD_STYLE = {
-  width: '100%' as const,
-  fontSize: T.type.sm,
-  color: T.text,
-  get backgroundColor() {
-    return T.composer
-  },
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  borderRadius: T.radius.md,
-  paddingLeft: T.space.md,
-  paddingRight: T.space.md,
-  paddingTop: T.space.sm,
-  paddingBottom: T.space.sm,
+export function fieldStyle(tokens: Tokens = DEFAULT_TOKENS) {
+  return {
+    width: '100%' as const,
+    fontSize: tokens.type.sm,
+    color: tokens.text,
+    backgroundColor: tokens.composer,
+    borderWidth: tokens.stroke.hairline,
+    borderColor: tokens.border,
+    borderRadius: tokens.radius.md,
+    paddingLeft: tokens.space.md,
+    paddingRight: tokens.space.md,
+    paddingTop: tokens.space.sm,
+    paddingBottom: tokens.space.sm,
+  }
 }
+
+/** Default-snapshot field chrome. Prefer `fieldStyle(useTokens())` on live paint. */
+export const FIELD_STYLE = fieldStyle()
 
 /** Single-line clip. GPUIX text wrap otherwise stacks a long slug into a column. */
 export const CLIP = {
@@ -30,67 +34,84 @@ export const CLIP = {
   textOverflow: 'ellipsis' as const,
 }
 
-export const FIELD_LINE_STYLE = {
-  ...FIELD_STYLE,
-  ...CLIP,
+export function fieldLineStyle(tokens: Tokens = DEFAULT_TOKENS) {
+  return {
+    ...fieldStyle(tokens),
+    ...CLIP,
+  }
 }
 
-export const CARD_STYLE = {
-  padding: T.space.lg,
-  borderRadius: T.radius.lg,
-  get backgroundColor() {
-    return T.raised
-  },
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  display: 'flex' as const,
-  flexDirection: 'column' as const,
-  gap: T.space.md,
+export const FIELD_LINE_STYLE = fieldLineStyle()
+
+export function cardStyle(tokens: Tokens = DEFAULT_TOKENS) {
+  return {
+    padding: tokens.space.lg,
+    borderRadius: tokens.radius.lg,
+    backgroundColor: tokens.raised,
+    borderWidth: tokens.stroke.hairline,
+    borderColor: tokens.border,
+    display: 'flex' as const,
+    flexDirection: 'column' as const,
+    gap: tokens.space.md,
+  }
 }
 
-/** Overlays must be opaque. Alpha fills punch through Metal to the composer. */
-const MENU_FILL = '#1A1A1A'
-const MENU_HOVER = '#2A2A2A'
+export const CARD_STYLE = cardStyle()
 
-export const MENU_STYLE = {
-  maxHeight: T.layout.menuMax,
-  overflowY: 'scroll' as const,
-  backgroundColor: MENU_FILL,
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  borderRadius: T.radius.md,
-  paddingTop: T.space.xs,
-  paddingBottom: T.space.xs,
+export function menuStyle(tokens: Tokens = DEFAULT_TOKENS) {
+  return {
+    maxHeight: tokens.layout.menuMax,
+    overflowY: 'scroll' as const,
+    backgroundColor: tokens.menu,
+    borderWidth: tokens.stroke.hairline,
+    borderColor: tokens.border,
+    borderRadius: tokens.radius.md,
+    paddingTop: tokens.space.xs,
+    paddingBottom: tokens.space.xs,
+  }
 }
 
-export const ITEM_PAD = {
-  paddingLeft: T.space.md,
-  paddingRight: T.space.md,
-  paddingTop: T.space.sm,
-  paddingBottom: T.space.sm,
-  fontSize: T.type.sm,
+export const MENU_STYLE = menuStyle()
+
+export function itemPad(tokens: Tokens = DEFAULT_TOKENS) {
+  return {
+    paddingLeft: tokens.space.md,
+    paddingRight: tokens.space.md,
+    paddingTop: tokens.space.sm,
+    paddingBottom: tokens.space.sm,
+    fontSize: tokens.type.sm,
+  }
 }
 
-export function menuItemStyle(state: { highlighted?: boolean; selected?: boolean }) {
+export const ITEM_PAD = itemPad()
+
+export function menuItemStyle(
+  state: { highlighted?: boolean; selected?: boolean },
+  tokens: Tokens = DEFAULT_TOKENS,
+) {
   const on = Boolean(state.highlighted || state.selected)
   return {
-    ...ITEM_PAD,
-    backgroundColor: on ? MENU_HOVER : MENU_FILL,
-    color: on ? T.text : T.secondary,
+    ...itemPad(tokens),
+    backgroundColor: on ? tokens.menuHover : tokens.menu,
+    color: on ? tokens.text : tokens.secondary,
   }
 }
 
 export type Tone = 'action' | 'primary' | 'ghost' | 'danger' | 'quiet'
 
-export function toneFill(tone: Tone, ready = true): { backgroundColor: string; color: string } {
+export function toneFill(
+  tone: Tone,
+  ready = true,
+  tokens: Tokens = DEFAULT_TOKENS,
+): { backgroundColor: string; color: string } {
   if (!ready && (tone === 'action' || tone === 'primary')) {
-    return { backgroundColor: T.raised, color: T.ghost }
+    return { backgroundColor: tokens.raised, color: tokens.ghost }
   }
-  if (tone === 'action') return { backgroundColor: T.catalog.violet, color: T.inverse }
-  if (tone === 'primary') return { backgroundColor: T.inverse, color: T.onInverse }
-  if (tone === 'danger') return { backgroundColor: T.danger, color: T.inverse }
-  if (tone === 'quiet') return { backgroundColor: T.clear, color: T.secondary }
-  return { backgroundColor: T.raised, color: T.text }
+  if (tone === 'action') return { backgroundColor: tokens.catalog.violet, color: tokens.inverse }
+  if (tone === 'primary') return { backgroundColor: tokens.inverse, color: tokens.onInverse }
+  if (tone === 'danger') return { backgroundColor: tokens.danger, color: tokens.inverse }
+  if (tone === 'quiet') return { backgroundColor: tokens.clear, color: tokens.secondary }
+  return { backgroundColor: tokens.raised, color: tokens.text }
 }
 
 export function Chip({
@@ -106,22 +127,23 @@ export function Chip({
   children: React.ReactNode
   onClick?: () => void
 }) {
-  const fill = toneFill(tone, ready)
+  const tokens = useTokens()
+  const fill = toneFill(tone, ready, tokens)
   return (
     <div
       testId={testId}
       style={{
         alignSelf: 'flex-start',
-        paddingLeft: T.space.md,
-        paddingRight: T.space.md,
-        paddingTop: T.space.control,
-        paddingBottom: T.space.control,
-        borderRadius: T.radius.md,
-        fontSize: T.type.sm,
+        paddingLeft: tokens.space.md,
+        paddingRight: tokens.space.md,
+        paddingTop: tokens.space.control,
+        paddingBottom: tokens.space.control,
+        borderRadius: tokens.radius.md,
+        fontSize: tokens.type.sm,
         ...fill,
         ...(ready ? HIT : { cursor: 'default' as const, userSelect: 'none' as const }),
-        hover: ready ? { opacity: T.blob.hover } : undefined,
-        active: ready ? { opacity: T.blob.active } : undefined,
+        hover: ready ? { opacity: tokens.blob.hover } : undefined,
+        active: ready ? { opacity: tokens.blob.active } : undefined,
       }}
       onMouseDown={(event: { button?: number; isRightClick?: boolean }) => {
         if (event.isRightClick || event.button === 2) return
@@ -140,20 +162,21 @@ export function Pill({
   label: string
   testId?: string
 }) {
+  const tokens = useTokens()
   return (
     <div
       testId={testId}
       style={{
-        paddingLeft: T.space.sm,
-        paddingRight: T.space.sm,
-        paddingTop: T.space.xxs,
-        paddingBottom: T.space.xxs,
-        borderRadius: T.radius.badge,
-        backgroundColor: T.overlay,
-        borderWidth: T.stroke.hairline,
-        borderColor: T.border,
-        fontSize: T.type.xs,
-        color: T.secondary,
+        paddingLeft: tokens.space.sm,
+        paddingRight: tokens.space.sm,
+        paddingTop: tokens.space.xxs,
+        paddingBottom: tokens.space.xxs,
+        borderRadius: tokens.radius.badge,
+        backgroundColor: tokens.overlay,
+        borderWidth: tokens.stroke.hairline,
+        borderColor: tokens.border,
+        fontSize: tokens.type.xs,
+        color: tokens.secondary,
         flexShrink: 0,
       }}
     >

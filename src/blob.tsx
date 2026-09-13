@@ -5,8 +5,10 @@ import { motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
+import { MOTION, type MotionName } from './motion'
 import { springClockBusy, useRestingStyle } from './resting-motion'
 import { runningTests } from './runtime/test-env'
+import { useTokens } from './theme'
 import { T } from './tokens'
 
 export type BlobView = {
@@ -31,7 +33,7 @@ export type BlobMotion = {
   weights: BlobWeights
   duration: number
   delay: number
-  ease: 'easeOut' | 'easeInOut'
+  spec: MotionName
 }
 
 export type BusyLook = { x: number; y: number }
@@ -143,9 +145,9 @@ export function presentBlob(view: BlobView): BlobMotion {
       glyphHeight: T.blob.size,
       lift: 0,
       weights: hold('rest'),
-      duration: T.motion.enter,
+      duration: MOTION.blobEnter.duration,
       delay,
-      ease: 'easeOut',
+      spec: 'blobEnter',
     }
   }
   if (view.mouthBusy) {
@@ -154,9 +156,9 @@ export function presentBlob(view: BlobView): BlobMotion {
       glyphHeight: T.blob.size,
       lift: 0,
       weights: hold('body'),
-      duration: T.motion.selected,
+      duration: MOTION.blobSelected.duration,
       delay,
-      ease: 'easeOut',
+      spec: 'blobSelected',
     }
   }
   if (view.selected) {
@@ -165,9 +167,9 @@ export function presentBlob(view: BlobView): BlobMotion {
       glyphHeight: T.blob.size,
       lift: 0,
       weights: hold('selected'),
-      duration: T.motion.selected,
+      duration: MOTION.blobSelected.duration,
       delay,
-      ease: 'easeOut',
+      spec: 'blobSelected',
     }
   }
   return {
@@ -175,9 +177,9 @@ export function presentBlob(view: BlobView): BlobMotion {
     glyphHeight: T.blob.size,
     lift: 0,
     weights: hold('rest'),
-    duration: T.blob.breatheMs / 1000,
+    duration: MOTION.blobBreathe.duration,
     delay,
-    ease: 'easeInOut',
+    spec: 'blobBreathe',
   }
 }
 
@@ -454,7 +456,8 @@ const FrozenMark = React.memo(function FrozenMark({
   unread: number
   pose: BlobPose
 }) {
-  const stamps = useMemo(() => poseSvgStamps(shape, fill, T.blob.size), [shape, fill])
+  const T = useTokens()
+  const stamps = useMemo(() => poseSvgStamps(shape, fill, T.blob.size), [shape, fill, T.blob.size])
   const stamp = pose === 'wide' ? stamps.wide : pose === 'tall' ? stamps.tall : stamps.rest
   return (
     <div
@@ -531,6 +534,7 @@ export function SisterBlob({
   onSelect?: () => void
   onMenu?: (event: { x?: number; y?: number; isRightClick?: boolean; button?: number }) => void
 }) {
+  const T = useTokens()
   const live = alive ?? mouthBusy
   const busyBody = working ?? mouthBusy
   const mark = markFor(agent)

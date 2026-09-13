@@ -16,7 +16,10 @@ package; it does not publish the `@gpuix` npm scope. Never ask for NPM_TOKEN
 to publish `@gpuix`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
 Jobs live in `src/runtime/pm.ts` and `src/runtime/jobs.ts`. Implement workers
 use a sandbox cwd and never this checkout. Visual tokens live in
-`src/tokens.ts`.
+`src/theme/` (paint via `useTokens()`); `src/tokens.ts` re-exports the
+frozen default snapshot. Skin/Brand **replace** that snapshot — they never
+mutate `T`. Named motion is `src/motion/`. Provenance:
+`docs/tokens-provenance.md`.
 
 ```sh
 bun install

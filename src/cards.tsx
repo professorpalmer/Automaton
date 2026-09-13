@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import type { QuestionWidget, WidgetAnswer, WidgetOption } from './domain'
 import { widgetOptionValue } from './domain'
-import { CHAT_THEME, T } from './tokens'
+import { toChatTheme, useTokens, type GpuixTextTheme, type Tokens } from './theme'
 
 const HIT = {
   cursor: 'pointer' as const,
@@ -9,38 +9,46 @@ const HIT = {
   userSelect: 'none' as const,
 }
 
-const CARD_STYLE = {
-  marginLeft: T.space.xl,
-  marginRight: T.space.xl,
-  marginBottom: T.space.sm,
-  padding: T.space.md,
-  borderRadius: T.radius.md,
-  backgroundColor: T.raised,
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: T.space.sm,
+function cardChrome(tokens: Tokens) {
+  return {
+    marginLeft: tokens.space.xl,
+    marginRight: tokens.space.xl,
+    marginBottom: tokens.space.sm,
+    padding: tokens.space.md,
+    borderRadius: tokens.radius.md,
+    backgroundColor: tokens.raised,
+    borderWidth: tokens.stroke.hairline,
+    borderColor: tokens.border,
+    display: 'flex' as const,
+    flexDirection: 'column' as const,
+    gap: tokens.space.sm,
+  }
 }
 
-const FIELD_STYLE = {
-  width: '100%',
-  fontSize: T.type.sm,
-  color: T.text,
-  backgroundColor: T.composer,
-  borderWidth: T.stroke.hairline,
-  borderColor: T.border,
-  borderRadius: T.radius.sm,
-  paddingLeft: T.space.sm,
-  paddingRight: T.space.sm,
-  paddingTop: T.space.xs,
-  paddingBottom: T.space.xs,
+function fieldChrome(tokens: Tokens) {
+  return {
+    width: '100%',
+    fontSize: tokens.type.sm,
+    color: tokens.text,
+    backgroundColor: tokens.composer,
+    borderWidth: tokens.stroke.hairline,
+    borderColor: tokens.border,
+    borderRadius: tokens.radius.sm,
+    paddingLeft: tokens.space.sm,
+    paddingRight: tokens.space.sm,
+    paddingTop: tokens.space.xs,
+    paddingBottom: tokens.space.xs,
+  }
 }
 
-function optionFill(style: WidgetOption['style'], selected: boolean): { backgroundColor: string; color: string } {
-  if (style === 'danger') return { backgroundColor: T.danger, color: T.inverse }
-  if (style === 'primary' || selected) return { backgroundColor: T.inverse, color: T.onInverse }
-  return { backgroundColor: T.raised, color: T.text }
+function optionFill(
+  tokens: Tokens,
+  style: WidgetOption['style'],
+  selected: boolean,
+): { backgroundColor: string; color: string } {
+  if (style === 'danger') return { backgroundColor: tokens.danger, color: tokens.inverse }
+  if (style === 'primary' || selected) return { backgroundColor: tokens.inverse, color: tokens.onInverse }
+  return { backgroundColor: tokens.raised, color: tokens.text }
 }
 
 export function ConfirmCard({
@@ -62,8 +70,9 @@ export function ConfirmCard({
   onConfirm: () => void
   onDismiss: () => void
 }) {
+  const T = useTokens()
   return (
-    <div testId={testId} style={CARD_STYLE}>
+    <div testId={testId} style={cardChrome(T)}>
       <div style={{ fontSize: T.type.sm, color: T.secondary }}>{prompt}</div>
       <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
         <div
@@ -120,6 +129,8 @@ export function QuestionCard({
   onAnswer?: (answer: WidgetAnswer) => void
   onDismiss?: () => void
 }) {
+  const T = useTokens()
+  const chatTheme = toChatTheme(T)
   const open = status === 'open'
   const [picked, setPicked] = useState<string[]>(answer?.values ?? [])
   const [custom, setCustom] = useState(answer?.custom ?? '')
@@ -139,7 +150,7 @@ export function QuestionCard({
     submit([value])
   }
   return (
-    <div testId={testId ?? 'widget'} style={CARD_STYLE}>
+    <div testId={testId ?? 'widget'} style={cardChrome(T)}>
       <div testId="widget-prompt" style={{ fontSize: T.type.sm, color: T.text }}>
         {widget.prompt}
       </div>
@@ -152,7 +163,7 @@ export function QuestionCard({
         {widget.options.map((option, index) => {
           const value = widgetOptionValue(option)
           const selected = picked.includes(value) || Boolean(answer?.values.includes(value))
-          const fill = optionFill(option.style, selected)
+          const fill = optionFill(T, option.style, selected)
           return (
             <div
               key={`${value}-${index}`}
@@ -181,8 +192,8 @@ export function QuestionCard({
           placeholder="Or type your own"
           minRows={1}
           maxRows={3}
-          theme={CHAT_THEME}
-          style={FIELD_STYLE}
+          theme={chatTheme}
+          style={fieldChrome(T)}
           onChange={(event) => setCustom(event.value ?? '')}
         />
       ) : null}
@@ -255,7 +266,7 @@ export function MaskedSecretField({
   testId: string
   value: string
   placeholder: string
-  theme?: typeof CHAT_THEME
+  theme?: GpuixTextTheme
   // Looser than FIELD_STYLE so Settings (ui.FIELD_STYLE) can reuse this field.
   style?: object
   onChange: (next: string) => void
@@ -295,6 +306,8 @@ export function SecretRequestCard({
   onSave?: (value: string) => void
   onDismiss?: () => void
 }) {
+  const T = useTokens()
+  const chatTheme = toChatTheme(T)
   const [draft, setDraft] = useState('')
   const open = status === 'open'
   const save = () => {
@@ -307,7 +320,7 @@ export function SecretRequestCard({
     description?.trim() ||
     'Stays out of the chat. Stored securely, never shown to an automaton.'
   return (
-    <div testId={testId ?? 'secret-request'} style={CARD_STYLE}>
+    <div testId={testId ?? 'secret-request'} style={cardChrome(T)}>
       <div style={{ fontSize: T.type.sm, color: T.text }}>{connectorName}</div>
       <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{help}</div>
       {fieldLabel?.trim() ? (
@@ -326,8 +339,8 @@ export function SecretRequestCard({
             testId="secret-request-input"
             value={draft}
             placeholder="Enter key — stays out of chat"
-            theme={CHAT_THEME}
-            style={FIELD_STYLE}
+            theme={chatTheme}
+            style={fieldChrome(T)}
             onChange={setDraft}
           />
           <div
