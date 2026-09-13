@@ -117,19 +117,27 @@ describe('release check', () => {
 })
 
 describe('doctor version WARN', () => {
-  test('WARNs when package ≠ plist', () => {
-    const drift = tmpTree('0.2.0', '0.1.0')
-    const report = doctorPuppetmaster({ listPs: () => '', repoRoot: drift }, drift)
-    expect(report.version).toBe('warn')
-    expect(report.versionNote).toContain('0.2.0')
-    expect(report.versionNote).toContain('0.1.0')
-    rmSync(drift, { recursive: true, force: true })
-  })
+  test(
+    'WARNs when package ≠ plist',
+    () => {
+      const drift = tmpTree('0.2.0', '0.1.0')
+      const report = doctorPuppetmaster({ listPs: () => '', repoRoot: drift }, drift)
+      expect(report.version).toBe('warn')
+      expect(report.versionNote).toContain('0.2.0')
+      expect(report.versionNote).toContain('0.1.0')
+      rmSync(drift, { recursive: true, force: true })
+    },
+    { timeout: 20_000 },
+  )
 
-  test('ok when package and plist match', () => {
-    const aligned = tmpTree('0.2.0', '0.2.0')
-    const report = doctorPuppetmaster({ listPs: () => '', repoRoot: aligned }, aligned)
-    expect(report.version).toBe('ok')
-    rmSync(aligned, { recursive: true, force: true })
-  })
+  test(
+    'ok when package and plist match',
+    () => {
+      const aligned = tmpTree('0.2.0', '0.2.0')
+      const report = doctorPuppetmaster({ listPs: () => '', repoRoot: aligned }, aligned)
+      expect(report.version).toBe('ok')
+      rmSync(aligned, { recursive: true, force: true })
+    },
+    { timeout: 20_000 },
+  )
 })

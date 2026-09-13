@@ -21,4 +21,9 @@ if (report.cloud === 'warn' && report.cloudNote) {
 } else if (report.cloudNote) {
   console.error(`cloud: ${report.cloudNote}`)
 }
+if (report.providers === 'warn' && report.providersNote) {
+  console.error(`WARN providers: ${report.providersNote}`)
+} else if (report.providersNote) {
+  console.error(`providers: ${report.providersNote}`)
+}
 if (!report.ok) process.exit(1)

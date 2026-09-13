@@ -7,6 +7,7 @@ import {
 } from './cloud-origin'
 import { doctorLiveInstance, type LiveInstanceDoctor, type LiveInstanceSeams } from './live-instance'
 import { doctorIdleCpu, type IdleCpuDoctor } from './idle-health'
+import { doctorProviders, type ProviderAuthSeams } from './providers'
 import { readInstalledVersion, readPlistVersion, versionsAligned } from './version'
 
 export type DoctorReport = {
@@ -34,6 +35,9 @@ export type DoctorReport = {
    */
   cloud: 'ok' | 'warn' | 'parked'
   cloudNote?: string
+  /** Provider catalog honesty — WARN on missing mouth key; never flips ok alone. */
+  providers: 'ok' | 'warn' | 'parked'
+  providersNote?: string
   error?: string
 }
 
@@ -88,6 +92,8 @@ export type DoctorExtras = {
   idle?: IdleCpuDoctor
   /** Injected cloud presence (tests). When omitted, checklist note or live probe. */
   cloud?: CloudPresence
+  /** Injected provider auth seams (tests). */
+  providers?: ProviderAuthSeams
 }
 
 function withExtras(
@@ -104,6 +110,8 @@ function withExtras(
     | 'idleCpuNote'
     | 'cloud'
     | 'cloudNote'
+    | 'providers'
+    | 'providersNote'
   >,
   extras: DoctorExtras = {},
 ): DoctorReport {
@@ -111,6 +119,7 @@ function withExtras(
   const ver = versionDoctor(extras.cwd)
   const idleCpu = extras.idle ?? doctorIdleCpu()
   const cloudDoctor = doctorCloudOrigin(extras.cloud)
+  const providersDoctor = doctorProviders(extras.providers)
   return {
     ...base,
     liveInstance: live.status,
@@ -121,6 +130,8 @@ function withExtras(
     idleCpuNote: idleCpu.note,
     cloud: cloudDoctor.status,
     cloudNote: cloudDoctor.note,
+    providers: providersDoctor.status,
+    providersNote: providersDoctor.note,
   }
 }
 

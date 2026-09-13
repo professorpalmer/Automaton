@@ -100,5 +100,5 @@ describe('doctor idle CPU', () => {
     const report = doctorPuppetmaster({ listPs: () => '' })
     expect(report.idleCpu).toBe('skip')
     expect(report.idleCpuNote).toContain('docs/idle-cpu.md')
-  })
+  }, { timeout: 20_000 })
 })

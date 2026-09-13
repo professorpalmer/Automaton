@@ -88,6 +88,8 @@ on the strip. When `CURSOR_API_KEY` is missing or the account blocks Cloud
 Agents, Settings/Jobs show **parked / unavailable** — never a fake Cloud
 button. See [`docs/cloud-origin.md`](./cloud-origin.md).
 
+Provider catalog (mouth vs Jobs/PM vs cloud, sanctioned auth each): [`docs/providers.md`](./providers.md).
+
 ## Watch, hydrate, and cwd
 
 Job watch and `attachExisting` read PM status/refs asynchronously on the

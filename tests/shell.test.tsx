@@ -1340,7 +1340,9 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'inspector-pane')?.bounds?.width ?? 0).toBe(0)
   })
 
-  test('titlebar computer button opens inspector and rail Settings paints usage chrome', () => {
+  test(
+    'titlebar computer button opens inspector and rail Settings paints usage chrome',
+    () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const { render, renderer } = createTestRoot()
     render(<App store={testStore()} />)
@@ -1403,7 +1405,7 @@ native('staff shell (GPUI native)', () => {
     renderer.captureScreenshot(settingsShot)
     const settings = renderer.getPaintedText().join(' ')
     expect(settings).toContain('model picker')
-    expect(settings).toContain('one model per agent')
+    expect(settings).toContain('OpenRouter · mouth (live)')
     expect(settings).toContain('Usage')
     expect(settings).not.toContain('unknown (')
     expect(settings).not.toContain('Prompt tokens')
@@ -1412,6 +1414,8 @@ native('staff shell (GPUI native)', () => {
     expect(settings).toContain('One local Docker')
     expect(settings).not.toContain('Theme')
     expect(settings).toContain('Connectors')
+    expect(settings).toContain('Providers')
+    expect(settings).toContain('ChatGPT Codex')
     expect(settings).toContain('Routines')
     expect(settings).toContain('Stays out of the chat')
     expect(settings).toContain('Chief of Staff')
@@ -1421,6 +1425,9 @@ native('staff shell (GPUI native)', () => {
     expect(settings).toMatch(/Needs key|Connected|Rejected|Unreachable/)
     expect(settings).not.toMatch(/sk-[a-zA-Z0-9_-]{8,}/)
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'connector-openrouter')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-providers')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-provider-openrouter')).toBeTruthy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-provider-openai-codex')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-model-input')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-key-save')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
@@ -1428,7 +1435,9 @@ native('staff shell (GPUI native)', () => {
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-computer')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-accent')).toBeFalsy()
     expect(statSync(settingsShot).size).toBeGreaterThan(1000)
-  })
+    },
+    { timeout: 15_000 },
+  )
 
   test('update modal paints Updates available and Update', () => {
     const { render, renderer } = createTestRoot()

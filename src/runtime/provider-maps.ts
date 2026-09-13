@@ -1,7 +1,9 @@
 /**
- * Verified OpenRouter provider maps (opengrok laws, TypeScript).
+ * Verified OpenRouter *reasoning-control* maps (opengrok laws, TypeScript).
  * Unverified route -> label "none" and leave the body untouched.
  * No capture, no map. Never ship a half-map.
+ *
+ * Not the product provider catalog — see `providers.ts` / `docs/providers.md`.
  */
 export type MapParam = { id: string; value: unknown }
 
