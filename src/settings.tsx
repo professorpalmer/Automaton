@@ -52,6 +52,15 @@ import {
   type Channel,
 } from './runtime/channels'
 
+import {
+  archiveRoom,
+  createRoom,
+  deleteRoom,
+  listRooms,
+  updateRoomMembers,
+  type Room,
+} from './runtime/rooms'
+
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
 }
@@ -405,6 +414,151 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
   )
 }
 
+
+function RoomsCard({ agents }: { agents: Agent[] }) {
+  const seats = visibleAgents(agents)
+  const [rows, setRows] = useState<Room[]>(() => listRooms(undefined, { includeArchived: true }))
+  const [name, setName] = useState('')
+  const [picked, setPicked] = useState<Record<string, boolean>>(() => {
+    const out: Record<string, boolean> = {}
+    for (const agent of seats) out[agent.id] = agent.id === 'staff'
+    return out
+  })
+  const [note, setNote] = useState('')
+  const refresh = () => setRows(listRooms(undefined, { includeArchived: true }))
+  const create = () => {
+    const n = name.trim()
+    if (!n) {
+      setNote('Name required.')
+      return
+    }
+    const memberIds = seats.filter((agent) => picked[agent.id]).map((agent) => agent.id)
+    if (memberIds.length === 0) {
+      setNote('Pick at least one member.')
+      return
+    }
+    try {
+      createRoom({ name: n, memberIds })
+      setName('')
+      setNote('')
+      refresh()
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Could not create room.')
+    }
+  }
+  const toggleMember = (room: Room, agentId: string) => {
+    const has = room.memberIds.includes(agentId)
+    const memberIds = has
+      ? room.memberIds.filter((id) => id !== agentId)
+      : [...room.memberIds, agentId]
+    updateRoomMembers(room.id, memberIds)
+    refresh()
+  }
+  return (
+    <div testId="settings-rooms" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      {rows.length === 0 ? (
+        <div style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+          No rooms yet. Create a named room and seat automata — posts land as notes on each member thread.
+        </div>
+      ) : (
+        rows.map((row) => (
+          <div
+            key={row.id}
+            testId={`settings-room-${row.id}`}
+            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+              <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
+              <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                {row.archived ? 'archived' : `${row.memberIds.length} members`}
+              </div>
+            </div>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+              {row.memberIds
+                .map((id) => seats.find((agent) => agent.id === id)?.name ?? id)
+                .join(' · ') || 'no members'}
+            </div>
+            {!row.archived ? (
+              <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+                {seats.map((agent) => {
+                  const on = row.memberIds.includes(agent.id)
+                  return (
+                    <Chip
+                      key={agent.id}
+                      testId={`settings-room-${row.id}-member-${agent.id}`}
+                      tone={on ? 'action' : 'ghost'}
+                      onClick={() => toggleMember(row, agent.id)}
+                    >
+                      {on ? `✓ ${agent.name}` : agent.name}
+                    </Chip>
+                  )
+                })}
+              </div>
+            ) : null}
+            <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+              {!row.archived ? (
+                <Chip
+                  testId={`settings-room-${row.id}-archive`}
+                  tone="ghost"
+                  onClick={() => {
+                    archiveRoom(row.id)
+                    refresh()
+                  }}
+                >
+                  Archive
+                </Chip>
+              ) : null}
+              <Chip
+                testId={`settings-room-${row.id}-delete`}
+                tone="ghost"
+                onClick={() => {
+                  deleteRoom(row.id)
+                  refresh()
+                }}
+              >
+                Delete
+              </Chip>
+            </div>
+          </div>
+        ))
+      )}
+      <div testId="settings-rooms-create" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+          Local multi-agent rooms (not Slack). Each member keeps their own thread; posts fan as agent notes.
+        </div>
+        <textarea
+          testId="settings-room-name"
+          value={name}
+          placeholder="Room name"
+          minRows={1}
+          maxRows={1}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setName(event.value ?? '')}
+        />
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+          {seats.map((agent) => (
+            <Chip
+              key={agent.id}
+              testId={`settings-room-pick-${agent.id}`}
+              tone={picked[agent.id] ? 'action' : 'ghost'}
+              onClick={() => setPicked((cur) => ({ ...cur, [agent.id]: !cur[agent.id] }))}
+            >
+              {picked[agent.id] ? `✓ ${agent.name}` : agent.name}
+            </Chip>
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, alignItems: 'center' }}>
+          <Chip testId="settings-room-create" tone="action" onClick={create}>
+            Add room
+          </Chip>
+          {note ? <div style={{ fontSize: T.type.xs, color: T.secondary }}>{note}</div> : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export function Settings({
   metrics,
   agents = [],
@@ -688,6 +842,9 @@ export function Settings({
               ) : null}
             </div>
           </div>
+        </Section>
+        <Section title="Rooms">
+          <RoomsCard agents={seats} />
         </Section>
         <Section title="Routines">
           <RoutinesCard agents={seats} />

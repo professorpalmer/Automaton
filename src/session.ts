@@ -94,6 +94,10 @@ import {
   formatChannelInboundText,
   type ChannelInbound,
 } from './runtime/channels'
+import {
+  postToRoom,
+  sanitizePeerRelay,
+} from './runtime/rooms'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -146,6 +150,8 @@ export type Session = {
   approvalGrants?: ApprovalGrant[]
   /** Sister deliverTo / job booking queued until after paint. */
   pendingSend?: PendingSend
+  /** Room fan-out awaiting needsFanoutConfirm (3+ members) when requireFanoutConfirm. */
+  pendingRoomPost?: { roomId: string; fromId: AgentId; text: string; targets: AgentId[]; home?: string } | null
 }
 
 /** Old snapshots omit goals and may still carry a worker mandate. */
@@ -327,6 +333,10 @@ export function dismissFanout(session: Session): Session {
   return { ...session, pendingFanout: null }
 }
 
+export function dismissRoomPost(session: Session): Session {
+  return { ...session, pendingRoomPost: null }
+}
+
 export function dismissDeskHandoff(session: Session): Session {
   return { ...session, deskHandoff: null }
 }
@@ -375,6 +385,15 @@ export function patchLiveAgent(session: Session, agent: Agent): Session {
 export function confirmFanout(session: Session): Session {
   if (!session.pendingFanout) return session
   return send(session, session.pendingFanout.text)
+}
+
+export function confirmRoomPost(session: Session): Session {
+  const pending = session.pendingRoomPost
+  if (!pending) return session
+  return sendToRoom(session, pending.roomId, pending.fromId, pending.text, {
+    requireFanoutConfirm: false,
+    home: pending.home,
+  })
 }
 
 function staffParaphrase(text: string): string {
@@ -1953,3 +1972,104 @@ export function noteJobStatus(session: Session, jobId: string, spoken: string): 
   }
   return next
 }
+
+/**
+ * 1:1 SendToAgent-class: append agent_note, wake target mouth with peer-hop kickoff,
+ * ack "Sent." on the sender — async (does not wait for a reply). Empty text is a no-op.
+ */
+export function sendToAgent(
+  session: Session,
+  fromId: AgentId,
+  toId: AgentId,
+  text: string,
+): Session {
+  const body = text.trim()
+  if (!body) return session
+  if (fromId === toId) return session
+  if (!session.threads[fromId] || !session.threads[toId]) return session
+  const note = sanitizePeerRelay(body) || body
+  const focused = session.activeAgentId
+  let next = appendRelay(session, fromId, 'sent', toId, note, focused)
+  next = speak(next, fromId, 'Sent.', focused)
+  next = append(
+    next,
+    toId,
+    { kind: 'agent_note', id: nextId('item'), fromId, toId, text: note },
+    focused,
+  )
+  const item = stamped('user', toId, note, undefined, undefined, undefined, 'peer-hop')
+  next = append(next, toId, item, focused)
+  next = setThread(next, toId, { mouth: 'answer' })
+  return next
+}
+
+export type SendToRoomOptions = {
+  /** When true, 3+ other members parks on pendingRoomPost (same bar as needsFanoutConfirm). */
+  requireFanoutConfirm?: boolean
+  /** Override ~/.automaton home for rooms.json (tests). */
+  home?: string
+}
+
+/**
+ * Post to a named room: fanout-like agent_notes on each member thread (sisters keep
+ * separate transcripts). Sender gets sent relays + "Sent." ack. Mouth only — Jobs untouched.
+ */
+export function sendToRoom(
+  session: Session,
+  roomId: string,
+  fromId: AgentId,
+  text: string,
+  opts?: SendToRoomOptions,
+): Session {
+  const body = text.trim()
+  if (!body) return session
+  if (!session.threads[fromId]) return session
+  let posted
+  try {
+    posted = postToRoom(roomId, { fromId, text: body }, opts?.home)
+  } catch {
+    return session
+  }
+  const targets = posted.deliveries.map((row) => row.toId).filter((id) => Boolean(session.threads[id]))
+  if (opts?.requireFanoutConfirm && needsFanoutConfirm(targets) && !session.pendingRoomPost) {
+    return {
+      ...session,
+      pendingRoomPost: { roomId, fromId, text: body, targets, home: opts.home },
+    }
+  }
+  const focused = session.activeAgentId
+  let next: Session = { ...session, pendingRoomPost: null }
+  for (const row of posted.deliveries) {
+    next = appendRelay(next, fromId, 'sent', row.toId, row.text, focused)
+  }
+  if (posted.deliveries.length === 0) {
+    next = append(
+      next,
+      fromId,
+      {
+        kind: 'relay',
+        id: nextId('item'),
+        lane: 'sent',
+        peerId: fromId,
+        text: posted.sentRelayText,
+      },
+      focused,
+    )
+  }
+  next = speak(next, fromId, 'Sent.', focused)
+  for (const row of posted.deliveries) {
+    if (!next.threads[row.toId]) continue
+    const note = `[${posted.room.name}] ${row.text}`
+    next = append(
+      next,
+      row.toId,
+      { kind: 'agent_note', id: nextId('item'), fromId: row.fromId, toId: row.toId, text: note },
+      focused,
+    )
+    const item = stamped('user', row.toId, note, undefined, undefined, undefined, 'peer-hop')
+    next = append(next, row.toId, item, focused)
+    next = setThread(next, row.toId, { mouth: 'answer' })
+  }
+  return next
+}
+
