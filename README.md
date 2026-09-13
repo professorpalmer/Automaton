@@ -13,6 +13,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Routines](docs/routines.md) — schedule/event mouth wakes (product; app must be open for MVP ticks)
 - [Channels](docs/channels.md) — Slack mention/DM wake + reply (Settings connect; inbox drop MVP)
 - [Rooms](docs/rooms.md) — local multi-agent rooms + SendToAgent-class async peer notes
+- [MCP catalog](docs/mcp.md) — curated in-app MCP install / auth / schema hints (Settings)
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run

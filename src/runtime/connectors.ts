@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { connectorsPath } from './computer'
 import { automatonHome, listOpenRouterKeys, writeOpenRouterKey } from './keys'
+import { hasMcpGrant, mcpAcceptsSecret, mcpDisplayName, mcpStatus, writeMcpSecret } from './mcp-catalog'
 
 export const OPENROUTER_ID = 'openrouter'
 export const OPENROUTER_ORIGIN = 'https://openrouter.ai'
@@ -124,11 +125,15 @@ export function hasOpenRouterGrant(): boolean {
 export function knownConnectorId(id: string, home = automatonHome()): boolean {
   const trimmed = id.trim()
   if (!trimmed) return false
-  return readConnectors(home).some((row) => row.id === trimmed)
+  if (readConnectors(home).some((row) => row.id === trimmed)) return true
+  // Installed MCP entries that needAuth reuse secret-request / Connect (never chat-paste).
+  return mcpAcceptsSecret(trimmed, home)
 }
 
 export function connectorDisplayName(id: string, home = automatonHome()): string {
-  return readConnectors(home).find((row) => row.id === id)?.name ?? id
+  const row = readConnectors(home).find((item) => item.id === id)
+  if (row) return row.name
+  return mcpDisplayName(id)
 }
 
 /** Write-only. Callers must not log `value` or put it on a feed item. */
@@ -136,7 +141,8 @@ export function writeConnectorSecret(id: string, value: string, home = automaton
   const trimmed = id.trim()
   const secret = value.trim()
   if (!trimmed || !secret) return false
-  if (!knownConnectorId(trimmed, home)) return false
+  if (mcpAcceptsSecret(trimmed, home)) return writeMcpSecret(trimmed, secret, home)
+  if (!readConnectors(home).some((row) => row.id === trimmed)) return false
   if (trimmed === OPENROUTER_ID) writeOpenRouterKey(secret, home)
   markConnected(trimmed, true, home)
   return true
@@ -144,5 +150,9 @@ export function writeConnectorSecret(id: string, value: string, home = automaton
 
 export function connectorConfigured(id: string, home = automatonHome()): boolean {
   if (id === OPENROUTER_ID && hasOpenRouterGrant()) return true
+  if (mcpAcceptsSecret(id, home)) {
+    const row = mcpStatus(id, home)
+    return row?.status === 'installed' && hasMcpGrant(id, home)
+  }
   return readConnectors(home).some((row) => row.id === id && row.connected)
 }
