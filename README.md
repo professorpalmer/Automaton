@@ -15,6 +15,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Rooms](docs/rooms.md) — local multi-agent rooms + SendToAgent-class async peer notes
 - [MCP catalog](docs/mcp.md) — curated in-app MCP install / auth / schema hints (Settings)
 - [Secrets](docs/secrets.md) — secret-request card, masked entry, vault (never chat-paste)
+- [Version / releases](docs/version.md) — installed chrome, GitHub Latest notify (no auto-upgrade), doctor plist WARN
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run

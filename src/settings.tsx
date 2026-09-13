@@ -21,6 +21,7 @@ import {
 } from './runtime/connectors'
 import { listOpenRouterKeys } from './runtime/keys'
 import { boxStatus, computerLabel } from './runtime/box'
+import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import {
   applyChromeToTokens,
@@ -706,6 +707,55 @@ function McpCatalogCard() {
   )
 }
 
+
+function AboutCard() {
+  const about = aboutVersionLines()
+  const plistLabel = about.plist
+    ? about.aligned
+      ? `Info.plist ${about.plist} · match`
+      : `Info.plist ${about.plist} · WARN drift`
+    : 'Info.plist missing'
+  return (
+    <div testId="settings-about" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          gap: T.space.md,
+        }}
+      >
+        <div style={{ fontSize: T.type.sm, color: T.secondary }}>Installed</div>
+        <div testId="settings-about-installed" style={{ fontSize: T.type.sm, color: T.text }}>
+          {about.installed}
+        </div>
+      </div>
+      <div
+        testId="settings-about-plist"
+        style={{ fontSize: T.type.xs, color: about.aligned ? T.tertiary : T.danger }}
+      >
+        {plistLabel}
+      </div>
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          justifyContent: 'space-between',
+          gap: T.space.md,
+        }}
+      >
+        <div style={{ fontSize: T.type.sm, color: T.secondary }}>Latest release</div>
+        <div testId="settings-about-latest" style={{ fontSize: T.type.sm, color: T.text }}>
+          {about.latestLine}
+        </div>
+      </div>
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+        Notify only — Update is always a click. No PyPI; version stays with package until the next band cut.
+      </div>
+    </div>
+  )
+}
+
 export function Settings({
   metrics,
   agents = [],
@@ -1003,6 +1053,10 @@ export function Settings({
           <div testId="settings-computer" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.text }}>
             {computerLabel(boxStatus())}
           </div>
+        </Section>
+
+        <Section title="About">
+          <AboutCard />
         </Section>
       </div>
     </div>

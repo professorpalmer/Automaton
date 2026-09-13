@@ -51,22 +51,43 @@ export function updateStatePath(home = automatonHome()): string {
   return join(home, 'update.json')
 }
 
-export function readDismissedSha(home = automatonHome()): string {
+export type UpdateStateFile = {
+  dismissed?: string
+  dismissedRelease?: string
+}
+
+export function readUpdateState(home = automatonHome()): UpdateStateFile {
   const path = updateStatePath(home)
-  if (!existsSync(path)) return ''
+  if (!existsSync(path)) return {}
   try {
-    const raw = JSON.parse(readFileSync(path, 'utf8')) as { dismissed?: unknown }
-    return typeof raw.dismissed === 'string' ? raw.dismissed.trim() : ''
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as UpdateStateFile
+    return {
+      dismissed: typeof raw.dismissed === 'string' ? raw.dismissed.trim() : undefined,
+      dismissedRelease:
+        typeof raw.dismissedRelease === 'string' ? raw.dismissedRelease.trim() : undefined,
+    }
   } catch {
-    return ''
+    return {}
   }
+}
+
+export function writeUpdateState(patch: UpdateStateFile, home = automatonHome()): void {
+  mkdirSync(home, { recursive: true })
+  const current = readUpdateState(home)
+  const next: UpdateStateFile = { ...current, ...patch }
+  if (!next.dismissed) delete next.dismissed
+  if (!next.dismissedRelease) delete next.dismissedRelease
+  writeFileSync(updateStatePath(home), `${JSON.stringify(next, null, 2)}\n`)
+}
+
+export function readDismissedSha(home = automatonHome()): string {
+  return readUpdateState(home).dismissed ?? ''
 }
 
 export function dismissUpdate(sha: string, home = automatonHome()): void {
   const tip = sha.trim()
   if (!tip) return
-  mkdirSync(home, { recursive: true })
-  writeFileSync(updateStatePath(home), `${JSON.stringify({ dismissed: tip }, null, 2)}\n`)
+  writeUpdateState({ dismissed: tip }, home)
 }
 
 export function shouldOfferUpdate(offer: UpdateOffer | null, dismissed = ''): boolean {

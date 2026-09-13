@@ -6,15 +6,27 @@ export function UpdateModal({
   dirty = false,
   busy = false,
   note = '',
+  kind = 'git',
+  installed = '',
+  latestTag = '',
   onUpdate,
   onLater,
 }: {
   dirty?: boolean
   busy?: boolean
   note?: string
+  /** git = tip behind origin/main; release = installed semver behind GitHub Latest. */
+  kind?: 'git' | 'release'
+  installed?: string
+  latestTag?: string
   onUpdate: () => void
   onLater: () => void
 }) {
+  const title = kind === 'release' ? 'Release available' : 'Updates available'
+  const body =
+    kind === 'release'
+      ? `Installed ${installed || '—'} · latest ${latestTag || '—'}. Update to pick it up (fast-forward main, then relaunch).`
+      : 'A newer Automaton is on main. Update to pick it up.'
   return (
     <div
       testId="update-modal"
@@ -48,9 +60,12 @@ export function UpdateModal({
           gap: T.space.md,
         }}
       >
-        <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.text }}>Updates available</div>
-        <div style={{ fontSize: T.type.sm, lineHeight: T.line.sm, color: T.secondary, whiteSpace: 'normal' }}>
-          A newer Automaton is on main. Update to pick it up.
+        <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.text }}>{title}</div>
+        <div
+          testId={kind === 'release' ? 'update-release-detail' : 'update-git-detail'}
+          style={{ fontSize: T.type.sm, lineHeight: T.line.sm, color: T.secondary, whiteSpace: 'normal' }}
+        >
+          {body}
         </div>
         {dirty ? (
           <div testId="update-dirty" style={{ fontSize: T.type.sm, color: T.tertiary, whiteSpace: 'normal' }}>
