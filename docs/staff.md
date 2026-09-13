@@ -7,7 +7,9 @@ until you switch). A titlebar computer control opens the inspector (same
 surface as Cmd+Shift+I); the rest of the titlebar chrome does not. The
 window is frosted (`windowBackground: 'blurred'`) so the desktop
 shows through the chrome. Titlebar stays transparent; rail and composer
-stay clickable.
+stay clickable. Settings → Window picks **Appearance** (Dark default, or
+a designed Light — not an inverted graphite) plus Frosted / Solid and
+Brand tint / accent / radius. Light keeps contrast on Brand swatches.
 
 Chief of Staff (`staff`) is the only seeded automaton. Other automata are
 created from chat or the factory (`New automaton`). Each named automaton has

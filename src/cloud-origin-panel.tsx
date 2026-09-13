@@ -11,11 +11,11 @@ import {
   type CloudPresence,
 } from './runtime/cloud-origin'
 import { openDashboardUrl } from './runtime/pm-dashboard'
-import { CARD_STYLE, Chip, FIELD_STYLE } from './ui'
-import { FIELD_THEME, T } from './tokens'
+import { Chip, useChrome } from './ui'
+import type { Tokens } from './theme'
 
-function parkedTone(presence: CloudPresence): string {
-  return presence.launchable ? T.text : T.secondary
+function parkedTone(presence: CloudPresence, tokens: Tokens): string {
+  return presence.launchable ? tokens.text : tokens.secondary
 }
 
 /** Settings + Jobs honesty surface for optional cloud-agent / Origin. */
@@ -32,6 +32,8 @@ export function CloudOriginPanel({
   originRemote?: string
   mode: 'settings' | 'jobs'
 }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const [presence, setPresence] = useState<CloudPresence | null>(null)
   const [busy, setBusy] = useState(false)
   const [prompt, setPrompt] = useState('')
@@ -105,13 +107,13 @@ export function CloudOriginPanel({
   return (
     <div
       testId={mode === 'settings' ? 'settings-cloud-origin' : 'jobs-cloud-origin'}
-      style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+      style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
     >
       <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
         <div style={{ fontSize: T.type.sm, color: T.text }}>Cloud agent / Origin</div>
         <div
           testId={mode === 'settings' ? 'settings-cloud-status' : 'jobs-cloud-status'}
-          style={{ fontSize: T.type.sm, color: parkedTone(presence ?? { status: 'parked', launchable: false, note: '' }) }}
+          style={{ fontSize: T.type.sm, color: parkedTone(presence ?? { status: 'parked', launchable: false, note: '' }, T) }}
         >
           {presence ? cloudPresenceLabel(presence) : 'checking…'}
         </div>
@@ -161,8 +163,8 @@ export function CloudOriginPanel({
                 placeholder="Cloud implement prompt"
                 minRows={2}
                 maxRows={4}
-                theme={FIELD_THEME}
-                style={FIELD_STYLE}
+                theme={chrome.fieldTheme}
+                style={chrome.field}
                 onChange={(event) => setPrompt(event.value ?? '')}
               />
               <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>

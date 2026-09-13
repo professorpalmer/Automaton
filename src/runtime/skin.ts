@@ -1,5 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import {
+  LIGHT_CANVAS,
+  LIGHT_RAISED,
+  LIGHT_ROLES,
+  LIGHT_SIDEBAR,
+  accentForAppearance,
+  parseAppearance,
+  type Appearance,
+} from '../theme/appearance'
 import { DEFAULT_BRAND, parseBrand, type Brand } from '../theme/brand'
 import { DEFAULT_TOKENS } from '../theme/tokens'
 import { automatonHome } from './keys'
@@ -10,6 +19,7 @@ export type Skin = {
   railWidth: number
   windowMode: WindowMode
   frostWash: number
+  appearance: Appearance
   brand: Brand
 }
 
@@ -19,6 +29,7 @@ const DEFAULT_SKIN: Skin = {
   railWidth: DEFAULT_TOKENS.layout.sidebarWidth,
   windowMode: 'frosted',
   frostWash: DEFAULT_FROST_WASH,
+  appearance: 'dark',
   brand: { ...DEFAULT_BRAND },
 }
 
@@ -61,6 +72,7 @@ export function parseSkin(raw: unknown): Skin {
     railWidth: clampRailWidth(typeof row.railWidth === 'number' ? row.railWidth : DEFAULT_TOKENS.layout.sidebarWidth),
     windowMode: parseWindowMode(row.windowMode),
     frostWash: clampFrostWash(typeof row.frostWash === 'number' ? row.frostWash : DEFAULT_FROST_WASH),
+    appearance: parseAppearance(row.appearance),
     brand: parseBrand(row.brand),
   }
 }
@@ -119,6 +131,37 @@ export function chromeFromSkin(skin: Skin): {
   accent: string
   windowBackground: 'blurred' | 'opaque'
 } {
+  const appearance = parseAppearance(skin.appearance)
+  const accent = accentForAppearance(skin.brand.accent, appearance)
+  if (appearance === 'light') {
+    const roles = LIGHT_ROLES
+    if (skin.windowMode === 'solid') {
+      return {
+        canvas: LIGHT_CANVAS,
+        sidebar: LIGHT_SIDEBAR,
+        composer: LIGHT_CANVAS,
+        raised: LIGHT_RAISED,
+        selected: '#0000000F',
+        secondary: roles.secondary,
+        tertiary: roles.tertiary,
+        ghost: roles.ghost,
+        accent,
+        windowBackground: 'opaque',
+      }
+    }
+    return {
+      canvas: washHex(skin.brand.tint, skin.frostWash),
+      sidebar: '#0000000A',
+      composer: LIGHT_CANVAS,
+      raised: LIGHT_RAISED,
+      selected: '#0000000F',
+      secondary: roles.secondary,
+      tertiary: roles.tertiary,
+      ghost: roles.ghost,
+      accent,
+      windowBackground: 'blurred',
+    }
+  }
   if (skin.windowMode === 'solid') {
     return {
       canvas: '#141414',
@@ -129,7 +172,7 @@ export function chromeFromSkin(skin: Skin): {
       secondary: '#B4B4B4',
       tertiary: '#8A8A8A',
       ghost: '#5A5A5A',
-      accent: skin.brand.accent,
+      accent,
       windowBackground: 'opaque',
     }
   }
@@ -142,7 +185,7 @@ export function chromeFromSkin(skin: Skin): {
     secondary: '#F2F2F2',
     tertiary: '#E8E8E8',
     ghost: '#D8D8D8',
-    accent: skin.brand.accent,
+    accent,
     windowBackground: 'blurred',
   }
 }

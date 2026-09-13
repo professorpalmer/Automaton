@@ -41,12 +41,14 @@ describe('graphite skin', () => {
       railWidth: T.layout.sidebarWidth,
       windowMode: 'frosted',
       frostWash: 12,
+      appearance: 'dark',
       brand: DEFAULT_BRAND,
     })
     expect(parseSkin({ railWidth: 72, accent: 'violet' })).toEqual({
       railWidth: 72,
       windowMode: 'frosted',
       frostWash: 12,
+      appearance: 'dark',
       brand: DEFAULT_BRAND,
     })
   })
@@ -59,6 +61,7 @@ describe('graphite skin', () => {
       railWidth: T.layout.sidebarMin,
       windowMode: 'frosted',
       frostWash: 12,
+      appearance: 'dark',
       brand: DEFAULT_BRAND,
     })
     rmSync(home, { recursive: true, force: true })

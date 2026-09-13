@@ -13,6 +13,7 @@ import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
 import { importSkillFromUrl, listSkills, setSkillEnabled } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
+import { EmptyState, ToggleGroup } from './chrome'
 import { Chip, menuItemStyle, useChrome } from './ui'
 
 const SECRET = /sk-[a-zA-Z0-9_-]{8,}|Bearer\s+\S+|OPENROUTER_API_KEY\s*=\s*\S+/gi
@@ -163,11 +164,6 @@ function uniqueChoices(current: string, catalog: readonly string[]): string[] {
     if (name && !out.includes(name)) out.push(name)
   }
   return out
-}
-
-const HIT = {
-  cursor: 'pointer' as const,
-  userSelect: 'none' as const,
 }
 
 export function Inspector({
@@ -457,33 +453,16 @@ export function Inspector({
       ) : null}
       {profile ? (
         <Section title="Kit">
-          <div testId="inspector-kit" style={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: T.space.xs }}>
-            {KITS.map((item) => {
-              const selected = item === kit
-              return (
-                <div
-                  key={item}
-                  testId={`kit-${item}`}
-                  style={{
-                    paddingLeft: T.space.sm,
-                    paddingRight: T.space.sm,
-                    paddingTop: T.space.xxs,
-                    paddingBottom: T.space.xxs,
-                    borderRadius: T.radius.sm,
-                    backgroundColor: selected ? T.inverse : T.overlayStrong,
-                    color: selected ? T.onInverse : T.text,
-                    fontSize: T.type.xs,
-                    ...HIT,
-                    hover: { backgroundColor: selected ? T.inverse : T.selected },
-                    active: { opacity: T.blob.active },
-                  }}
-                  onClick={() => onPatch?.({ kit: item })}
-                >
-                  {item}
-                </div>
-              )
-            })}
-          </div>
+          <ToggleGroup<AgentKit>
+            testId="inspector-kit"
+            value={kit}
+            onChange={(next) => onPatch?.({ kit: next })}
+            options={KITS.map((item) => ({
+              id: item,
+              label: item,
+              testId: `kit-${item}`,
+            }))}
+          />
         </Section>
       ) : null}
       {profile ? (
@@ -585,7 +564,7 @@ export function Inspector({
               </div>
             ) : null}
             {library.length === 0 && profile.skillIds.length === 0 ? (
-              <div style={{ fontSize: T.type.sm, color: T.tertiary }}>No skills pinned</div>
+              <EmptyState title="No skills pinned" style={{ fontSize: T.type.sm, color: T.tertiary, gap: 0 }} />
             ) : null}
             {library.map((skill) => {
               const pinned = profile.skillIds.includes(skill.id)
@@ -630,7 +609,7 @@ export function Inspector({
       <Section title="Claims">
         <div testId="inspector-claims" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
           {recent.length === 0 ? (
-            <div style={{ fontSize: T.type.sm, color: T.tertiary }}>No claims yet</div>
+            <EmptyState title="No claims yet" style={{ fontSize: T.type.sm, color: T.tertiary, gap: 0 }} />
           ) : (
             recent.map((claim) => {
               const stale = claim.freshness === 'stale'

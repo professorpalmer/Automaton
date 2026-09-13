@@ -31,12 +31,14 @@ import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import { clampFrostWash, patchSkin, readSkin, type Skin, type WindowMode } from './runtime/skin'
+import { EmptyState, ToggleGroup } from './chrome'
 import {
   BRAND_ACCENT_SWATCHES,
   BRAND_RADIUS_PRESETS,
   BRAND_TINT_SWATCHES,
   tokensFromSkin,
   useTokenEnv,
+  type Appearance,
 } from './theme'
 import type { LedgerMetrics } from './runtime/store'
 import type { Agent } from './domain'
@@ -189,71 +191,67 @@ function WindowCard({
     setSkin(next)
     onSkinChange?.()
   }
-  const mode = (windowMode: WindowMode) => () => pick({ windowMode })
   const pickBrand = (patch: Partial<Skin['brand']>) => pick({ brand: { ...skin.brand, ...patch } })
   return (
     <div testId="settings-window" style={{ ...chrome.card }}>
       <div style={{ fontSize: T.type.sm, color: T.secondary }}>Window</div>
-      <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
-        <Chip
-          testId="settings-window-frosted"
-          tone={skin.windowMode === 'frosted' ? 'action' : 'ghost'}
-          onClick={mode('frosted')}
-        >
-          Frosted
-        </Chip>
-        <Chip
-          testId="settings-window-solid"
-          tone={skin.windowMode === 'solid' ? 'action' : 'ghost'}
-          onClick={mode('solid')}
-        >
-          Solid
-        </Chip>
-      </div>
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Appearance</div>
+      <ToggleGroup<Appearance>
+        testId="settings-appearance"
+        value={skin.appearance}
+        onChange={(appearance) => pick({ appearance })}
+        options={[
+          { id: 'dark', label: 'Dark', testId: 'settings-appearance-dark' },
+          { id: 'light', label: 'Light', testId: 'settings-appearance-light' },
+        ]}
+      />
+      <ToggleGroup<WindowMode>
+        testId="settings-window-mode"
+        value={skin.windowMode}
+        onChange={(windowMode) => pick({ windowMode })}
+        options={[
+          { id: 'frosted', label: 'Frosted', testId: 'settings-window-frosted' },
+          { id: 'solid', label: 'Solid', testId: 'settings-window-solid' },
+        ]}
+      />
       {skin.windowMode === 'frosted' ? (
         <WashSlider value={skin.frostWash} onChange={(frostWash) => pick({ frostWash })} />
       ) : null}
       <div testId="settings-brand" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
         <div style={{ fontSize: T.type.sm, color: T.secondary }}>Brand</div>
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Tint</div>
-        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
-          {BRAND_TINT_SWATCHES.map((swatch) => (
-            <Chip
-              key={swatch.id}
-              testId={`settings-brand-tint-${swatch.id}`}
-              tone={skin.brand.tint === swatch.hex ? 'action' : 'ghost'}
-              onClick={() => pickBrand({ tint: swatch.hex })}
-            >
-              {swatch.id}
-            </Chip>
-          ))}
-        </div>
+        <ToggleGroup
+          testId="settings-brand-tint"
+          value={skin.brand.tint}
+          onChange={(tint) => pickBrand({ tint })}
+          options={BRAND_TINT_SWATCHES.map((swatch) => ({
+            id: swatch.hex,
+            label: swatch.id,
+            testId: `settings-brand-tint-${swatch.id}`,
+          }))}
+        />
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Accent</div>
-        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
-          {BRAND_ACCENT_SWATCHES.map((swatch) => (
-            <Chip
-              key={swatch.id}
-              testId={`settings-brand-accent-${swatch.id}`}
-              tone={skin.brand.accent === swatch.hex ? 'action' : 'ghost'}
-              onClick={() => pickBrand({ accent: swatch.hex })}
-            >
-              {swatch.id}
-            </Chip>
-          ))}
-        </div>
+        <ToggleGroup
+          testId="settings-brand-accent"
+          value={skin.brand.accent}
+          onChange={(accent) => pickBrand({ accent })}
+          options={BRAND_ACCENT_SWATCHES.map((swatch) => ({
+            id: swatch.hex,
+            label: swatch.id,
+            testId: `settings-brand-accent-${swatch.id}`,
+          }))}
+        />
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Radius</div>
-        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
-          {BRAND_RADIUS_PRESETS.map((preset) => (
-            <Chip
-              key={preset.id}
-              testId={`settings-brand-radius-${preset.id}`}
-              tone={skin.brand.radius === preset.radius ? 'action' : 'ghost'}
-              onClick={() => pickBrand({ radius: preset.radius })}
-            >
-              {preset.id}
-            </Chip>
-          ))}
-        </div>
+        <ToggleGroup
+          testId="settings-brand-radius"
+          value={String(skin.brand.radius)}
+          onChange={(radius) => pickBrand({ radius: Number(radius) })}
+          options={BRAND_RADIUS_PRESETS.map((preset) => ({
+            id: String(preset.radius),
+            label: preset.id,
+            testId: `settings-brand-radius-${preset.id}`,
+          }))}
+        />
       </div>
     </div>
   )
@@ -387,9 +385,10 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-routines" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
-          No routines yet. Schedule wakes a mouth with a saved prompt while Staff is open.
-        </div>
+        <EmptyState
+          variant="card"
+          title="No routines yet. Schedule wakes a mouth with a saved prompt while Staff is open."
+        />
       ) : (
         rows.map((row) => (
           <div
@@ -594,9 +593,11 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-skills" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div testId="settings-skills-empty" style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
-          No skills yet. Author a local skill below, or import a SKILL.md URL from the inspector.
-        </div>
+        <EmptyState
+          testId="settings-skills-empty"
+          variant="card"
+          title="No skills yet. Author a local skill below, or import a SKILL.md URL from the inspector."
+        />
       ) : (
         rows.map((row) => {
           const pinned = profileSkillIds.includes(row.id)
@@ -807,9 +808,10 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-rooms" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
-          No rooms yet. Create a named room and seat automata — posts land as notes on each member thread.
-        </div>
+        <EmptyState
+          variant="card"
+          title="No rooms yet. Create a named room and seat automata — posts land as notes on each member thread."
+        />
       ) : (
         rows.map((row) => (
           <div
@@ -979,9 +981,11 @@ function McpCatalogCard() {
         onChange={(event) => setQuery(event.value ?? '')}
       />
       {rows.length === 0 ? (
-        <div testId="settings-mcp-empty" style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
-          Need: no catalog entries match. (Curated list only — never invent plugins.)
-        </div>
+        <EmptyState
+          testId="settings-mcp-empty"
+          variant="card"
+          title="Need: no catalog entries match. (Curated list only — never invent plugins.)"
+        />
       ) : (
         rows.map((row) => (
           <div

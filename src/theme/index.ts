@@ -1,3 +1,17 @@
+export {
+  accentForAppearance,
+  contrastRatio,
+  parseAppearance,
+  relativeLuminance,
+  rolesForAppearance,
+  DEFAULT_APPEARANCE,
+  LIGHT_CANVAS,
+  LIGHT_PAPER_TINT,
+  LIGHT_RAISED,
+  LIGHT_SIDEBAR,
+  LIGHT_TEXT,
+  type Appearance,
+} from './appearance'
 export { toChatTheme, toFieldTheme, CHAT_THEME, FIELD_THEME, type GpuixTextTheme } from './adapters'
 export {
   DEFAULT_BRAND,

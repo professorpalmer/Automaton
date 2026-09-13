@@ -1,3 +1,4 @@
+import { LIGHT_PAPER_TINT } from './appearance'
 import { DEFAULT_TOKENS, type Tokens } from './tokens'
 
 /** Bezel-style Brand knobs. Tint + accent + base radius; radii derive from the base. */
@@ -64,6 +65,9 @@ export const BRAND_TINT_SWATCHES = [
   { id: 'graphite', hex: DEFAULT_BRAND.tint },
   { id: 'ink', hex: DEFAULT_TOKENS.brand.ink },
   { id: 'black', hex: DEFAULT_TOKENS.catalog.black },
+  { id: 'paper', hex: LIGHT_PAPER_TINT },
+  { id: 'linen', hex: '#F4F1EA' },
+  { id: 'mist', hex: '#F7F7F7' },
 ] as const
 
 export const BRAND_ACCENT_SWATCHES = [
