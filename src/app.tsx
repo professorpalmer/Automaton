@@ -67,8 +67,10 @@ import {
   selectAllChord,
 } from './inspector'
 import { DeskStage } from './desk'
+import { JobsPane, JobsStrip } from './jobs-pane'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser, focusHostChrome, hostDeskSeams, readHostHandle } from './runtime/chrome'
+import { ensureLocalDashboard, isDashboardJobId, openDashboardUrl } from './runtime/pm-dashboard'
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
 import { setHumanDriving } from './runtime/driving'
@@ -127,7 +129,7 @@ import { Chip, lastItemAt, modelFamily, Pill, railClock, toneFill } from './ui'
 import { UpdateModal } from './update-modal'
 import { mouthModelFor } from './runtime/plane'
 
-type Pane = 'none' | 'inspector' | 'settings'
+type Pane = 'none' | 'inspector' | 'settings' | 'jobs'
 
 export type FeedApi = {
   selectAll: () => void
@@ -230,6 +232,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
   const [deskControl, setDeskControl] = useState(false)
   const [update, setUpdate] = useState<UpdateOffer | null>(null)
+  const [jobsNote, setJobsNote] = useState('')
   const [updateBusy, setUpdateBusy] = useState(false)
   const [updateNote, setUpdateNote] = useState('')
   const [pendingSend, setPendingSend] = useState<PendingSendView | null>(null)
@@ -283,6 +286,35 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
 
   const toggleInspector = () => {
     setPane((current) => (current === 'inspector' ? 'none' : 'inspector'))
+  }
+
+  const toggleJobs = () => {
+    setPane((current) => (current === 'jobs' ? 'none' : 'jobs'))
+  }
+
+  const popOutDashboard = (jobId?: string | null) => {
+    const located = ensureLocalDashboard(jobId)
+    if (!located.ok) {
+      setJobsNote(located.error ?? 'Need Puppetmaster dashboard. Run doctor.')
+      setPane('jobs')
+      return
+    }
+    const opened = openDashboardUrl(located.embed_url)
+    if (!opened.ok) {
+      setJobsNote(opened.error ?? "Couldn't open the dashboard.")
+      setPane('jobs')
+      return
+    }
+    setJobsNote('')
+  }
+
+  const selectJobsIndex = (job: JobHandle) => {
+    const token = job.pmJobId?.trim() ?? ''
+    if (token && isDashboardJobId(token)) {
+      popOutDashboard(token)
+      return
+    }
+    setPane('jobs')
   }
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -689,7 +721,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         if (quitChord(event)) quitAutomaton()
       }}
     >
-      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} />
+      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} onJobs={toggleJobs} />
       <div
         style={{
           display: 'flex',
@@ -722,7 +754,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
             }
             setRailMenu(null)
             setSession((current) => (runningTests() ? setActive(current, id) : playIntro(setActive(current, id), id)))
-            setPane((current) => (current === 'settings' ? 'none' : current))
+            setPane((current) => (current === 'settings' || current === 'jobs' ? 'none' : current))
           }}
           onCreate={onCreateAgent}
           onMenu={(id, event) => {
@@ -853,6 +885,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                   }}
                 />
               ) : null}
+              <JobsStrip
+                jobs={jobs}
+                agents={session.agents}
+                onOpenPane={toggleJobs}
+                onSelect={selectJobsIndex}
+              />
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
                 pendingPaths={overlayBusy ? [] : (thread?.pendingPaths ?? [])}
@@ -937,6 +975,24 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onSkinChange={() => {
                   applyChromeToTokens(readSkin())
                   setChromeTick((n) => n + 1)
+                }}
+              />
+            ) : null}
+          </SlidePane>
+          <SlidePane testId="jobs-slide" open={pane === 'jobs'} width={T.inspector.width}>
+            {pane === 'jobs' ? (
+              <JobsPane
+                jobs={jobs}
+                agents={session.agents}
+                note={jobsNote}
+                onClose={() => {
+                  setJobsNote('')
+                  setPane('none')
+                }}
+                onOpenBoard={() => popOutDashboard(null)}
+                onOpenJob={(job) => {
+                  const token = job.pmJobId?.trim() ?? ''
+                  popOutDashboard(token && isDashboardJobId(token) ? token : null)
                 }}
               />
             ) : null}
@@ -1469,9 +1525,11 @@ const inspectArmed = { current: false }
 function Titlebar({
   name,
   onInspect,
+  onJobs,
 }: {
   name: string
   onInspect: () => void
+  onJobs: () => void
 }) {
   const inspect = () => {
     onInspect()
@@ -1536,6 +1594,26 @@ function Titlebar({
         }}
       >
         <DeskMark />
+      </div>
+      <div
+        testId="titlebar-jobs"
+        style={{
+          paddingLeft: T.space.sm,
+          paddingRight: T.space.sm,
+          paddingTop: T.space.xs,
+          paddingBottom: T.space.xs,
+          borderRadius: T.radius.sm,
+          fontSize: T.type.xs,
+          color: T.secondary,
+          ...HIT,
+          hover: { backgroundColor: T.raised },
+        }}
+        onClick={(event) => {
+          if (event.isRightClick || event.button === 2) return
+          onJobs()
+        }}
+      >
+        Jobs
       </div>
     </div>
   )
