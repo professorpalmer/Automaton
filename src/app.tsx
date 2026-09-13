@@ -53,6 +53,8 @@ import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from
 import { cloneAgent, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
 import { dropMouthStarts, ensureMouth } from './runtime/mouth'
+import { fireDueRoutines } from './runtime/routines'
+import { connectorConfigured } from './runtime/connectors'
 import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
@@ -101,6 +103,7 @@ import {
   dispatchableJobs,
   finishSend,
   paintSend,
+  enqueueRoutineFire,
   resumeComputer,
   runningComputerWorkers,
   runningJobs,
@@ -356,6 +359,31 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     }
     const start = setTimeout(look, 800)
     const pulse = setInterval(look, 4 * 60 * 60 * 1000)
+    return () => {
+      gone = true
+      clearTimeout(start)
+      clearInterval(pulse)
+    }
+  }, [])
+
+  // Product routines — in-process schedule ticks while Staff is open (MVP).
+  useEffect(() => {
+    if (runningTests()) return
+    let gone = false
+    const tick = () => {
+      if (gone) return
+      void fireDueRoutines({
+        now: new Date(),
+        seams: {
+          hasConnector: (id) => connectorConfigured(id),
+          onFire: ({ agentId, prompt, routineId, payload }) => {
+            setSession((current) => enqueueRoutineFire(current, agentId, prompt, routineId, payload))
+          },
+        },
+      })
+    }
+    const start = setTimeout(tick, 1500)
+    const pulse = setInterval(tick, 45_000)
     return () => {
       gone = true
       clearTimeout(start)

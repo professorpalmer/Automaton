@@ -87,6 +87,7 @@ import {
   type PendingApproval,
   type TurnKickoff,
 } from './runtime/auto-approve'
+import { shouldStayQuiet } from './runtime/routines'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -422,6 +423,7 @@ function stamped(
   attachmentIds?: string[],
   id?: string,
   sisterHop?: { to: AgentId; depth: number },
+  kickoff?: TurnKickoff,
 ): FeedItem {
   return {
     kind: 'msg',
@@ -432,6 +434,7 @@ function stamped(
     attachmentIds: attachmentIds && attachmentIds.length > 0 ? attachmentIds : undefined,
     at: Date.now(),
     sisterHop,
+    kickoff,
   }
 }
 
@@ -958,7 +961,10 @@ export function turnKickoff(session: Session, agentId: AgentId): TurnKickoff {
   if (row.mouth === 'intro') return 'intro'
   const last = row.items.at(-1)
   if (last?.kind === 'relay') return 'peer-hop'
-  if (last?.kind === 'msg' && last.from === 'user') return 'user'
+  if (last?.kind === 'msg' && last.from === 'user') {
+    if (last.kickoff && last.kickoff !== 'user') return last.kickoff
+    return 'user'
+  }
   if (hasUserMessage(session, agentId)) return 'user'
   return 'unknown'
 }
@@ -976,6 +982,43 @@ export function offerUnattendedApproval(
 ): Session {
   if (!session.threads[agentId]) return session
   return emitWidgetItem(session, agentId, unattendedApprovalWidget(source, prompt), { purpose: 'ask' })
+}
+
+/**
+ * Wake a mouth from a product routine. Paints the saved prompt as a user turn with
+ * kickoff=routine — does not speak "routine triggered". Mouths stay Send.
+ */
+export function enqueueRoutineFire(
+  session: Session,
+  agentId: AgentId,
+  prompt: string,
+  routineId: string,
+  payload?: unknown,
+): Session {
+  if (!session.threads[agentId]) return session
+  const text = prompt.trim()
+  if (!text && payload == null) return session
+  const body =
+    payload == null
+      ? text
+      : text
+        ? `${text}\n\n${typeof payload === 'string' ? payload : JSON.stringify(payload)}`
+        : typeof payload === 'string'
+          ? payload
+          : JSON.stringify(payload)
+  const focused = session.activeAgentId
+  const item = stamped(
+    'user',
+    agentId,
+    body,
+    undefined,
+    `routine:${routineId}:${nextId('item')}`,
+    undefined,
+    'routine',
+  )
+  let next = append(session, agentId, item, focused)
+  // Direct answer wake — skip deliverTo job booking / "routine triggered" ack.
+  return wakeMouth(next, agentId, 'answer')
 }
 
 export function introTurnId(agentId: AgentId): string {
@@ -1072,6 +1115,16 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
     }
     let next = offerSisterHop(session, hop)
     next = wakeMouth(next, agentId, 'idle')
+    return finishBatch(next, agentId)
+  }
+  const lastUser = [...row.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+  const quietRoutine =
+    lastUser?.kind === 'msg' &&
+    lastUser.kickoff === 'routine' &&
+    shouldStayQuiet(lastUser.text) &&
+    !spoken.trim()
+  if (quietRoutine) {
+    let next = wakeMouth(session, agentId, 'idle')
     return finishBatch(next, agentId)
   }
   const from = inboundCoordinatorId(session, agentId)

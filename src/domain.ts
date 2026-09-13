@@ -169,6 +169,8 @@ export type FeedItem =
       attachmentIds?: string[]
       at?: number
       sisterHop?: { to: AgentId; depth: number }
+      /** Unattended wakes (routine/webhook) — turnKickoff reads this. */
+      kickoff?: 'user' | 'webhook' | 'routine' | 'peer-hop' | 'intro' | 'unknown'
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }

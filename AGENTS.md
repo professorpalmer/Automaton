@@ -65,6 +65,7 @@ Invariants:
 - Staff does not pixel-click. The operator takes control of the screen.
 - Provider maps are verified-or-none; no capture, no map.
 - Live world-state books analyze; claims are recall-only.
+- Product routines (`docs/routines.md`) wake mouths on schedule/event with kickoff `routine`; they are not Grok Bot agent crons. MVP schedule ticks need the Staff app open.
 
 ## Safety
 
