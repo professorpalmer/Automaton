@@ -34,6 +34,15 @@ import type { Agent } from './domain'
 import { visibleAgents } from './domain'
 import { CARD_STYLE, CLIP, Chip, FIELD_LINE_STYLE, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
 import { CHAT_THEME, FIELD_THEME, T } from './tokens'
+import {
+  createRoutine,
+  deleteRoutine,
+  listRoutines,
+  pauseRoutine,
+  resumeRoutine,
+  scheduleOrTriggerSummary,
+  type Routine,
+} from './runtime/routines'
 
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
@@ -240,6 +249,150 @@ function SeatCard({
         </ComboboxContent>
       </Combobox>
       {note ? <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{note}</div> : null}
+    </div>
+  )
+}
+
+
+function formatLastRun(iso: string | null | undefined): string {
+  if (!iso) return 'never'
+  const at = new Date(iso)
+  if (!Number.isFinite(at.getTime())) return 'never'
+  return at.toLocaleString('en-US', { timeZone: 'America/Chicago', hour12: true })
+}
+
+function RoutinesCard({ agents }: { agents: Agent[] }) {
+  const defaultAgent = agents.find((row) => row.id === 'staff')?.id ?? agents[0]?.id ?? 'staff'
+  const [rows, setRows] = useState<Routine[]>(() => listRoutines())
+  const [name, setName] = useState('')
+  const [prompt, setPrompt] = useState('')
+  const [schedule, setSchedule] = useState('@daily')
+  const [note, setNote] = useState('')
+  const refresh = () => setRows(listRoutines())
+  const create = () => {
+    const n = name.trim()
+    const p = prompt.trim()
+    const s = schedule.trim()
+    if (!n || !p || !s) {
+      setNote('Name, prompt, and schedule required.')
+      return
+    }
+    try {
+      createRoutine({ agentId: defaultAgent, name: n, prompt: p, schedule: s })
+      setName('')
+      setPrompt('')
+      setSchedule('@daily')
+      setNote('')
+      refresh()
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Could not create routine.')
+    }
+  }
+  return (
+    <div testId="settings-routines" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      {rows.length === 0 ? (
+        <div style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+          No routines yet. Schedule wakes a mouth with a saved prompt while Staff is open.
+        </div>
+      ) : (
+        rows.map((row) => (
+          <div
+            key={`${row.agentId}:${row.id}`}
+            testId={`settings-routine-${row.id}`}
+            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+              <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
+              <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                {row.enabled ? 'on' : 'paused'}
+                {row.trigger ? ` · ${row.trigger.type}` : ' · schedule'}
+              </div>
+            </div>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+              {scheduleOrTriggerSummary(row)} · last {formatLastRun(row.lastRunAt)}
+            </div>
+            {row.lastError ? (
+              <div style={{ fontSize: T.type.xs, color: T.secondary }}>{row.lastError}</div>
+            ) : null}
+            <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+              {row.enabled ? (
+                <Chip
+                  testId={`settings-routine-${row.id}-pause`}
+                  tone="ghost"
+                  onClick={() => {
+                    pauseRoutine(row.agentId, row.id)
+                    refresh()
+                  }}
+                >
+                  Pause
+                </Chip>
+              ) : (
+                <Chip
+                  testId={`settings-routine-${row.id}-resume`}
+                  tone="ghost"
+                  onClick={() => {
+                    resumeRoutine(row.agentId, row.id)
+                    refresh()
+                  }}
+                >
+                  Resume
+                </Chip>
+              )}
+              <Chip
+                testId={`settings-routine-${row.id}-delete`}
+                tone="ghost"
+                onClick={() => {
+                  deleteRoutine(row.agentId, row.id)
+                  refresh()
+                }}
+              >
+                Delete
+              </Chip>
+            </div>
+          </div>
+        ))
+      )}
+      <div testId="settings-routines-create" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+          Cron, @daily (weekdays 9:00 CT), or @hourly. Event triggers (GitHub / Slack / webhook) are documented in docs — prefer those over inventing PR/CI polls.
+        </div>
+        <textarea
+          testId="settings-routine-name"
+          value={name}
+          placeholder="Name"
+          minRows={1}
+          maxRows={1}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setName(event.value ?? '')}
+        />
+        <textarea
+          testId="settings-routine-prompt"
+          value={prompt}
+          placeholder="Prompt / intent"
+          minRows={2}
+          maxRows={4}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setPrompt(event.value ?? '')}
+        />
+        <textarea
+          testId="settings-routine-schedule"
+          value={schedule}
+          placeholder="@daily or cron"
+          minRows={1}
+          maxRows={1}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setSchedule(event.value ?? '')}
+        />
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, alignItems: 'center' }}>
+          <Chip testId="settings-routine-create" tone="action" onClick={create}>
+            Add routine
+          </Chip>
+          {note ? <div style={{ fontSize: T.type.xs, color: T.secondary }}>{note}</div> : null}
+        </div>
+      </div>
     </div>
   )
 }
@@ -458,6 +611,9 @@ export function Settings({
               <div style={{ fontSize: T.type.sm, color: T.secondary }}>{connectorStatusLabel(openRouter)}</div>
             </div>
           </div>
+        </Section>
+        <Section title="Routines">
+          <RoutinesCard agents={seats} />
         </Section>
         <Section title="Computer">
           <div testId="settings-computer" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.text }}>

@@ -1397,6 +1397,7 @@ native('staff shell (GPUI native)', () => {
     expect(settings).toContain('One local Docker')
     expect(settings).not.toContain('Theme')
     expect(settings).toContain('Connectors')
+    expect(settings).toContain('Routines')
     expect(settings).toContain('Stays out of the chat')
     expect(settings).toContain('Chief of Staff')
     expect(settings).not.toContain('Kernel')

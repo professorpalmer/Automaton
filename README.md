@@ -10,6 +10,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
 - [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys
+- [Routines](docs/routines.md) — schedule/event mouth wakes (product; app must be open for MVP ticks)
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run
