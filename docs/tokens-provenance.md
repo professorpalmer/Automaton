@@ -4,7 +4,7 @@ Measured Automaton chrome numbers. Style is a TypeScript lift of Bezel
 mechanics (environment-read tokens, Brand knobs, named MotionSpec) — not a
 bezel crate. Dark-first; no designed light mode in this pass.
 
-Package / Info.plist remain **0.4.0**.
+Package / Info.plist are **0.5.0** (Wave 2 P0 band cut).
 
 Sources: this checkout’s `src/theme/tokens.ts` (formerly `src/tokens.ts`),
 `src/main.tsx` window options, and Bezel’s own measured notes where the
