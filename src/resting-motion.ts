@@ -134,6 +134,8 @@ function allChannelsRest(channels: Record<string, SpringChannel>, targets: Recor
 /**
  * Spring-drive numeric style channels. Publishes integer pixels only.
  * Unsubscribes the 8ms tick when every channel is at rest so GPUI can sleep.
+ * Mark life (melt / lids / plate) must pass `immediate: true` when the sister
+ * is frozen so idle rails never lease this clock (see docs/marks.md).
  */
 export function useRestingStyle(
   targets: Record<string, number>,

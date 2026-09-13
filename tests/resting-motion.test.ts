@@ -12,7 +12,7 @@ import {
   stepSpringChannel,
   subscribeSpringTick,
 } from '../src/resting-motion'
-import { blobClockShouldHold } from '../src/blob'
+import { blobClockShouldHold, markLifeSpringImmediate } from '../src/blob'
 import { T } from '../src/tokens'
 
 const SOFT = { type: 'spring' as const, stiffness: 28, damping: 8, mass: 1.25 }
@@ -23,6 +23,12 @@ describe('resting spring clock', () => {
     expect(SPRING_FRAME_MS).toBe(8)
     expect(blobClockShouldHold(springClockBusy())).toBe(false)
     expect(blobClockShouldHold(true)).toBe(true)
+  })
+
+  test('mark life springs park immediately when the sister is frozen', () => {
+    expect(markLifeSpringImmediate(false)).toBe(true)
+    expect(markLifeSpringImmediate(true)).toBe(false)
+    expect(SETTLE_HARD_MS).toBe(420)
   })
 
   test('skips no-op and sub-pixel publishes', () => {

@@ -30,7 +30,8 @@ export function idleParkInventory(): IdlePark[] {
     {
       id: 'sister-freeze',
       path: 'src/blob.tsx + src/app.tsx (alive = selected || working)',
-      summary: 'Idle sisters drop wander/blink clocks; selected Staff may glance',
+      summary:
+        'Idle sisters drop wander/blink/melt clocks; selected Staff may glance + soft restMelt; springs immediate when !alive',
     },
     {
       id: 'stream-commit',
