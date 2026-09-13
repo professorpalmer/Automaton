@@ -485,9 +485,10 @@ export function scheduleOrTriggerSummary(routine: Routine, tz = DEFAULT_TZ): str
 }
 
 /** Kickoff sources that appear as first-class routine rows / UI labels. */
-export const ROUTINE_KICKOFF_LABELS: Record<'routine' | 'webhook' | 'peer-hop', string> = {
+export const ROUTINE_KICKOFF_LABELS: Record<'routine' | 'webhook' | 'channel' | 'peer-hop', string> = {
   routine: 'routine',
   webhook: 'webhook',
+  channel: 'channel',
   'peer-hop': 'peer hop',
 }
 

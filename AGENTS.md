@@ -66,6 +66,7 @@ Invariants:
 - Provider maps are verified-or-none; no capture, no map.
 - Live world-state books analyze; claims are recall-only.
 - Product routines (`docs/routines.md`) wake mouths on schedule/event with kickoff `routine`; they are not Grok Bot agent crons. MVP schedule ticks need the Staff app open.
+- External channels (`docs/channels.md`) — Slack MVP: connect in Settings (never paste bot tokens in chat); inbound via `~/.automaton/inbox/slack` or future socket; `kickoff=channel` wakes Staff; outbound fail-closed as the user. Channel traffic is mouth/staff; Jobs still own coding.
 
 ## Safety
 

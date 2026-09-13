@@ -23,6 +23,7 @@ import {
   thinkingDots,
   oldestWaitingUserGoal,
   type Agent,
+  type ChannelReplyRouting,
   type FeedItem,
   type GoalRun,
   type JobHandle,
@@ -55,6 +56,13 @@ import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys
 import { dropMouthStarts, ensureMouth } from './runtime/mouth'
 import { fireDueRoutines } from './runtime/routines'
 import { connectorConfigured } from './runtime/connectors'
+import {
+  drainSlackInbox,
+  hasSlackGrant,
+  ingestSlackInbound,
+  sendSlackMessage,
+  slackStatus,
+} from './runtime/channels'
 import { kitForAgent, markIntroPlayedAt, readProfile, writeProfile, type AgentProfile } from './runtime/profile'
 import { openStaffStore, type StaffStore } from './runtime/store'
 import { claimTaskKey } from './runtime/working-set'
@@ -104,6 +112,8 @@ import {
   finishSend,
   paintSend,
   enqueueRoutineFire,
+  enqueueChannelInbound,
+  takePendingChannelReply,
   resumeComputer,
   runningComputerWorkers,
   runningJobs,
@@ -366,7 +376,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     }
   }, [])
 
-  // Product routines — in-process schedule ticks while Staff is open (MVP).
+  // Product routines + Slack inbox drain — in-process ticks while Staff is open (MVP).
   useEffect(() => {
     if (runningTests()) return
     let gone = false
@@ -375,12 +385,30 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
       void fireDueRoutines({
         now: new Date(),
         seams: {
-          hasConnector: (id) => connectorConfigured(id),
+          hasConnector: (id) => (id === 'slack' ? hasSlackGrant() : connectorConfigured(id)),
           onFire: ({ agentId, prompt, routineId, payload }) => {
             setSession((current) => enqueueRoutineFire(current, agentId, prompt, routineId, payload))
           },
         },
       })
+      // Lightweight file-drop inbound: ~/.automaton/inbox/slack/*.json
+      const status = slackStatus()
+      if (status.connected && hasSlackGrant()) {
+        drainSlackInbox(undefined, {
+          onEvent: (event) => {
+            const inbound = ingestSlackInbound({
+              channelId: event.channelId,
+              user: event.user,
+              text: event.text,
+              isDm: event.isDm === true,
+              threadTs: event.threadTs,
+              roomName: event.roomName,
+              expectReply: event.expectReply,
+            })
+            setSession((current) => enqueueChannelInbound(current, inbound, 'staff'))
+          },
+        })
+      }
     }
     const start = setTimeout(tick, 1500)
     const pulse = setInterval(tick, 45_000)
@@ -410,13 +438,45 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     if (runningTests()) return
     void ensureMouth(session, store, {
       onComplete: (agentId, spoken) => {
+        let routing: ChannelReplyRouting | undefined
         setSession((current) => {
           if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
-          const next = completeMouth(current, agentId, spoken)
+          const taken = takePendingChannelReply(current, agentId)
+          routing = taken.routing
+          const next = completeMouth(taken.session, agentId, spoken)
           bindNewUserAttachments(store, current, next)
           persistIntroIfUserSpoke(next)
           return next
         })
+        if (routing?.expectReply && routing.platform === 'slack' && spoken.trim()) {
+          const dest = routing.slackChannel
+          const threadTs = routing.threadTs
+          const line = spoken.trim()
+          void sendSlackMessage({ channelId: dest, text: line, threadTs }).then((result) => {
+            if (result.ok) return
+            setSession((current) => {
+              if (!current.threads[agentId]) return current
+              const focused = current.activeAgentId
+              const note = {
+                kind: 'msg' as const,
+                id: `channel-need-${Date.now()}`,
+                from: 'agent' as const,
+                agentId,
+                text: `Need: Slack send failed — ${result.error}. Not delivered.`,
+                at: Date.now(),
+              }
+              const row = current.threads[agentId]
+              return {
+                ...current,
+                threads: {
+                  ...current.threads,
+                  [agentId]: { ...row, items: [...row.items, note] },
+                },
+                activeAgentId: focused,
+              }
+            })
+          })
+        }
       },
       onFail: (agentId, spoken) => {
         setSession((current) => {

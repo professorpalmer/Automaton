@@ -57,6 +57,7 @@ import {
   hopDepthFromItems,
   sisterHopRefusal,
   type SisterHop,
+  type ChannelReplyRouting,
   renameAck,
   renameAgents,
   returnBeat,
@@ -88,6 +89,11 @@ import {
   type TurnKickoff,
 } from './runtime/auto-approve'
 import { shouldStayQuiet } from './runtime/routines'
+import {
+  channelReplyFromInbound,
+  formatChannelInboundText,
+  type ChannelInbound,
+} from './runtime/channels'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -977,7 +983,7 @@ export function setAutoApprove(session: Session, enabled: boolean): Session {
 export function offerUnattendedApproval(
   session: Session,
   agentId: AgentId,
-  source: 'webhook' | 'routine' | 'peer-hop',
+  source: 'webhook' | 'routine' | 'channel' | 'peer-hop',
   prompt?: string,
 ): Session {
   if (!session.threads[agentId]) return session
@@ -1019,6 +1025,53 @@ export function enqueueRoutineFire(
   let next = append(session, agentId, item, focused)
   // Direct answer wake — skip deliverTo job booking / "routine triggered" ack.
   return wakeMouth(next, agentId, 'answer')
+}
+
+/**
+ * Wake a mouth from an external channel (Slack MVP). kickoff=`channel` —
+ * unattended like webhook. Stores reply routing so outbound can post back
+ * only when expectReply. Does not dump private staff chatter to Slack.
+ */
+export function enqueueChannelInbound(
+  session: Session,
+  inbound: ChannelInbound,
+  agentId: AgentId = 'staff',
+): Session {
+  if (!session.threads[agentId]) return session
+  const body = formatChannelInboundText(inbound).trim()
+  if (!body) return session
+  if (!inbound.slackChannel.trim()) return session
+  const focused = session.activeAgentId
+  const item = stamped(
+    'user',
+    agentId,
+    body,
+    undefined,
+    `channel:${inbound.platform}:${nextId('item')}`,
+    undefined,
+    'channel',
+  )
+  let next = append(session, agentId, item, focused)
+  next = setThread(next, agentId, {
+    pendingChannelReply: channelReplyFromInbound(inbound),
+  })
+  return wakeMouth(next, agentId, 'answer')
+}
+
+export function clearPendingChannelReply(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  if (!thread(session, agentId).pendingChannelReply) return session
+  return setThread(session, agentId, { pendingChannelReply: undefined })
+}
+
+export function takePendingChannelReply(
+  session: Session,
+  agentId: AgentId,
+): { session: Session; routing: ChannelReplyRouting | undefined } {
+  if (!session.threads[agentId]) return { session, routing: undefined }
+  const routing = thread(session, agentId).pendingChannelReply
+  if (!routing) return { session, routing: undefined }
+  return { session: clearPendingChannelReply(session, agentId), routing }
 }
 
 export function introTurnId(agentId: AgentId): string {

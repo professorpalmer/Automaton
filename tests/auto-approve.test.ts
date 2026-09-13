@@ -39,7 +39,7 @@ function openHost(session: Session) {
 
 describe('unattended is not Auto', () => {
   test('unattended cannot Auto', () => {
-    for (const kickoff of ['webhook', 'routine', 'peer-hop', 'intro', 'unknown'] as const) {
+    for (const kickoff of ['webhook', 'routine', 'channel', 'peer-hop', 'intro', 'unknown'] as const) {
       expect(isUnattended(kickoff)).toBe(true)
       const outcome = decideApproval({
         action: 'host_read README.md',
