@@ -66,7 +66,8 @@ Invariants:
 - The rail has no unread badges. Staff is the head seat; sisters are workers.
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
-- Provider maps are verified-or-none; no capture, no map.
+- Provider reasoning maps (`provider-maps.ts`) are verified-or-none; no capture, no map.
+- Provider catalog (`docs/providers.md`, `src/runtime/providers.ts`) — mouths vs Jobs/PM vs cloud; one sanctioned auth each (OpenRouter keys / Codex auth for OpenAI-class Jobs / `CURSOR_API_KEY` for cloud); unknown provider = miss; no fake selectable that no-ops; package 0.3.0.
 - Live world-state books analyze; claims are recall-only.
 - Product routines (`docs/routines.md`) wake mouths on schedule/event with kickoff `routine`; they are not Grok Bot agent crons. MVP schedule ticks need the Staff app open.
 - External channels (`docs/channels.md`) — Slack MVP: connect in Settings (never paste bot tokens in chat); inbound via `~/.automaton/inbox/slack` or future socket; `kickoff=channel` wakes Staff; outbound fail-closed as the user. Channel traffic is mouth/staff; Jobs still own coding.

@@ -9,7 +9,7 @@ import {
   useGpuix,
 } from '@gpuix/react'
 import { LedgerList, PaneHeader, Section } from './inspector'
-import { listOpenRouterModels, probeConnector, type CatalogModel } from './runtime/connector-client'
+import { probeConnector, type CatalogModel } from './runtime/connector-client'
 import {
   connectorStatusLabel,
   defaultOpenRouter,
@@ -20,6 +20,13 @@ import {
   type Connector,
 } from './runtime/connectors'
 import { listOpenRouterKeys } from './runtime/keys'
+import {
+  listModelsForProvider,
+  listProviders,
+  providerPickerLabel,
+  providerStatusLabel,
+  PROVIDERS_DOCS,
+} from './runtime/providers'
 import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
@@ -1087,8 +1094,9 @@ export function Settings({
   }, [seats.map((agent) => agent.id).join('|')])
   const loadCatalog = () => {
     if (!shouldLiveProbe()) return
-    void listOpenRouterModels()
+    void listModelsForProvider(OPENROUTER_ID)
       .then((rows) => {
+        if (!rows) return
         let next = rows
         for (const pin of Object.values(pins)) next = withPin(next, pin)
         setCatalog(withPin(next, seatModel()))
@@ -1103,8 +1111,8 @@ export function Settings({
     void probeConnector(OPENROUTER_ID).then((row) => {
       if (!cancelled) setOpenRouter(row)
     })
-    void listOpenRouterModels().then((rows) => {
-      if (cancelled) return
+    void listModelsForProvider(OPENROUTER_ID).then((rows) => {
+      if (cancelled || !rows) return
       let next = rows
       for (const agent of seats) next = withPin(next, pinForSeat(agent.id))
       setCatalog(withPin(next, seatModel()))
@@ -1197,7 +1205,7 @@ export function Settings({
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm, flexGrow: 1, minWidth: 0 }}>
             <div style={{ fontSize: T.type.xl, lineHeight: T.line.xl, color: T.text }}>model picker</div>
             <div style={{ fontSize: T.type.sm, lineHeight: T.line.md, color: T.tertiary }}>
-              one model per agent — pick, test, save. keys stay on your machine.
+              OpenRouter · mouth (live) — one model per agent. keys stay on your machine.
             </div>
           </div>
           <PaneHeader title="" onClose={onClose} closeId="settings-close" />
@@ -1262,8 +1270,42 @@ export function Settings({
               <div style={{ fontSize: T.type.sm, color: T.secondary }}>{connectorStatusLabel(openRouter)}</div>
             </div>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginTop: T.space.sm }}>
-              OpenRouter is the mouth HTTP provider. MCP plugins live in the MCP catalog below.
+              OpenRouter is the live mouth HTTP provider (and default Jobs provider). See Providers
+              below — Jobs/PM and cloud rows are honesty labels, not fake selects. MCP plugins live
+              in the MCP catalog.
             </div>
+          </div>
+        </Section>
+        <Section title="Providers">
+          <div testId="settings-providers" style={CARD_STYLE}>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
+              Product map ({PROVIDERS_DOCS}). Unknown provider = miss. Codex Jobs use Codex auth
+              only — never OPENAI_API_KEY.
+            </div>
+            {listProviders().map((row) => (
+              <div
+                key={row.id}
+                testId={`settings-provider-${row.id}`}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  gap: T.space.md,
+                  marginTop: T.space.xs,
+                }}
+              >
+                <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs, minWidth: 0 }}>
+                  <div style={{ fontSize: T.type.sm, color: T.text }}>{providerPickerLabel(row)}</div>
+                  <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{row.auth.storeHint}</div>
+                </div>
+                <div
+                  testId={`settings-provider-${row.id}-status`}
+                  style={{ fontSize: T.type.sm, color: T.secondary, flexShrink: 0 }}
+                >
+                  {providerStatusLabel(row)}
+                </div>
+              </div>
+            ))}
           </div>
         </Section>
         <Section title="MCP catalog">

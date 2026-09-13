@@ -19,6 +19,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Skills](docs/skills.md) — Settings library, local authoring, offer-once pin widget
 - [Idle CPU](docs/idle-cpu.md) — park inventory + Mac idle proof checklist
 - [Cloud agent / Origin](docs/cloud-origin.md) — optional public Cloud Agents API + Origin forge (parked when unavailable)
+- [Providers](docs/providers.md) — mouth vs Jobs/PM vs cloud map; sanctioned auth per provider
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run
