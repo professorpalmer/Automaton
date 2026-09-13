@@ -80,6 +80,8 @@ import {
   uninstallMcp,
   type CatalogEntryStatus,
 } from './runtime/mcp-catalog'
+import { CloudOriginPanel } from './cloud-origin-panel'
+import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud-origin'
 
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
@@ -1333,6 +1335,42 @@ export function Settings({
           <div testId="settings-computer" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.text }}>
             {computerLabel(boxStatus())}
           </div>
+        </Section>
+
+        <Section title="Cloud / Origin">
+          <CloudOriginPanel
+            mode="settings"
+            bindRepository={
+              (() => {
+                for (const agent of seats) {
+                  const profile = readProfile(agent.id)
+                  const url = profile?.homeRepo ? githubUrlFromHomeRepo(profile.homeRepo) : null
+                  if (url) return url
+                }
+                return undefined
+              })()
+            }
+            bindLabel={
+              (() => {
+                for (const agent of seats) {
+                  const profile = readProfile(agent.id)
+                  if (profile?.homeRepo) return profile.homeRepo
+                }
+                return undefined
+              })()
+            }
+            originRemote={
+              (() => {
+                for (const agent of seats) {
+                  const path = readProfile(agent.id)?.homePath?.trim()
+                  if (!path) continue
+                  const origin = readExplicitOriginRemote(path)
+                  if (origin) return origin
+                }
+                return undefined
+              })()
+            }
+          />
         </Section>
 
         <Section title="About">

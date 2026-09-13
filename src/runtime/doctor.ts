@@ -1,5 +1,10 @@
 import { spawnSync } from 'node:child_process'
 import { boxStatus, computerLabel } from './box'
+import {
+  doctorCloudOrigin,
+  probeCloudPresence,
+  type CloudPresence,
+} from './cloud-origin'
 import { doctorLiveInstance, type LiveInstanceDoctor, type LiveInstanceSeams } from './live-instance'
 import { doctorIdleCpu, type IdleCpuDoctor } from './idle-health'
 import { readInstalledVersion, readPlistVersion, versionsAligned } from './version'
@@ -23,6 +28,12 @@ export type DoctorReport = {
   /** Idle CPU checklist / optional live sample — WARN/skip only; never flips ok alone. */
   idleCpu: 'ok' | 'warn' | 'skip'
   idleCpuNote?: string
+  /**
+   * Optional cloud-agent / Origin — WARN/parked only; never flips ok alone.
+   * Live probe when AUTOMATON_CLOUD_PROBE=1; otherwise parked checklist note.
+   */
+  cloud: 'ok' | 'warn' | 'parked'
+  cloudNote?: string
   error?: string
 }
 
@@ -63,6 +74,22 @@ function versionDoctor(cwd?: string): Pick<DoctorReport, 'version' | 'versionNot
   }
 }
 
+function shouldLiveCloudProbe(): boolean {
+  return (
+    process.env.AUTOMATON_CLOUD_PROBE === '1' &&
+    process.env.CI !== 'true' &&
+    process.env.AUTOMATON_SKIP_CLOUD_PROBE !== '1'
+  )
+}
+
+export type DoctorExtras = {
+  liveSeams?: LiveInstanceSeams
+  cwd?: string
+  idle?: IdleCpuDoctor
+  /** Injected cloud presence (tests). When omitted, checklist note or live probe. */
+  cloud?: CloudPresence
+}
+
 function withExtras(
   base: Omit<
     DoctorReport,
@@ -75,14 +102,15 @@ function withExtras(
     | 'plistVersion'
     | 'idleCpu'
     | 'idleCpuNote'
+    | 'cloud'
+    | 'cloudNote'
   >,
-  liveSeams?: LiveInstanceSeams,
-  cwd?: string,
-  idle?: IdleCpuDoctor,
+  extras: DoctorExtras = {},
 ): DoctorReport {
-  const live: LiveInstanceDoctor = doctorLiveInstance(liveSeams ?? {})
-  const ver = versionDoctor(cwd)
-  const idleCpu = idle ?? doctorIdleCpu()
+  const live: LiveInstanceDoctor = doctorLiveInstance(extras.liveSeams ?? {})
+  const ver = versionDoctor(extras.cwd)
+  const idleCpu = extras.idle ?? doctorIdleCpu()
+  const cloudDoctor = doctorCloudOrigin(extras.cloud)
   return {
     ...base,
     liveInstance: live.status,
@@ -91,10 +119,25 @@ function withExtras(
     ...ver,
     idleCpu: idleCpu.status,
     idleCpuNote: idleCpu.note,
+    cloud: cloudDoctor.status,
+    cloudNote: cloudDoctor.note,
   }
 }
 
 export function doctorPuppetmaster(liveSeams?: LiveInstanceSeams, cwd?: string): DoctorReport {
+  return doctorPuppetmasterWith({ liveSeams, cwd })
+}
+
+/** Async doctor when a live cloud probe is requested (AUTOMATON_CLOUD_PROBE=1). */
+export async function doctorPuppetmasterAsync(extras: DoctorExtras = {}): Promise<DoctorReport> {
+  let cloud = extras.cloud
+  if (!cloud && shouldLiveCloudProbe()) {
+    cloud = await probeCloudPresence()
+  }
+  return doctorPuppetmasterWith({ ...extras, cloud })
+}
+
+export function doctorPuppetmasterWith(extras: DoctorExtras = {}): DoctorReport {
   const attempts: Array<[string, string[]]> = [
     ['puppetmaster', ['doctor']],
     ['python', ['-m', 'puppetmaster', 'doctor']],
@@ -115,8 +158,7 @@ export function doctorPuppetmaster(liveSeams?: LiveInstanceSeams, cwd?: string):
           chromePath,
           computer: computerLabel(computer),
         },
-        liveSeams,
-        cwd,
+        extras,
       )
     }
   }
@@ -131,7 +173,6 @@ export function doctorPuppetmaster(liveSeams?: LiveInstanceSeams, cwd?: string):
       computer: computerLabel(computer),
       error: last.slice(0, 800),
     },
-    liveSeams,
-    cwd,
+    extras,
   )
 }

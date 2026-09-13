@@ -18,6 +18,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Version / releases](docs/version.md) — installed chrome, GitHub Latest notify (no auto-upgrade), doctor plist WARN
 - [Skills](docs/skills.md) — Settings library, local authoring, offer-once pin widget
 - [Idle CPU](docs/idle-cpu.md) — park inventory + Mac idle proof checklist
+- [Cloud agent / Origin](docs/cloud-origin.md) — optional public Cloud Agents API + Origin forge (parked when unavailable)
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run
@@ -64,6 +65,7 @@ Layout:
 - Durable SQLite: `src/runtime/store.ts`
 - Mouth: `src/runtime/mouth.ts`
 - Jobs: `src/runtime/pm.ts`, `src/runtime/jobs.ts`
+- Optional cloud / Origin: `src/runtime/cloud-origin.ts`, `src/cloud-origin-panel.tsx`
 - Tokens: `src/tokens.ts`
 - Mark: `brand/mark.svg` (control-bar marionette)
 - Box image: `box/Dockerfile`
