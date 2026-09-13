@@ -2,7 +2,7 @@
 
 Installed Automaton shows a real version — not an unversioned tip forever.
 
-Current band is package (`0.5.0`). Version stays until the next band cut. This surface does
+Current band is package (`0.6.0`). Version stays until the next band cut. This surface does
 **not** bump the band and does **not** publish to PyPI.
 
 ## Sources of truth

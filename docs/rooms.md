@@ -1,7 +1,7 @@
 # Multi-agent rooms (SendToAgent-class)
 
 Local in-app rooms and 1:1 peer messaging between automata.
-Version follows package (`0.5.0`).
+Version follows package (`0.6.0`).
 
 This is **not** Slack / external channels (`docs/channels.md`). Rooms live under
 `~/.automaton/rooms.json` and only wake mouths inside Automaton.
