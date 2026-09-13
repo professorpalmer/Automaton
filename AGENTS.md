@@ -10,8 +10,10 @@ chat.
 
 The native face is React authored and rendered through Zed GPUI using
 `@gpuix/react`, pinned to `file:vendor/gpuix-react-0.6.1.tgz` (spring lease
-parking). Automaton consumes that package; it does not publish the `@gpuix`
-npm scope. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
+parking). Stay vendored until remorses merges gpuix#34 **and** publishes a
+park-bearing `@gpuix/react` — see `docs/gpuix.md`. Automaton consumes that
+package; it does not publish the `@gpuix` npm scope. Never ask for NPM_TOKEN
+to publish `@gpuix`. Domain logic in `src/domain.ts` and `src/session.ts` is pure.
 Jobs live in `src/runtime/pm.ts` and `src/runtime/jobs.ts`. Implement workers
 use a sandbox cwd and never this checkout. Visual tokens live in
 `src/tokens.ts`.
@@ -75,6 +77,7 @@ Invariants:
 - Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.3.0.
 - Idle CPU (`docs/idle-cpu.md`) — park inventory + Mac idle proof; doctor notes checklist (optional `AUTOMATON_IDLE_CPU=1` live sample); package 0.3.0.
 - Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; sister-freeze parks idle rail; honesty on stubby life; package 0.3.0.
+- `@gpuix/react` vendor (`docs/gpuix.md`) — stay on vendored 0.6.1 park until remorses/gpuix#34 merges **and** a park-bearing npm publish; never switch to registry 0.7.0 (no motion-spring); never ask NPM_TOKEN for `@gpuix`; package 0.3.0.
 
 ## Safety
 
