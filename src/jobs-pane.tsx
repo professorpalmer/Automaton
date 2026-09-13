@@ -2,10 +2,12 @@ import React from 'react'
 import type { Agent, JobHandle } from './domain'
 import { jobKindLabel } from './domain'
 import { CloudOriginPanel } from './cloud-origin-panel'
+import { foldJobTraces, stepRow } from './chrome/step-row'
+import { groupBoxStyle } from './chrome/surface'
 import { isDashboardJobId } from './runtime/pm-dashboard'
 import { PaneHeader, Section } from './inspector'
 import { Chip } from './ui'
-import { T } from './tokens'
+import { useTokens } from './theme'
 
 function jobIndexLabel(job: JobHandle, agents: Agent[]): string {
   const owner = agents.find((agent) => agent.id === job.ownerAgentId)
@@ -26,7 +28,9 @@ export function JobsStrip({
   onOpenPane: () => void
   onSelect: (job: JobHandle) => void
 }) {
+  const T = useTokens()
   if (jobs.length === 0) return null
+  const folded = foldJobTraces(jobs)
   return (
     <div
       testId="jobs-strip"
@@ -51,6 +55,11 @@ export function JobsStrip({
           Open
         </Chip>
       </div>
+      {folded.length > 0 ? (
+        <div testId="jobs-strip-fold" style={{ fontSize: T.type.xs, color: T.ghost }}>
+          {folded.map((row) => (row.count > 1 ? `${row.verb} ×${row.count}` : row.verb)).join(' · ')}
+        </div>
+      ) : null}
       {jobs.map((job) => (
         <div
           key={job.id}
@@ -107,6 +116,7 @@ export function JobsPane({
   onOpenBoard: () => void
   onOpenJob: (job: JobHandle) => void
 }) {
+  const T = useTokens()
   return (
     <div
       testId="jobs-pane"
@@ -153,6 +163,7 @@ export function JobsPane({
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
             {jobs.map((job) => {
               const durable = Boolean(job.pmJobId && isDashboardJobId(job.pmJobId))
+              const steps = foldJobTraces([job])
               return (
                 <div
                   key={job.id}
@@ -161,12 +172,20 @@ export function JobsPane({
                     display: 'flex',
                     flexDirection: 'column',
                     gap: T.space.xs,
+                    ...groupBoxStyle(T, 'group'),
                     padding: T.space.sm,
-                    borderRadius: T.radius.md,
-                    backgroundColor: T.raised,
                   }}
                 >
                   <div style={{ fontSize: T.type.sm, color: T.text }}>{jobIndexLabel(job, agents)}</div>
+                  {steps.map((row, index) => (
+                    <div
+                      key={`${row.verb}-${index}`}
+                      testId={`jobs-step-${job.id}-${index}`}
+                      style={{ fontSize: T.type.xs, color: T.tertiary }}
+                    >
+                      {stepRow(row.verb, row.detail)}
+                    </div>
+                  ))}
                   <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs }}>
                     <Chip
                       testId={`jobs-pop-${job.id}`}

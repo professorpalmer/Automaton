@@ -1,4 +1,6 @@
 import React from 'react'
+import { groupBoxStyle } from './chrome/surface'
+import { toFieldTheme } from './theme/adapters'
 import { useTokens } from './theme'
 import { DEFAULT_TOKENS, type Tokens } from './theme/tokens'
 
@@ -12,10 +14,7 @@ export function fieldStyle(tokens: Tokens = DEFAULT_TOKENS) {
     width: '100%' as const,
     fontSize: tokens.type.sm,
     color: tokens.text,
-    backgroundColor: tokens.composer,
-    borderWidth: tokens.stroke.hairline,
-    borderColor: tokens.border,
-    borderRadius: tokens.radius.md,
+    ...groupBoxStyle(tokens, 'field'),
     paddingLeft: tokens.space.md,
     paddingRight: tokens.space.md,
     paddingTop: tokens.space.sm,
@@ -45,11 +44,8 @@ export const FIELD_LINE_STYLE = fieldLineStyle()
 
 export function cardStyle(tokens: Tokens = DEFAULT_TOKENS) {
   return {
+    ...groupBoxStyle(tokens, 'card'),
     padding: tokens.space.lg,
-    borderRadius: tokens.radius.lg,
-    backgroundColor: tokens.raised,
-    borderWidth: tokens.stroke.hairline,
-    borderColor: tokens.border,
     display: 'flex' as const,
     flexDirection: 'column' as const,
     gap: tokens.space.md,
@@ -60,14 +56,25 @@ export const CARD_STYLE = cardStyle()
 
 export function menuStyle(tokens: Tokens = DEFAULT_TOKENS) {
   return {
+    ...groupBoxStyle(tokens, 'menu'),
     maxHeight: tokens.layout.menuMax,
     overflowY: 'scroll' as const,
-    backgroundColor: tokens.menu,
-    borderWidth: tokens.stroke.hairline,
-    borderColor: tokens.border,
-    borderRadius: tokens.radius.md,
     paddingTop: tokens.space.xs,
     paddingBottom: tokens.space.xs,
+  }
+}
+
+/** Live Brand-aware chrome. Settings / inspector should not pin CARD_STYLE. */
+export function useChrome() {
+  const tokens = useTokens()
+  return {
+    tokens,
+    card: cardStyle(tokens),
+    menu: menuStyle(tokens),
+    field: fieldStyle(tokens),
+    fieldLine: fieldLineStyle(tokens),
+    fieldTheme: toFieldTheme(tokens),
+    itemPad: itemPad(tokens),
   }
 }
 

@@ -29,6 +29,7 @@ Honesty: do not claim a forever-0% process. Paced GPUIX baseline is ~**1.5%** (v
 | `stream-commit` | `src/runtime/feed-pin.ts` | 120ms STREAM_COMMIT coalesce + `FEED_TAIL` pin |
 | `row-fingerprint` | `src/runtime/feed-row.ts` | Fingerprints avoid wholesale rebuilds on last-line growth |
 | `frame-pace` | vendored `@gpuix/react` `startFrameLoop` | 8ms paced AppKit pump (PulseClock lease = spring `onFrame` listeners empty → GPUI can park) |
+| `activity-takeover` | `src/chrome/activity.ts` | Thinking/tool zone paints only while streaming or user-held; no interval / MotionDiv |
 
 Code mirror: `idleParkInventory()` in `src/runtime/idle-health.ts`.
 

@@ -20,7 +20,6 @@ import {
   shouldShowFeedClock,
   feedClock,
   feedThinking,
-  thinkingDots,
   oldestWaitingUserGoal,
   type Agent,
   type ChannelReplyRouting,
@@ -146,13 +145,13 @@ import {
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { Composer } from './chrome/composer'
+import { ActivityZone, Composer, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition } from './motion'
 import { TokenProvider, toChatTheme, useTokenEnv, useTokens } from './theme'
 import { T } from './tokens'
-import { MARK_PATH, PRODUCT } from './brand'
+import { PRODUCT } from './brand'
 import { Chip, lastItemAt, modelFamily, Pill, railClock } from './ui'
 import { UpdateModal } from './update-modal'
 import { mouthModelFor } from './runtime/plane'
@@ -164,11 +163,6 @@ export type FeedApi = {
   copy: () => boolean
 }
 type RailMenuAt = { id: string; x: number; y: number }
-
-const TRAFFIC =
-  typeof process !== 'undefined' && process.platform === 'darwin'
-    ? T.layout.trafficLightClearance
-    : T.space.sm
 
 const HIT = {
   cursor: 'pointer' as const,
@@ -964,6 +958,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               items={feedItems}
               mouth={thread?.mouth ?? 'idle'}
               agents={session.agents}
+              jobs={jobs}
               dockPad={0}
               storeAnswer={(userItemId) => isStoreAnswer(store, userItemId)}
               attachmentsFor={(ids) =>
@@ -1046,6 +1041,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               />
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
+                agents={session.agents}
                 pendingPaths={overlayBusy ? [] : (thread?.pendingPaths ?? [])}
                 locked={!thread || overlayBusy || composerEnterBusy(thread.mouth, thread.computerBusy === true)}
                 queueing={Boolean(thread && shouldQueueSteer(thread.mouth, thread.computerBusy === true))}
@@ -1695,177 +1691,6 @@ function Rail({
     </div>
   )
 }
-function DeskMark() {
-  const T = useTokens()
-  const size = T.size.badge
-  const screenH = 9
-  const neckW = T.space.xxs
-  const neckH = T.space.xs
-  const baseW = 10
-  const baseH = T.space.xxs
-  return (
-    <div
-      testId="titlebar-computer-icon"
-      style={{
-        width: size,
-        height: size,
-        position: 'relative',
-        pointerEvents: 'none',
-      }}
-    >
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          top: 0,
-          width: size,
-          height: screenH,
-          backgroundColor: T.secondary,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: (size - neckW) / 2,
-          top: screenH,
-          width: neckW,
-          height: neckH,
-          backgroundColor: T.secondary,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: (size - baseW) / 2,
-          top: screenH + neckH,
-          width: baseW,
-          height: baseH,
-          backgroundColor: T.secondary,
-        }}
-      />
-    </div>
-  )
-}
-
-const inspectArmed = { current: false }
-
-function Titlebar({
-  name,
-  version = '',
-  onInspect,
-  onJobs,
-}: {
-  name: string
-  version?: string
-  onInspect: () => void
-  onJobs: () => void
-}) {
-  const T = useTokens()
-  const inspect = () => {
-    onInspect()
-  }
-  return (
-    <div
-      testId="titlebar"
-      style={{
-        height: T.layout.titlebarHeight,
-        display: 'flex',
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingLeft: TRAFFIC,
-        paddingRight: T.space.lg,
-        gap: T.space.sm,
-        borderBottomWidth: T.stroke.hairline,
-        borderBottomColor: T.border,
-        backgroundColor: T.clear,
-        flexShrink: 0,
-      }}
-    >
-      <img
-        src={MARK_PATH}
-        alt=""
-        objectFit="contain"
-        style={{ width: T.brand.mark, height: T.brand.mark, pointerEvents: 'none' }}
-      />
-      <div testId="titlebar-brand" style={{ fontSize: T.type.md, color: T.text }}>
-        {PRODUCT}
-      </div>
-      <div testId="titlebar-name" style={{ fontSize: T.type.sm, color: T.secondary }}>
-        {name}
-      </div>
-      {version ? (
-        <div
-          testId="titlebar-version"
-          style={{
-            fontSize: T.type.xs,
-            color: T.tertiary,
-            paddingLeft: T.space.sm,
-            paddingRight: T.space.sm,
-            paddingTop: 2,
-            paddingBottom: 2,
-            borderRadius: T.radius.sm,
-            borderWidth: T.stroke.hairline,
-            borderColor: T.border,
-          }}
-        >
-          {version}
-        </div>
-      ) : null}
-      <div style={{ flexGrow: 1 }} />
-      <div
-        testId="titlebar-computer"
-        style={{
-          paddingLeft: T.space.xs,
-          paddingRight: T.space.xs,
-          paddingTop: T.space.xs,
-          paddingBottom: T.space.xs,
-          borderRadius: T.radius.sm,
-          ...HIT,
-          hover: { backgroundColor: T.raised },
-        }}
-        onMouseDown={
-          runningTests()
-            ? undefined
-            : (event) => {
-                if (event.isRightClick || event.button === 2) return
-                inspectArmed.current = true
-                inspect()
-              }
-        }
-        onClick={(event) => {
-          if (event.isRightClick || event.button === 2) return
-          if (inspectArmed.current) {
-            inspectArmed.current = false
-            return
-          }
-          inspect()
-        }}
-      >
-        <DeskMark />
-      </div>
-      <div
-        testId="titlebar-jobs"
-        style={{
-          paddingLeft: T.space.sm,
-          paddingRight: T.space.sm,
-          paddingTop: T.space.xs,
-          paddingBottom: T.space.xs,
-          borderRadius: T.radius.sm,
-          fontSize: T.type.xs,
-          color: T.secondary,
-          ...HIT,
-          hover: { backgroundColor: T.raised },
-        }}
-        onClick={(event) => {
-          if (event.isRightClick || event.button === 2) return
-          onJobs()
-        }}
-      >
-        Jobs
-      </div>
-    </div>
-  )
-}
 
 function SpokenLine({ text }: { text: string }) {
   const T = useTokens()
@@ -2022,30 +1847,6 @@ function FeedGutterEnd({ pad = 0 }: { pad?: number }) {
         backgroundColor: T.clear,
       }}
     />
-  )
-}
-
-function ThinkingRow() {
-  const T = useTokens()
-  return (
-    <div
-      testId="thinking"
-      style={{
-        display: 'flex',
-        flexDirection: 'row',
-        justifyContent: 'flex-start',
-        width: '100%',
-        minWidth: T.type.md * 3,
-        paddingTop: T.feed.turn,
-        paddingLeft: T.feed.gutter,
-        paddingRight: T.feed.gutter,
-        fontSize: T.type.md,
-        lineHeight: T.line.lg,
-        color: T.ghost,
-      }}
-    >
-      {thinkingDots(3)}
-    </div>
   )
 }
 
@@ -2327,6 +2128,7 @@ export const Feed = forwardRef<FeedApi, {
   attachmentsFor?: (ids: string[]) => { id: string; path: string; kind: 'image' | 'file' }[]
   dockPad?: number
   mouth?: MouthState
+  jobs?: JobHandle[]
   onAnswerWidget?: (id: string, answer: WidgetAnswer) => void
   onDismissWidget?: (id: string) => void
   onSaveSecret?: (id: string, value: string) => void
@@ -2339,6 +2141,7 @@ export const Feed = forwardRef<FeedApi, {
     attachmentsFor,
     dockPad = 0,
     mouth = 'idle',
+    jobs = [],
     onAnswerWidget,
     onDismissWidget,
     onSaveSecret,
@@ -2348,8 +2151,11 @@ export const Feed = forwardRef<FeedApi, {
 ) {
   const listRef = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
-  const thinking = feedThinking(mouth, items)
+  const streaming = feedThinking(mouth, items)
+  const [activityHeld, setActivityHeld] = useState<boolean | null>(null)
+  const thinking = activityVisible({ streaming, held: activityHeld })
   const pinIdentity = feedPinIdentity(items, dockPad, thinking)
+  const traces = useMemo(() => jobs.flatMap(tracesFromJob), [jobs])
   const growKey = feedGrowKey(items)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -2588,7 +2394,9 @@ export const Feed = forwardRef<FeedApi, {
           />
         )
       })}
-      {thinking ? <ThinkingRow /> : null}
+      {thinking ? (
+        <ActivityZone streaming={streaming} held={activityHeld} onHeld={setActivityHeld} traces={traces} />
+      ) : null}
     </virtual-list>
   )
 })
@@ -2615,11 +2423,8 @@ function GoalBlockerPanel({
         marginLeft: T.space.xl,
         marginRight: T.space.xl,
         marginBottom: T.space.sm,
+        ...groupBoxStyle(T, 'card'),
         padding: T.space.lg,
-        borderRadius: T.radius.lg,
-        backgroundColor: T.raised,
-        borderWidth: T.stroke.hairline,
-        borderColor: T.border,
         display: 'flex',
         flexDirection: 'column',
         gap: T.space.md,

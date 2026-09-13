@@ -13,8 +13,7 @@ import { DEAL_HUES, DEAL_SHAPES } from './runtime/deal'
 import { automatonHome } from './runtime/keys'
 import { importSkillFromUrl, listSkills, setSkillEnabled } from './runtime/skills'
 import type { Claim } from './runtime/working-set'
-import { CHAT_THEME, FIELD_THEME, T } from './tokens'
-import { Chip, FIELD_STYLE, MENU_STYLE, menuItemStyle } from './ui'
+import { Chip, menuItemStyle, useChrome } from './ui'
 
 const SECRET = /sk-[a-zA-Z0-9_-]{8,}|Bearer\s+\S+|OPENROUTER_API_KEY\s*=\s*\S+/gi
 const SPOKEN_JOB = /\bjob_[A-Za-z0-9]+\b/g
@@ -137,6 +136,7 @@ export function cutChord(event: {
 }
 
 export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId: string }) {
+  const { tokens: T } = useChrome()
   return (
     <div testId={testId} style={{ display: 'flex', flexDirection: 'column', gap: T.space.xs }}>
       {ledgerRows(metrics).map((row) => (
@@ -156,14 +156,6 @@ export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId
     </div>
   )
 }
-
-const MARK_FIELD = {
-  ...FIELD_STYLE,
-  width: undefined,
-  minWidth: 0,
-  maxWidth: '100%',
-}
-const MARK_MENU = MENU_STYLE
 
 function uniqueChoices(current: string, catalog: readonly string[]): string[] {
   const out: string[] = []
@@ -197,6 +189,14 @@ export function Inspector({
   controlling?: boolean
   onTakeControl?: () => void
 }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
+  const markField = {
+    ...chrome.field,
+    width: undefined,
+    minWidth: 0,
+    maxWidth: '100%',
+  }
   const recent = lastMouthClaims(claims, agent.id)
   const kit = profile?.kit ?? 'blank'
   const preview = desktopPreview(agent.id)
@@ -252,7 +252,7 @@ export function Inspector({
             placeholder="Name"
             minRows={1}
             maxRows={2}
-            theme={FIELD_THEME}
+            theme={chrome.fieldTheme}
             style={{
               minWidth: 0,
               maxWidth: '100%',
@@ -396,18 +396,18 @@ export function Inspector({
               <ComboboxInput
                 testId="inspector-mark-shape"
                 placeholder=""
-                theme={FIELD_THEME}
-                style={{ ...MARK_FIELD, color: T.text }}
+                theme={chrome.fieldTheme}
+                style={{ ...markField, color: T.text }}
               />
               </div>
-              <ComboboxContent testId="inspector-mark-shape-menu" style={MARK_MENU}>
+              <ComboboxContent testId="inspector-mark-shape-menu" style={chrome.menu}>
                 <ComboboxList>
                   {(item) => (
                     <ComboboxItem
                       key={item}
                       value={item}
                       testId={`inspector-mark-shape-${item}`}
-                      style={(state) => menuItemStyle(state)}
+                      style={(state) => menuItemStyle(state, T)}
                     >
                       {item}
                     </ComboboxItem>
@@ -433,18 +433,18 @@ export function Inspector({
               <ComboboxInput
                 testId="inspector-mark-color"
                 placeholder=""
-                theme={FIELD_THEME}
-                style={{ ...MARK_FIELD, color: T.text }}
+                theme={chrome.fieldTheme}
+                style={{ ...markField, color: T.text }}
               />
               </div>
-              <ComboboxContent testId="inspector-mark-color-menu" style={MARK_MENU}>
+              <ComboboxContent testId="inspector-mark-color-menu" style={chrome.menu}>
                 <ComboboxList>
                   {(item) => (
                     <ComboboxItem
                       key={item}
                       value={item}
                       testId={`inspector-mark-color-${item}`}
-                      style={(state) => menuItemStyle(state)}
+                      style={(state) => menuItemStyle(state, T)}
                     >
                       {item}
                     </ComboboxItem>
@@ -470,8 +470,8 @@ export function Inspector({
                     paddingTop: T.space.xxs,
                     paddingBottom: T.space.xxs,
                     borderRadius: T.radius.sm,
-                    backgroundColor: selected ? T.inverse : '#FFFFFF33',
-                    color: selected ? T.onInverse : '#F2F2F2',
+                    backgroundColor: selected ? T.inverse : T.overlayStrong,
+                    color: selected ? T.onInverse : T.text,
                     fontSize: T.type.xs,
                     ...HIT,
                     hover: { backgroundColor: selected ? T.inverse : T.selected },
@@ -512,7 +512,7 @@ export function Inspector({
             placeholder=""
             minRows={2}
             maxRows={6}
-            theme={FIELD_THEME}
+            theme={chrome.fieldTheme}
             style={{
               minWidth: 0,
               maxWidth: '100%',
@@ -543,7 +543,7 @@ export function Inspector({
               placeholder="SKILL.md URL"
               minRows={1}
               maxRows={2}
-              theme={FIELD_THEME}
+              theme={chrome.fieldTheme}
               style={{
                 width: '100%',
                 fontSize: T.type.sm,
@@ -674,6 +674,7 @@ export function PaneHeader({
   onClose: () => void
   closeId: string
 }) {
+  const { tokens: T } = useChrome()
   return (
     <div
       style={{
@@ -693,6 +694,7 @@ export function PaneHeader({
 }
 
 export function Section({ title, children }: { title: string; children: React.ReactNode }) {
+  const { tokens: T } = useChrome()
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       <div style={{ fontSize: T.type.xs, color: T.secondary }}>{title}</div>

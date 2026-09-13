@@ -1,9 +1,18 @@
-import React from 'react'
+import React, { useMemo, useState } from 'react'
+import type { Agent } from '../domain'
 import { copyChord, cutChord, pasteChord, quitChord } from '../inspector'
 import { copyTextToClipboard } from '../runtime/clipboard'
 import { quitAutomaton } from '../runtime/quit'
+import { listRooms } from '../runtime/rooms'
+import { listSkills } from '../runtime/skills'
 import { toFieldTheme, useTokens } from '../theme'
-import { Chip, toneFill } from '../ui'
+import { Chip, menuItemStyle, menuStyle, toneFill } from '../ui'
+import { applyMention, collectMentions, filterMentions, mentionQueryAt } from './mention'
+import { groupBoxStyle } from './surface'
+
+/** gpuix 0.6.1 textarea grow — min 1, cap 8. No caret API. */
+export const COMPOSER_MIN_ROWS = 1
+export const COMPOSER_MAX_ROWS = 8
 
 const HIT = {
   cursor: 'pointer' as const,
@@ -18,6 +27,7 @@ export function Composer({
   queueing = false,
   queued = 0,
   stopping = false,
+  agents = [],
   onChange,
   onAttach,
   onPaste,
@@ -33,6 +43,7 @@ export function Composer({
   queueing?: boolean
   queued?: number
   stopping?: boolean
+  agents?: Agent[]
   onChange: (value: string) => void
   onAttach: () => void
   onPaste: () => void
@@ -43,9 +54,28 @@ export function Composer({
   onStop?: () => void
 }) {
   const T = useTokens()
+  const [highlight, setHighlight] = useState(0)
+  const hash = mentionQueryAt(value)
+  const hashOpen = hash != null
+  const catalog = useMemo(() => {
+    if (!hashOpen) return []
+    return collectMentions({
+      agents,
+      skills: listSkills(),
+      rooms: listRooms(),
+    })
+  }, [hashOpen, agents])
+  const picks = hash ? filterMentions(catalog, hash.query) : []
+  const pickerOpen = picks.length > 0
   const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
   const steer =
     queued > 0 ? `${queued} queued` : queueing ? 'Send queues until this turn ends' : null
+  const pick = (index: number) => {
+    const item = picks[index]
+    if (!item) return
+    onChange(applyMention(value, item))
+    setHighlight(0)
+  }
   return (
     <div
       style={{
@@ -65,15 +95,40 @@ export function Composer({
           flexDirection: 'column',
           width: '100%',
           maxWidth: T.layout.contentMax,
-          backgroundColor: T.composer,
-          borderRadius: T.radius.surface,
-          borderWidth: T.stroke.hairline,
-          borderColor: T.border,
+          ...groupBoxStyle(T, 'composer'),
           paddingTop: T.space.md,
           paddingBottom: T.space.md,
           position: 'relative',
         }}
       >
+        {pickerOpen ? (
+          <div
+            testId="mention-picker"
+            style={{
+              ...menuStyle(T),
+              position: 'absolute',
+              left: T.space.md,
+              right: T.space.md,
+              bottom: '100%',
+              marginBottom: T.space.xs,
+              zIndex: 4,
+            }}
+          >
+            {picks.map((item, index) => (
+              <div
+                key={`${item.kind}-${item.id}`}
+                testId={`mention-item-${item.kind}-${item.id}`}
+                style={{
+                  ...menuItemStyle({ highlighted: index === highlight }, T),
+                  ...HIT,
+                }}
+                onClick={() => pick(index)}
+              >
+                {`${item.label} · ${item.kind}`}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {pendingPaths.length > 0 ? (
           <div
             testId="pending-files"
@@ -145,8 +200,8 @@ export function Composer({
           testId="composer"
           value={value}
           placeholder=""
-          minRows={1}
-          maxRows={4}
+          minRows={COMPOSER_MIN_ROWS}
+          maxRows={COMPOSER_MAX_ROWS}
           autoFocus
           theme={toFieldTheme(T)}
           style={{
@@ -162,13 +217,37 @@ export function Composer({
             paddingRight: T.space.md,
             paddingBottom: T.space.xs,
           }}
-          onChange={(event) => onChange(event.value ?? '')}
+          onChange={(event) => {
+            onChange(event.value ?? '')
+            setHighlight(0)
+          }}
           onFocus={onFocus}
           onBlur={onBlur}
           onSubmit={() => {
+            if (pickerOpen) {
+              pick(highlight)
+              return
+            }
             if (ready) onSend()
           }}
           onKeyDown={(event) => {
+            if (pickerOpen && (event.key === 'ArrowDown' || event.key === 'Down')) {
+              setHighlight((n) => (n + 1) % picks.length)
+              return
+            }
+            if (pickerOpen && (event.key === 'ArrowUp' || event.key === 'Up')) {
+              setHighlight((n) => (n - 1 + picks.length) % picks.length)
+              return
+            }
+            if (pickerOpen && event.key === 'Tab') {
+              pick(highlight)
+              return
+            }
+            if (pickerOpen && (event.key === 'Escape' || event.key === 'Esc')) {
+              onChange(`${value} `)
+              setHighlight(0)
+              return
+            }
             if (pasteChord(event)) onPaste()
             if (copyChord(event) && !value) return
             if (cutChord(event) && value) {

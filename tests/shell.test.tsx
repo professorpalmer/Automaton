@@ -68,10 +68,12 @@ describe('onSend scheduling', () => {
     expect(src).toContain('sameFeedRowFingerprint')
     expect(src).not.toMatch(/last\.text\.length/)
     expect(src).toContain('React.memo(function FeedMsgRow')
-    const think = src.slice(src.indexOf('function ThinkingRow()'), src.indexOf('type FeedIo'))
-    expect(think).toContain('thinkingDots(3)')
-    expect(think).not.toContain('setInterval')
-    expect(think).not.toContain('useState')
+    expect(src).toContain('ActivityZone')
+    expect(src).not.toContain('function ThinkingRow(')
+    const zone = readFileSync(join(import.meta.dir, '../src/chrome/activity-zone.tsx'), 'utf8')
+    expect(zone).toContain('thinkingDots(3)')
+    expect(zone).not.toContain('setInterval')
+    expect(zone).not.toContain('setTimeout')
   })
 })
 
@@ -90,8 +92,8 @@ describe('app chords', () => {
   })
 
   test('titlebar inspects only from the computer button', () => {
-    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
-    const title = src.split('function Titlebar(')[1]?.split('function SpokenLine(')[0] ?? ''
+    const src = readFileSync(join(import.meta.dir, '../src/chrome/titlebar.tsx'), 'utf8')
+    const title = src.split('export function Titlebar(')[1] ?? ''
     const beforeButton = title.split('testId="titlebar-computer"')[0] ?? ''
     const button = title.split('testId="titlebar-computer"')[1] ?? ''
     expect(title).toContain('testId="titlebar-computer"')
@@ -613,8 +615,11 @@ describe('sister blob presentation', () => {
     expect(app).toMatch(/alive=\{alive\}/)
     expect(app).toMatch(/working=\{working\}/)
     expect(app).toMatch(/selected \|\| working/)
-    expect(app).toMatch(/thinkingDots\(3\)/)
+    expect(app).toMatch(/ActivityZone/)
     expect(app).not.toMatch(/setStep\(\(n\) => n \+ 1\), T\.feed\.thinkMs/)
+    const zone = readFileSync(join(import.meta.dir, '../src/chrome/activity-zone.tsx'), 'utf8')
+    expect(zone).toMatch(/thinkingDots\(3\)/)
+    expect(zone).not.toMatch(/setStep\(\(n\) => n \+ 1\)/)
   })
 
   test('a job handle is not an input, so it cannot think a mouth', () => {

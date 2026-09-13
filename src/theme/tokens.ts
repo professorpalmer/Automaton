@@ -2,6 +2,7 @@
 
 export type Tokens = {
   appearance: 'dark'
+  windowMode: 'frosted' | 'solid'
   canvas: string
   sidebar: string
   raised: string
@@ -170,6 +171,7 @@ export type Tokens = {
 /** Graphite dark snapshot. Skin/Brand replace this object; they never mutate it. */
 export const DEFAULT_TOKENS: Tokens = {
   appearance: 'dark',
+  windowMode: 'frosted',
   canvas: '#10101014',
   sidebar: '#FFFFFF0A',
   raised: '#FFFFFF0D',

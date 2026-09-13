@@ -37,13 +37,11 @@ import {
   BRAND_TINT_SWATCHES,
   tokensFromSkin,
   useTokenEnv,
-  useTokens,
 } from './theme'
 import type { LedgerMetrics } from './runtime/store'
 import type { Agent } from './domain'
 import { visibleAgents } from './domain'
-import { CARD_STYLE, CLIP, Chip, FIELD_LINE_STYLE, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
-import { FIELD_THEME, T } from './tokens'
+import { CLIP, Chip, menuItemStyle, modelFamily, useChrome } from './ui'
 import { MaskedSecretField } from './cards'
 import {
   createRoutine,
@@ -120,7 +118,7 @@ function WashSlider({
   value: number
   onChange: (next: number) => void
 }) {
-  const T = useTokens()
+  const { tokens: T } = useChrome()
   const bar = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
   const drag = useRef(false)
@@ -181,7 +179,8 @@ function WindowCard({
 }: {
   onSkinChange?: () => void
 }) {
-  const T = useTokens()
+  const chrome = useChrome()
+  const T = chrome.tokens
   const { replace } = useTokenEnv()
   const [skin, setSkin] = useState<Skin>(() => readSkin())
   const pick = (patch: Partial<Skin>) => {
@@ -193,7 +192,7 @@ function WindowCard({
   const mode = (windowMode: WindowMode) => () => pick({ windowMode })
   const pickBrand = (patch: Partial<Skin['brand']>) => pick({ brand: { ...skin.brand, ...patch } })
   return (
-    <div testId="settings-window" style={{ ...CARD_STYLE }}>
+    <div testId="settings-window" style={{ ...chrome.card }}>
       <div style={{ fontSize: T.type.sm, color: T.secondary }}>Window</div>
       <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
         <Chip
@@ -281,8 +280,10 @@ function SeatCard({
   pickModel: (seatId: string, value: string) => void
   testSeat: (seatId: string) => void
 }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
   return (
-    <div testId={`settings-seat-${agent.id}`} style={{ ...CARD_STYLE }}>
+    <div testId={`settings-seat-${agent.id}`} style={{ ...chrome.card }}>
       <div
         style={{
           display: 'flex',
@@ -316,12 +317,12 @@ function SeatCard({
         <ComboboxInput
           testId={index === 0 ? 'settings-model-input' : `settings-seat-${agent.id}-model`}
           placeholder="Search models"
-          theme={FIELD_THEME}
-          style={FIELD_LINE_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.fieldLine}
         />
         <ComboboxContent
           testId={index === 0 ? 'settings-model-menu' : `settings-seat-${agent.id}-menu`}
-          style={MENU_STYLE}
+          style={chrome.menu}
         >
           <ComboboxList>
             {(item) => {
@@ -331,14 +332,14 @@ function SeatCard({
                   key={item}
                   value={item}
                   testId={index === 0 ? `settings-model-item-${item}` : `settings-seat-${agent.id}-item-${item}`}
-                  style={(state) => menuItemStyle(state)}
+                  style={(state) => menuItemStyle(state, T)}
                 >
                   {row?.name && row.name !== item ? `${row.name} · ${item}` : item}
                 </ComboboxItem>
               )
             }}
           </ComboboxList>
-          <ComboboxEmpty style={{ ...ITEM_PAD, color: T.tertiary }}>No matching model</ComboboxEmpty>
+          <ComboboxEmpty style={{ ...chrome.itemPad, color: T.tertiary }}>No matching model</ComboboxEmpty>
         </ComboboxContent>
       </Combobox>
       {note ? <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{note}</div> : null}
@@ -355,6 +356,8 @@ function formatLastRun(iso: string | null | undefined): string {
 }
 
 function RoutinesCard({ agents }: { agents: Agent[] }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const defaultAgent = agents.find((row) => row.id === 'staff')?.id ?? agents[0]?.id ?? 'staff'
   const [rows, setRows] = useState<Routine[]>(() => listRoutines())
   const [name, setName] = useState('')
@@ -384,7 +387,7 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-routines" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+        <div style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
           No routines yet. Schedule wakes a mouth with a saved prompt while Staff is open.
         </div>
       ) : (
@@ -392,7 +395,7 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
           <div
             key={`${row.agentId}:${row.id}`}
             testId={`settings-routine-${row.id}`}
-            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
           >
             <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
               <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
@@ -445,7 +448,7 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
           </div>
         ))
       )}
-      <div testId="settings-routines-create" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      <div testId="settings-routines-create" style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
           Cron, @daily (weekdays 9:00 CT), or @hourly. Event triggers (GitHub / Slack / webhook) are documented in docs — prefer those over inventing PR/CI polls.
         </div>
@@ -455,8 +458,8 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
           placeholder="Name"
           minRows={1}
           maxRows={1}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setName(event.value ?? '')}
         />
         <textarea
@@ -465,8 +468,8 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
           placeholder="Prompt / intent"
           minRows={2}
           maxRows={4}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setPrompt(event.value ?? '')}
         />
         <textarea
@@ -475,8 +478,8 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
           placeholder="@daily or cron"
           minRows={1}
           maxRows={1}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setSchedule(event.value ?? '')}
         />
         <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, alignItems: 'center' }}>
@@ -493,6 +496,8 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
 
 
 function SkillsCard({ agents }: { agents: Agent[] }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const pinAgentId = agents.find((row) => row.id === 'staff')?.id ?? agents[0]?.id ?? 'staff'
   const [rows, setRows] = useState<SkillMeta[]>(() => listSkills())
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -589,7 +594,7 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-skills" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div testId="settings-skills-empty" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+        <div testId="settings-skills-empty" style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
           No skills yet. Author a local skill below, or import a SKILL.md URL from the inspector.
         </div>
       ) : (
@@ -600,7 +605,7 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
             <div
               key={row.id}
               testId={`settings-skill-${row.id}`}
-              style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+              style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
             >
               <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
                 <div style={{ fontSize: T.type.sm, color: T.text }}>
@@ -654,7 +659,7 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
       {selected ? (
         <div
           testId="settings-skills-detail"
-          style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+          style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
         >
           <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
             {selected.origin === 'imported'
@@ -667,8 +672,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
             placeholder="Name"
             minRows={1}
             maxRows={1}
-            theme={FIELD_THEME}
-            style={FIELD_STYLE}
+            theme={chrome.fieldTheme}
+            style={chrome.field}
             onChange={(event) => {
               if (selected.origin === 'local') setEditName(event.value ?? '')
             }}
@@ -679,8 +684,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
             placeholder="use this when …"
             minRows={1}
             maxRows={2}
-            theme={FIELD_THEME}
-            style={FIELD_STYLE}
+            theme={chrome.fieldTheme}
+            style={chrome.field}
             onChange={(event) => {
               if (selected.origin === 'local') setEditDescription(event.value ?? '')
             }}
@@ -691,8 +696,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
             placeholder="Markdown body"
             minRows={4}
             maxRows={12}
-            theme={FIELD_THEME}
-            style={FIELD_STYLE}
+            theme={chrome.fieldTheme}
+            style={chrome.field}
             onChange={(event) => {
               if (selected.origin === 'local') setEditBody(event.value ?? '')
             }}
@@ -706,7 +711,7 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
       ) : null}
       <div
         testId="settings-skills-create"
-        style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+        style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
       >
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
           Local skills only. Description is the use-when line (required). Pin attaches by id — never a filesystem path.
@@ -718,8 +723,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
           placeholder="Name"
           minRows={1}
           maxRows={1}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setName(event.value ?? '')}
         />
         <textarea
@@ -728,8 +733,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
           placeholder="use this when …"
           minRows={1}
           maxRows={2}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setDescription(event.value ?? '')}
         />
         <textarea
@@ -738,8 +743,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
           placeholder="Markdown body"
           minRows={3}
           maxRows={8}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setBody(event.value ?? '')}
         />
         <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, alignItems: 'center' }}>
@@ -759,6 +764,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
 
 
 function RoomsCard({ agents }: { agents: Agent[] }) {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const seats = visibleAgents(agents)
   const [rows, setRows] = useState<Room[]>(() => listRooms(undefined, { includeArchived: true }))
   const [name, setName] = useState('')
@@ -800,7 +807,7 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
   return (
     <div testId="settings-rooms" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       {rows.length === 0 ? (
-        <div style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+        <div style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
           No rooms yet. Create a named room and seat automata — posts land as notes on each member thread.
         </div>
       ) : (
@@ -808,7 +815,7 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
           <div
             key={row.id}
             testId={`settings-room-${row.id}`}
-            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
           >
             <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
               <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
@@ -865,7 +872,7 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
           </div>
         ))
       )}
-      <div testId="settings-rooms-create" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      <div testId="settings-rooms-create" style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
           Local multi-agent rooms (not Slack). Each member keeps their own thread; posts fan as agent notes.
         </div>
@@ -875,8 +882,8 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
           placeholder="Room name"
           minRows={1}
           maxRows={1}
-          theme={FIELD_THEME}
-          style={FIELD_STYLE}
+          theme={chrome.fieldTheme}
+          style={chrome.field}
           onChange={(event) => setName(event.value ?? '')}
         />
         <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
@@ -904,6 +911,8 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
 
 
 function McpCatalogCard() {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const [query, setQuery] = useState('')
   const [note, setNote] = useState('')
   const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
@@ -965,12 +974,12 @@ function McpCatalogCard() {
         placeholder="Search catalog"
         minRows={1}
         maxRows={1}
-        theme={FIELD_THEME}
-        style={FIELD_STYLE}
+        theme={chrome.fieldTheme}
+        style={chrome.field}
         onChange={(event) => setQuery(event.value ?? '')}
       />
       {rows.length === 0 ? (
-        <div testId="settings-mcp-empty" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+        <div testId="settings-mcp-empty" style={{ ...chrome.card, fontSize: T.type.sm, color: T.secondary }}>
           Need: no catalog entries match. (Curated list only — never invent plugins.)
         </div>
       ) : (
@@ -978,7 +987,7 @@ function McpCatalogCard() {
           <div
             key={row.id}
             testId={`settings-mcp-${row.id}`}
-            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
           >
             <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
               <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
@@ -1015,8 +1024,8 @@ function McpCatalogCard() {
                       testId={`settings-mcp-${row.id}-secret`}
                       value={secretDraft[row.id] ?? ''}
                       placeholder="Enter key — stays out of chat"
-                      theme={FIELD_THEME}
-                      style={{ ...FIELD_STYLE, flexGrow: 1 }}
+                      theme={chrome.fieldTheme}
+                      style={{ ...chrome.field, flexGrow: 1 }}
                       onChange={(next) => setSecretDraft((cur) => ({ ...cur, [row.id]: next }))}
                     />
                     <Chip testId={`settings-mcp-${row.id}-connect-save`} tone="action" onClick={() => connect(row.id)}>
@@ -1042,6 +1051,8 @@ function McpCatalogCard() {
 
 
 function AboutCard() {
+  const chrome = useChrome()
+  const T = chrome.tokens
   const about = aboutVersionLines()
   const plistLabel = about.plist
     ? about.aligned
@@ -1049,7 +1060,7 @@ function AboutCard() {
       : `Info.plist ${about.plist} · WARN drift`
     : 'Info.plist missing'
   return (
-    <div testId="settings-about" style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+    <div testId="settings-about" style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
       <div
         style={{
           display: 'flex',
@@ -1105,7 +1116,8 @@ export function Settings({
   /** Mouth-only compact for the focused automaton. Jobs strip untouched. */
   onCompactNow?: () => void
 }) {
-  const T = useTokens()
+  const chrome = useChrome()
+  const T = chrome.tokens
   const seats = visibleAgents(agents)
   const chief = seats.find((agent) => agent.id === 'staff')
   const others = seats.filter((agent) => agent.id !== 'staff')
@@ -1262,7 +1274,7 @@ export function Settings({
           <PaneHeader title="" onClose={onClose} closeId="settings-close" />
         </div>
         <WindowCard onSkinChange={onSkinChange} />
-        <div testId="settings-keys" style={{ ...CARD_STYLE }}>
+        <div testId="settings-keys" style={{ ...chrome.card }}>
           <div
             style={{
               display: 'flex',
@@ -1283,8 +1295,8 @@ export function Settings({
                 testId="settings-key-input"
                 value={draft}
                 placeholder="Enter key — stays out of chat"
-                theme={FIELD_THEME}
-                style={{ ...FIELD_STYLE, flexGrow: 1 }}
+                theme={chrome.fieldTheme}
+                style={{ ...chrome.field, flexGrow: 1 }}
                 onChange={setDraft}
               />
               <Chip testId="settings-key-save" tone="action" onClick={saveKey}>
@@ -1301,12 +1313,12 @@ export function Settings({
         {chief ? renderSeat(chief, 0) : null}
         {moreOpen ? others.map((agent, index) => renderSeat(agent, index + 1)) : null}
         <Section title="Usage">
-          <div style={CARD_STYLE}>
+          <div style={chrome.card}>
             <LedgerList metrics={metrics} testId="settings-usage" />
           </div>
         </Section>
         <Section title="Mouth context">
-          <div testId="settings-compact" style={CARD_STYLE}>
+          <div testId="settings-compact" style={chrome.card}>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
               Working set is a compact summary plus recent turns — not the full transcript. Jobs /
               Puppetmaster artifacts stay on the Jobs strip. Auto-compacts when over the char
@@ -1322,7 +1334,7 @@ export function Settings({
           </div>
         </Section>
         <Section title="Connectors">
-          <div testId="settings-connectors" style={CARD_STYLE}>
+          <div testId="settings-connectors" style={chrome.card}>
             <div
               key={openRouter.id}
               testId="connector-openrouter"
@@ -1344,7 +1356,7 @@ export function Settings({
           </div>
         </Section>
         <Section title="Providers">
-          <div testId="settings-providers" style={CARD_STYLE}>
+          <div testId="settings-providers" style={chrome.card}>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
               Product map ({PROVIDERS_DOCS}). Unknown provider = miss. Codex Jobs use Codex auth
               only — never OPENAI_API_KEY.
@@ -1379,7 +1391,7 @@ export function Settings({
           <McpCatalogCard />
         </Section>
         <Section title="Channels">
-          <div testId="settings-channels" style={CARD_STYLE}>
+          <div testId="settings-channels" style={chrome.card}>
             <div
               testId="channel-slack"
               style={{
@@ -1416,8 +1428,8 @@ export function Settings({
                     testId="settings-slack-token"
                     value={slackDraft}
                     placeholder="Enter key — stays out of chat"
-                    theme={FIELD_THEME}
-                    style={{ ...FIELD_STYLE, flexGrow: 1 }}
+                    theme={chrome.fieldTheme}
+                    style={{ ...chrome.field, flexGrow: 1 }}
                     onChange={setSlackDraft}
                   />
                   <Chip testId="settings-slack-connect" tone="action" onClick={saveSlack}>
@@ -1441,7 +1453,7 @@ export function Settings({
           <SkillsCard agents={seats} />
         </Section>
         <Section title="Computer">
-          <div testId="settings-computer" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.text }}>
+          <div testId="settings-computer" style={{ ...chrome.card, fontSize: T.type.sm, color: T.text }}>
             {computerLabel(boxStatus())}
           </div>
         </Section>

@@ -9,6 +9,8 @@ const HOT = [
   'src/cards.tsx',
   'src/ui.tsx',
   'src/chrome/composer.tsx',
+  'src/chrome/activity-zone.tsx',
+  'src/chrome/titlebar.tsx',
   'src/blob.tsx',
 ]
 

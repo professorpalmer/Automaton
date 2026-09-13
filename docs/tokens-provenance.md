@@ -76,6 +76,16 @@ Persisted under `brand` in `~/.automaton/skin.json`.
 Springs stay named (`gelatin`, `eye`) in `src/motion/specs.ts` and still
 unsubscribe at rest (`src/resting-motion.ts`, settle ≤420ms).
 
+## P1 surfaces (pattern lift, not Bezel crates)
+
+| Recipe | Where | Notes |
+| --- | --- | --- |
+| Frosted group-box / card glass | `src/chrome/surface.ts` | One radius feeds border + wash. Frost wash is translucent (`raised` / `composer`); menus use opaque `menu` to avoid punch-through |
+| Step row + verb fold | `src/chrome/step-row.ts` | Fold traces by product verb (`analyze` / `implement` / `shell` / `land` / `ship`) + stringy `stepRow`. No tool ontology |
+| Activity / takeover | `src/chrome/activity.ts` | Auto-open while streaming; header press locks. Feed-pin still owns tail. No idle MotionDiv |
+| Composer grow + `#` picker | `src/chrome/composer.tsx` | `minRows` 1 / `maxRows` 8. gpuix 0.6.1 has no caret API — `#` query is end-of-draft |
+| Titlebar / control bar | `src/chrome/layout.ts` | Darwin `trafficLightClearance` 86; trailing cluster stays off the lights |
+
 ## Honesty
 
 Numbers above are Automaton’s own chrome, not a claim that they were

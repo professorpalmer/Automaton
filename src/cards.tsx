@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
 import type { QuestionWidget, WidgetAnswer, WidgetOption } from './domain'
 import { widgetOptionValue } from './domain'
+import { groupBoxStyle } from './chrome/surface'
 import { toChatTheme, useTokens, type GpuixTextTheme, type Tokens } from './theme'
 
 const HIT = {
@@ -14,11 +15,8 @@ function cardChrome(tokens: Tokens) {
     marginLeft: tokens.space.xl,
     marginRight: tokens.space.xl,
     marginBottom: tokens.space.sm,
+    ...groupBoxStyle(tokens, 'group'),
     padding: tokens.space.md,
-    borderRadius: tokens.radius.md,
-    backgroundColor: tokens.raised,
-    borderWidth: tokens.stroke.hairline,
-    borderColor: tokens.border,
     display: 'flex' as const,
     flexDirection: 'column' as const,
     gap: tokens.space.sm,
@@ -30,10 +28,7 @@ function fieldChrome(tokens: Tokens) {
     width: '100%',
     fontSize: tokens.type.sm,
     color: tokens.text,
-    backgroundColor: tokens.composer,
-    borderWidth: tokens.stroke.hairline,
-    borderColor: tokens.border,
-    borderRadius: tokens.radius.sm,
+    ...groupBoxStyle(tokens, 'field'),
     paddingLeft: tokens.space.sm,
     paddingRight: tokens.space.sm,
     paddingTop: tokens.space.xs,

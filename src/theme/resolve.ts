@@ -16,6 +16,7 @@ export function tokensFromSkin(skin: Skin): Tokens {
   const chrome = chromeFromSkin(skin)
   return freezeDeep({
     ...DEFAULT_TOKENS,
+    windowMode: skin.windowMode,
     canvas: chrome.canvas,
     sidebar: chrome.sidebar,
     composer: chrome.composer,

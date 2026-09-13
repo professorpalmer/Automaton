@@ -42,6 +42,10 @@ Delete clears profile pins for that id.
 
 ## Offer-once
 
+The composer `#` picker can insert `@<skill-id>` (caret treated as end of
+draft — gpuix 0.6.1 Input has no selection). That is the same `@name` gate
+as body selection. Offer-once on Send is unchanged.
+
 On composer **Send**, if the text matches an installed skill (same matchers as
 body selection) and the skill is not already pinned, Staff shows **one** chat
 widget: Pin / Not now. Dismiss (or Not now) persists under
