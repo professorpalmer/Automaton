@@ -1,6 +1,6 @@
 # Providers
 
-Package **0.3.0**. Automaton’s product-real provider map — which transports
+Package **0.4.0**. Automaton’s product-real provider map — which transports
 mouths and Jobs may use, and the **one sanctioned auth path** for each.
 
 Code: `src/runtime/providers.ts`. Tests: `tests/providers.test.ts`.
