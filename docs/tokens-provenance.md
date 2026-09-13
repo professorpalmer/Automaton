@@ -5,8 +5,9 @@ mechanics (environment-read tokens, Brand knobs, named MotionSpec) — not a
 bezel crate. Dark is the default snapshot. Light is a designed role
 assignment (white content, grey chrome, opaque input plate) — not an invert.
 
-Package / Info.plist are **0.6.0** (Wave 2 P1 band cut). Light / Brand
-completion is the P2 Bezel backlog; this pass does not bump the band.
+Package / Info.plist are **0.7.0** (Wave 2 P2 band cut). Light / Brand
+completion shipped with this cut (designed light + remaining CARD/FIELD via
+useChrome).
 
 Sources: this checkout’s `src/theme/tokens.ts` (formerly `src/tokens.ts`),
 `src/main.tsx` window options, and Bezel’s own measured notes where the
