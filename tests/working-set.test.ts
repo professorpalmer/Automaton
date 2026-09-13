@@ -289,6 +289,27 @@ describe('mouth working set', () => {
     expect(messages.some((row) => row.content.includes('line 0'))).toBe(false)
   })
 
+  test('persisted compactSummary joins as honesty-marked summary before the tail', () => {
+    resetIdsForTests()
+    const thread = emptyThreads(DEFAULT_AGENTS).staff
+    thread.compactSummary = 'Earlier turns decided to cache the system prefix.'
+    thread.items = [
+      { kind: 'msg', id: 'item_1', from: 'user', agentId: 'staff', text: 'what next' },
+      { kind: 'msg', id: 'item_2', from: 'agent', agentId: 'staff', text: 'Keep going.' },
+    ]
+    const messages = buildWorkingSet({
+      agent: DEFAULT_AGENTS[0],
+      thread,
+      claims: [],
+      projects: [],
+    })
+    const blob = JSON.stringify(messages)
+    expect(blob).toContain('Compacted history (summarized — not verbatim quotes):')
+    expect(blob).toContain('Earlier turns decided to cache the system prefix.')
+    expect(blob).toContain('what next')
+    expect(blob).not.toContain('pmJobId')
+  })
+
   test('standing rules join the system prompt', () => {
     resetIdsForTests()
     const messages = buildWorkingSet({

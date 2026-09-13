@@ -18,6 +18,7 @@ results/*.sqlite
 *.sqlite
 *.sqlite-journal
 var/
+.tmp/
 brand/AppIcon.iconset/
 macos/Automaton.app/Contents/MacOS/runtime
 

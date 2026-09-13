@@ -1048,12 +1048,15 @@ export function Settings({
   onClose,
   onPlaneChange,
   onSkinChange,
+  onCompactNow,
 }: {
   metrics: LedgerMetrics
   agents?: Agent[]
   onClose: () => void
   onPlaneChange?: () => void
   onSkinChange?: () => void
+  /** Mouth-only compact for the focused automaton. Jobs strip untouched. */
+  onCompactNow?: () => void
 }) {
   const seats = visibleAgents(agents)
   const chief = seats.find((agent) => agent.id === 'staff')
@@ -1252,6 +1255,22 @@ export function Settings({
         <Section title="Usage">
           <div style={CARD_STYLE}>
             <LedgerList metrics={metrics} testId="settings-usage" />
+          </div>
+        </Section>
+        <Section title="Mouth context">
+          <div testId="settings-compact" style={CARD_STYLE}>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
+              Working set is a compact summary plus recent turns — not the full transcript. Jobs /
+              Puppetmaster artifacts stay on the Jobs strip. Auto-compacts when over the char
+              budget; fail-soft keeps the prior set.
+            </div>
+            <Chip
+              testId="settings-compact-now"
+              tone="action"
+              onClick={() => onCompactNow?.()}
+            >
+              Compact now
+            </Chip>
           </div>
         </Section>
         <Section title="Connectors">
