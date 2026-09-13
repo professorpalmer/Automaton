@@ -6,7 +6,7 @@ import React from 'react'
 import { createTestRoot, hasNativeTestRenderer } from '@gpuix/react/testing'
 import { App, Composer, Feed } from '../src/app'
 import { UpdateModal } from '../src/update-modal'
-import { assertSeedFrames, blobClock, blobClockShouldHold, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, selectedGlance, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
+import { assertSeedFrames, blobClock, blobClockShouldHold, blobDoubleBlink, blobNeedsClock, BLOB_POSES, busyEyeLayout, BUSY_LOOKS, EYE_ANCHOR, idlePose, livingMelt, markLifeSpringImmediate, neighborGlance, nextLook, poseLayout, poseSvgStamps, restMelt, presentBlob, selectedGlance, shapeSvgSource, SisterBlob, workPose } from '../src/blob'
 import {
   DEFAULT_AGENTS,
   emptyThreads,
@@ -434,7 +434,8 @@ describe('sister blob presentation', () => {
     expect(blobSrc).not.toMatch(/layoutScroll|popLayout/)
     expect(blobSrc).toMatch(/useRestingStyle/)
     expect(blobSrc).toMatch(/blobClockShouldHold/)
-    expect(blobSrc).toMatch(/immediate: !live/)
+    expect(blobSrc).toMatch(/markLifeSpringImmediate/)
+    expect(blobSrc).toMatch(/immediate: lifeImmediate/)
     expect(blobSrc).not.toMatch(/<motion\.div/)
     expect(blobSrc).not.toMatch(/layoutDuration/)
     expect(blobSrc).not.toMatch(/transition=\{BODY_SPRING\}/)
@@ -497,7 +498,7 @@ describe('sister blob presentation', () => {
     const src = readFileSync(join(import.meta.dir, '../src/blob.tsx'), 'utf8')
     expect(src).toMatch(/import \{ motion \} from '@gpuix\/react'/)
     expect(src).not.toMatch(/<motion\.div/)
-    expect(src).toMatch(/immediate: !live/)
+    expect(src).toMatch(/immediate: lifeImmediate/)
     expect(src).not.toMatch(/import \{[^}]*GELATIN/)
     expect(src).toMatch(/GELATIN/)
     expect(src).toMatch(/GELATIN\.stiffness/)
@@ -572,7 +573,19 @@ describe('sister blob presentation', () => {
     expect(melts.some((m) => m === 'soft-wide')).toBe(true)
     expect(melts.some((m) => m === 'soft-tall')).toBe(true)
     expect(src).toMatch(/restMelt/)
+    expect(src).toMatch(/livingMelt/)
+    expect(src).toMatch(/markLifeSpringImmediate/)
     expect(src).toMatch(/soft-wide/)
+    expect(src).toMatch(/markPaint/)
+    expect(src).toMatch(/selectedLift/)
+    expect(livingMelt('kernel', 1, false, false)).toBe('rest')
+    expect(livingMelt('kernel', 1, true, true)).toBe('rest')
+    expect(BLOB_POSES.includes(livingMelt('kernel', 7, true, false) as (typeof BLOB_POSES)[number]) || ['soft-wide', 'soft-tall', 'rest'].includes(livingMelt('kernel', 7, true, false))).toBe(true)
+    const aliveMelts = Array.from({ length: 40 }, (_, i) => livingMelt('kernel', i, true, false))
+    expect(aliveMelts.some((m) => m === 'soft-wide' || m === 'soft-tall')).toBe(true)
+    expect(markLifeSpringImmediate(false)).toBe(true)
+    expect(markLifeSpringImmediate(true)).toBe(false)
+    expect(markLifeSpringImmediate(true, true)).toBe(true)
     const stamps = poseSvgStamps('blob', '#00C972', T.blob.size)
     expect(poseSvgStamps('blob', '#00C972', T.blob.size)).toBe(stamps)
     expect(stamps.rest).not.toContain('<g transform')
@@ -653,6 +666,8 @@ describe('sister blob presentation', () => {
     expect(src).toMatch(/if \(!blobNeedsClock\(live\)\)/)
     expect(src).toMatch(/workPose\(agent\.id, poseLook\)/)
     expect(src).toMatch(/busyBody/)
+    expect(src).toMatch(/livingMelt\(agent\.id, look, live, busyBody\)/)
+    expect(src).toMatch(/poseLayout\(melt/)
     expect(src).not.toMatch(/idlePose\(agent\.id, look\)/)
   })
 })

@@ -26,9 +26,9 @@ Cmd+Plus / Cmd+Minus zoom the editor instead of this window.
 
 The brand mark is the white control-bar marionette (`brand/mark.svg`). Rail
 blobs are baked poses (`src/marks/`). Mouth busy thinks with wandering
-eyes on an eyeless body; a flying job does not. Idle stays the rest PNG
-and parks springs via `src/resting-motion.ts` so idle GPUI is not rebuilt
-every frame.
+eyes on an eyeless body; a flying job does not. Idle sisters stay still;
+selected Staff may glance and soft-melt (`docs/marks.md`) while springs
+park via `src/resting-motion.ts` so idle GPUI is not rebuilt every frame.
 
 Streaming feed growth pins the tail (`src/runtime/feed-pin.ts`, ~120ms
 coalesce) and fingerprints rows (`src/runtime/feed-row.ts`) so last-line

@@ -253,6 +253,20 @@ export function restMelt(id: string, look: number): BlobMelt {
   return lane === 1 ? 'soft-wide' : 'soft-tall'
 }
 
+/**
+ * Soft weight for an alive mark at rest. Working mouths keep SVG pose stamps
+ * instead; frozen sisters stay at rest (sister-freeze).
+ */
+export function livingMelt(id: string, look: number, live: boolean, busyBody: boolean): BlobMelt {
+  if (!live || busyBody) return 'rest'
+  return restMelt(id, look)
+}
+
+/** Park melt/lid springs when the mark is frozen or mid-drag — same lease as useRestingStyle. */
+export function markLifeSpringImmediate(live: boolean, pointerDown = false): boolean {
+  return !live || pointerDown
+}
+
 /** Face anchors in the 38px stamp. Default T.blob.eyeX/eyeY is blob-ish mass. */
 export const EYE_ANCHOR: Record<string, { x: number; y: number }> = {
   cloud: { x: 19, y: 16 },
@@ -612,7 +626,11 @@ export function SisterBlob({
   const rawPose = !busyBody || poseLook === bodyClock.lookStart ? 'rest' : workPose(agent.id, poseLook)
   const pose: BlobPose = lastPose.current !== 'rest' && rawPose !== 'rest' ? 'rest' : rawPose
   lastPose.current = pose
-  const eyes = entered ? busyEyeLayout(look, false, eyeKind, glance, mark.shape) : []
+  const melt = livingMelt(agent.id, look, live, busyBody)
+  const meltBox = poseLayout(melt, glyphWidth, glyphHeight)
+  const lift = selected && !pointer.down ? T.blob.selectedLift : 0
+  const lifeImmediate = markLifeSpringImmediate(live, pointer.down)
+  const eyes = entered ? busyEyeLayout(look, blink, eyeKind, glance, mark.shape) : []
   const leftEye = eyes[0]
   const rightEye = eyes[1]
   const plate = useRestingStyle(
@@ -623,7 +641,17 @@ export function SisterBlob({
   const lids = useRestingStyle(
     { open: live && blink ? 0 : 1 },
     EYE_SPRING,
-    { immediate: !live },
+    { immediate: lifeImmediate },
+  )
+  const markPaint = useRestingStyle(
+    {
+      left: glyphLeft + meltBox.left,
+      top: glyphTop + meltBox.top + lift,
+      width: meltBox.width,
+      height: meltBox.height,
+    },
+    BODY_SPRING,
+    { immediate: lifeImmediate },
   )
   const svg = useMemo(() => shapeSvgSource(mark.shape, fill, T.blob.size), [mark.shape, fill])
   const speed = Math.hypot(pointer.vx, pointer.vy)
@@ -712,10 +740,10 @@ export function SisterBlob({
       <FrozenMark
         shape={mark.shape}
         fill={fill}
-        left={glyphLeft}
-        top={glyphTop}
-        width={glyphWidth}
-        height={glyphHeight}
+        left={markPaint.left}
+        top={markPaint.top}
+        width={markPaint.width}
+        height={markPaint.height}
         unread={unread}
         pose={pose}
       />
@@ -726,19 +754,22 @@ export function SisterBlob({
               { side: 0, eye: leftEye },
               { side: 1, eye: rightEye },
             ] as const
-          ).map(({ side, eye }) => (
+          ).map(({ side, eye }) => {
+            const lidOpen = Math.max(0, Math.min(1, lids.open))
+            const eyeHeight = px(Math.max(T.space.xxs, eye.height * lidOpen))
+            return (
             <div
               key={side}
               testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
               style={{
                 position: 'absolute',
                 left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
-                top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0)),
+                top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0) + (eye.height - eyeHeight) / 2),
                 width: eye.width,
-                height: eye.height,
+                height: eyeHeight,
                 overflow: 'hidden',
                 pointerEvents: 'none',
-                opacity: lids.open,
+                opacity: lidOpen,
               }}
             >
               <svg
@@ -746,7 +777,8 @@ export function SisterBlob({
                 style={svgStampStyle(T.catalog.black)}
               />
             </div>
-          ))}
+            )
+          })}
         </>
       ) : null}
     </div>
