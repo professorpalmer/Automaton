@@ -96,9 +96,10 @@ export function markPxShouldPublish(previous: number, next: number): boolean {
 }
 
 /**
- * Near-snap leftover px crawl (gpuix `elapsedMs = 0` path). Skip the 280ms /
- * 2.25px budget snap — that window is the entire living melt, so it jumps
- * mid-gel. Hard park stays at SETTLE_HARD_MS after the loop.
+ * gpuix px near-snap is 1.05px. Soft-wide left/top only travel 1px, so that
+ * window fires on the first frame and the box pops. Marks near-snap only the
+ * last 0.1px of leftover crawl. Skip the 280ms / 2.25px budget snap too —
+ * that window is the entire melt. Hard park stays at SETTLE_HARD_MS.
  */
 export function shouldSnapMarkSpring(
   track: SpringTrack,
@@ -107,7 +108,9 @@ export function shouldSnapMarkSpring(
   kind: SpringChannelKind = 'px',
 ): boolean {
   if (kind === 'opacity') return shouldSnapSpring(track, target, elapsedMs, 'opacity')
-  return shouldSnapSpring(track, target, 0, 'px')
+  const dist = Math.abs(track.pos - target)
+  const speed = Math.abs(track.vel)
+  return speed < 0.35 && dist < MARK_PX_PUBLISH_EPS
 }
 
 /**

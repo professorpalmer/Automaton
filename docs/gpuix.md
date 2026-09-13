@@ -53,6 +53,8 @@ fork `motion-spring.js`. `stepMarkSpringLease` steps the same Euler / `onFrame`
 lease, then:
 
 - publishes left/top/width/height at **0.1px**
+- near-snaps only the last 0.1px of leftover crawl (gpuix's 1.05px window
+  would pop the 1px left/top shift on frame one)
 - skips gpuix's 280ms / 2.25px budget snap on px (that window *is* the melt)
 - keeps opacity on the gpuix kind helpers
 - still hard-parks at 420ms; frozen sisters still `immediate`

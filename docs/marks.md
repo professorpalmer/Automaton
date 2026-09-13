@@ -37,7 +37,7 @@ is for selected rest life — not a second layout physics on the feed.
 
 Mark springs share the same lease-park as MotionDiv / StickSpring:
 
-- `spring-lease` — `src/resting-motion.ts` (mark-local 0.1px melt publish + 420ms hard park) + vendored `@gpuix/react` `motion-spring` (`onFrame` / Euler). Frozen sisters never lease.
+- `spring-lease` — `src/resting-motion.ts` (mark-local 0.1px melt publish, 0.1px leftover snap, 420ms hard park) + vendored `@gpuix/react` `motion-spring` (`onFrame` / Euler). Frozen sisters never lease.
 - `sister-freeze` — `src/blob.tsx` + `alive` from `src/app.tsx`
 
 Inventory: `idleParkInventory()` in `src/runtime/idle-health.ts`. Re-verify CPU with
