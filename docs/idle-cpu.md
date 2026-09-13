@@ -3,7 +3,7 @@
 With Automaton open, no stream, feed at rest — the process must not multi-core
 thrash. Parks already shipped in prior PRs; this page is the re-verify contract.
 
-Package / Info.plist are **0.5.0** (Wave 2 P0 band cut).
+Package / Info.plist are **0.6.0** (Wave 2 P1 band cut).
 
 ## Measured (2026-09-12 CT, Cary’s MacBook Pro)
 
@@ -56,4 +56,4 @@ merges **and** a park-bearing release publishes — see [`docs/gpuix.md`](./gpui
 ## Out of scope
 
 Rust rewrite, Loro, Xvfb scroll myths, private Anysphere kits, Discord OS,
-bumping the 0.5.0 band, publishing `@gpuix`, asking for `NPM_TOKEN` for that scope.
+bumping the 0.6.0 band, publishing `@gpuix`, asking for `NPM_TOKEN` for that scope.
