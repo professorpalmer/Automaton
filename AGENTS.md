@@ -70,22 +70,22 @@ Invariants:
 - No job ids in spoken lines unless the user asked.
 - Staff does not pixel-click. The operator takes control of the screen.
 - Provider reasoning maps (`provider-maps.ts`) are verified-or-none; no capture, no map.
-- Provider catalog (`docs/providers.md`, `src/runtime/providers.ts`) — mouths vs Jobs/PM vs cloud; one sanctioned auth each (OpenRouter keys / Codex auth for OpenAI-class Jobs / `CURSOR_API_KEY` for cloud); unknown provider = miss; no fake selectable that no-ops; package 0.4.0.
+- Provider catalog (`docs/providers.md`, `src/runtime/providers.ts`) — mouths vs Jobs/PM vs cloud; one sanctioned auth each (OpenRouter keys / Codex auth for OpenAI-class Jobs / `CURSOR_API_KEY` for cloud); unknown provider = miss; no fake selectable that no-ops; package 0.5.0.
 - Live world-state books analyze; claims are recall-only.
 - Product routines (`docs/routines.md`) wake mouths on schedule/event with kickoff `routine`; they are not Grok Bot agent crons. MVP schedule ticks need the Staff app open.
 - External channels (`docs/channels.md`) — Slack MVP: connect in Settings (never paste bot tokens in chat); inbound via `~/.automaton/inbox/slack` or future socket; `kickoff=channel` wakes Staff; outbound fail-closed as the user. Channel traffic is mouth/staff; Jobs still own coding.
-- Multi-agent rooms (`docs/rooms.md`) — local SendToAgent-class + named rooms; sisters keep separate threads; mouth only (not Slack); `needsFanoutConfirm` for 3+; package 0.4.0.
-- MCP catalog (`docs/mcp.md`) — Settings curated plugins; install registry under `~/.automaton/mcp`; auth via secret-request / Connect (never chat-paste); schema hints only until live MCP client; package 0.4.0.
-- Secrets (`docs/secrets.md`) — in-app secret-request card with masked entry; vault via `writeConnectorSecret`; never persist secret values in session JSON / feed / Jobs / Slack / speech; package 0.4.0.
-- Version / releases (`docs/version.md`) — Settings About + optional titlebar chip from `package.json` / Info.plist; GitHub Latest notify-only (never auto-upgrade); git tip/dirty modal stays; doctor WARNs on package≠plist; package 0.4.0.
-- Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.4.0.
-- Idle CPU (`docs/idle-cpu.md`) — park inventory + Mac idle proof; doctor notes checklist (optional `AUTOMATON_IDLE_CPU=1` live sample); package 0.4.0.
-- Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; sister-freeze parks idle rail; honesty on stubby life; package 0.4.0.
-- `@gpuix/react` vendor (`docs/gpuix.md`) — stay on vendored 0.6.1 park until remorses/gpuix#34 merges **and** a park-bearing npm publish; never switch to registry 0.7.0 (no motion-spring); never ask NPM_TOKEN for `@gpuix`; package 0.4.0.
-- Cloud agent / Origin (`docs/cloud-origin.md`) — optional public Cloud Agents API (`CURSOR_API_KEY`); Settings/Jobs parked when unavailable (no fake Launch); Origin browse only from explicit `origin.cursor.com` remotes; never guess Origin from GitHub; package 0.4.0.
-- Mouth compaction (`docs/compaction.md`) — working set = compact summary + recent turns; auto when over char budget; Compact now in Settings; fail-soft Need; Jobs strip untouched; package 0.4.0.
-- Home bind from clone URL — `git@` / `ssh://git@github.com` / `*.git` https clone URLs bind like page URLs; missing checkout still clones into `~/Projects/<repo>` (see `docs/staff.md`, `src/runtime/home.ts`); package 0.4.0.
-- Bezel surface lift (Wave 2 P1) — TypeScript recipes only (`src/chrome/surface.ts`, step-row, activity takeover, composer `#` picker, titlebar clearance). No bezel crate, no `@gpuix/react@0.7.0`, no liquid glass. Settings/inspector read live tokens. Package 0.4.0.
+- Multi-agent rooms (`docs/rooms.md`) — local SendToAgent-class + named rooms; sisters keep separate threads; mouth only (not Slack); `needsFanoutConfirm` for 3+; package 0.5.0.
+- MCP catalog (`docs/mcp.md`) — Settings curated plugins; install registry under `~/.automaton/mcp`; auth via secret-request / Connect (never chat-paste); schema hints only until live MCP client; package 0.5.0.
+- Secrets (`docs/secrets.md`) — in-app secret-request card with masked entry; vault via `writeConnectorSecret`; never persist secret values in session JSON / feed / Jobs / Slack / speech; package 0.5.0.
+- Version / releases (`docs/version.md`) — Settings About + optional titlebar chip from `package.json` / Info.plist; GitHub Latest notify-only (never auto-upgrade); git tip/dirty modal stays; doctor WARNs on package≠plist; package 0.5.0.
+- Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.5.0.
+- Idle CPU (`docs/idle-cpu.md`) — park inventory + Mac idle proof; doctor notes checklist (optional `AUTOMATON_IDLE_CPU=1` live sample); package 0.5.0.
+- Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; sister-freeze parks idle rail; honesty on stubby life; package 0.5.0.
+- `@gpuix/react` vendor (`docs/gpuix.md`) — stay on vendored 0.6.1 park until remorses/gpuix#34 merges **and** a park-bearing npm publish; never switch to registry 0.7.0 (no motion-spring); never ask NPM_TOKEN for `@gpuix`; package 0.5.0.
+- Cloud agent / Origin (`docs/cloud-origin.md`) — optional public Cloud Agents API (`CURSOR_API_KEY`); Settings/Jobs parked when unavailable (no fake Launch); Origin browse only from explicit `origin.cursor.com` remotes; never guess Origin from GitHub; package 0.5.0.
+- Mouth compaction (`docs/compaction.md`) — working set = compact summary + recent turns; auto when over char budget; Compact now in Settings; fail-soft Need; Jobs strip untouched; package 0.5.0.
+- Home bind from clone URL — `git@` / `ssh://git@github.com` / `*.git` https clone URLs bind like page URLs; missing checkout still clones into `~/Projects/<repo>` (see `docs/staff.md`, `src/runtime/home.ts`); package 0.5.0.
+- Bezel surface lift (Wave 2 P1) — TypeScript recipes only (`src/chrome/surface.ts`, step-row, activity takeover, composer `#` picker, titlebar clearance). No bezel crate, no `@gpuix/react@0.7.0`, no liquid glass. Settings/inspector read live tokens. Package 0.5.0.
 
 ## Safety
 
