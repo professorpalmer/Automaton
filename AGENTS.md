@@ -19,15 +19,19 @@ use a sandbox cwd and never this checkout. Visual tokens live in
 ```sh
 bun install
 bun test
-bun run app
+bun run app          # cold default; reclaim zombies
+# bun run dev        # opt-in --hot only
 ```
 
 CI is `bun test`. There is no Python host, pytest job, or `tenant/` tree.
 
-`bun src/main.tsx` is the raw GPUI process. On macOS, `bun run app` opens
-`macos/Automaton.app` so the Dock icon and the menu bar belong to Automaton
-instead of a bun terminal tile. `bun --hot src/main.tsx` remounts can leave a
-zombie window. Prefer `bun run app`. `bun scripts/probe-kernel.ts` is a
+`bun src/main.tsx` is the raw GPUI process. On macOS, `bun run app` is the
+cold default: it opens `macos/Automaton.app` so the Dock icon and the menu bar
+belong to Automaton instead of a bun terminal tile, and it reclaims prior
+windows/pids for this install before focus/open (no default `open -n` stack).
+`bun run dev` / `bun --hot src/main.tsx` is **dev-only / opt-in** — remounts can
+leave a zombie window; prefer `bun run app`. Doctor WARNs on leftovers with a
+path to kick cold. `bun scripts/probe-kernel.ts` is a
 read-only analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
 OpenRouter mouth and its zero-call query path. `bun scripts/replay-tough-eval.ts` measures recall safety on a seeded mixed workload; it is not the 95% repeated-work replay. `bun scripts/replay-workday-eval.ts` streams a seeded workday from an empty store (persist job-sourced Kernel claims after first-look misses; 5/10/20% novel) and writes the saturation ledger.
 

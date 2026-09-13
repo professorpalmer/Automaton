@@ -1,6 +1,11 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import {
+  preferSingleInstanceOpen,
+  reclaimAutomatonZombies,
+} from '../src/runtime/live-instance'
+import { runningTests } from '../src/runtime/test-env'
 
 const root = join(import.meta.dir, '..')
 export const MAC_APP = join(root, 'macos', 'Automaton.app')
@@ -52,12 +57,24 @@ export function prepareMacApp(repo = root): { app: string; bun: string; stub: st
   return { app: join(repo, 'macos', 'Automaton.app'), bun: bundleBun, stub: stubBin }
 }
 
+/** Focus/reuse by default; set AUTOMATON_OPEN_NEW=1 to force a new instance after reclaim. */
 export function openMacApp(app = MAC_APP): void {
-  spawn('open', ['-n', app], { stdio: 'inherit' })
+  const { openArgs } = preferSingleInstanceOpen()
+  spawn('open', openArgs(app), { stdio: 'inherit' })
+}
+
+function reclaimBeforeOpen(): void {
+  if (runningTests()) return
+  const result = reclaimAutomatonZombies({
+    keepPid: process.pid,
+    seams: { repoRoot: root },
+  })
+  if (result.note) console.error(result.note)
 }
 
 if (import.meta.main) {
   if (process.platform === 'darwin' && existsSync(dirname(MACOS))) {
+    reclaimBeforeOpen()
     const { app } = prepareMacApp()
     spawnSync('/usr/bin/touch', [app])
     spawnSync(
@@ -66,6 +83,7 @@ if (import.meta.main) {
     )
     openMacApp(app)
   } else {
+    reclaimBeforeOpen()
     spawn('bun', [join(root, 'src', 'main.tsx')], { stdio: 'inherit', cwd: root })
   }
 }

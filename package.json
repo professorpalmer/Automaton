@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "Native GPUI staff over Puppetmaster. Named automata speak, then dispatch. Durable state. Jobs stay out of chat.",
+  "description": "Native GPUI staff over Puppetmaster. Named automata speak, then dispatch. Durable state. Jobs stay out of chat. Cold launch: bun run app; bun run dev (--hot) is opt-in only.",
   "scripts": {
     "dev": "bun --hot src/main.tsx",
     "start": "bun src/main.tsx",
