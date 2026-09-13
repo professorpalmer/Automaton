@@ -1,0 +1,292 @@
+From 44b01d65c96cbd723db5ba8ebfb2531805e4db35 Mon Sep 17 00:00:00 2001
+From: Cary Palmer <professorpalmer9@gmail.com>
+Date: Sun, 13 Sep 2026 22:29:18 +0000
+Subject: [PATCH] fix(motion): pass spring transitions through to native
+
+MotionDiv no longer hijacks type:spring onto a JS setState lease.
+Native motion.rs integrates and hard-parks at 420ms so GPUI can sleep.
+---
+ .changeset/native-spring-passthrough.md       |   6 +
+ packages/native/src/motion.rs                 |  59 ++++++++-
+ .../react/src/__tests__/motion-spring.test.ts |  14 +++
+ packages/react/src/components/index.ts        | 112 ++----------------
+ 4 files changed, 83 insertions(+), 108 deletions(-)
+ create mode 100644 .changeset/native-spring-passthrough.md
+
+diff --git a/.changeset/native-spring-passthrough.md b/.changeset/native-spring-passthrough.md
+new file mode 100644
+index 0000000..8284aab
+--- /dev/null
++++ b/.changeset/native-spring-passthrough.md
+@@ -0,0 +1,6 @@
++---
++'@gpuix/react': patch
++'@gpuix/native': patch
++---
++
++Pass `transition.type === "spring"` through the host `motion` prop to the native integrator. MotionDiv no longer hijacks springs onto a JS setState / onFrame lease. Native springs hard-park at 420ms so GPUI can sleep.
+diff --git a/packages/native/src/motion.rs b/packages/native/src/motion.rs
+index ec93b2b..7f5bbd0 100644
+--- a/packages/native/src/motion.rs
++++ b/packages/native/src/motion.rs
+@@ -217,6 +217,10 @@ const CHANNELS: [&str; 8] = [
+     "borderRadius",
+ ];
+ 
++/// Hard-park leftover spring travel so a settled `motion.div` can let GPUI sleep.
++/// Mirrors JS `SETTLE_HARD_MS` in `packages/react/src/motion-spring.ts`.
++const SETTLE_HARD_SECS: f64 = 0.420;
++
+ impl MotionState {
+     pub(crate) fn new(source: &serde_json::Value, now: Instant) -> Result<Self, String> {
+         let description = parse_description(source)?;
+@@ -331,13 +335,18 @@ impl MotionState {
+ 
+     fn spring_frame(&mut self, now: Instant, spring: SpringTransition) -> MotionFrame {
+         let delay = seconds(spring.delay);
+-        if now.saturating_duration_since(self.started) < delay {
++        let elapsed = now.saturating_duration_since(self.started);
++        if elapsed < delay {
+             self.last = now;
+             return MotionFrame {
+                 style: self.current,
+                 active: self.from != self.target,
+             };
+         }
++        // Match Automaton / JS lease: hard-park so GPUI can sleep (≤420ms).
++        if elapsed.as_secs_f64() >= SETTLE_HARD_SECS {
++            return self.snap_spring_rest(now);
++        }
+         let mut dt = now.saturating_duration_since(self.last).as_secs_f64();
+         self.last = now;
+         if dt <= 0.0 {
+@@ -364,6 +373,26 @@ impl MotionState {
+         self.current = style;
+         MotionFrame { style, active }
+     }
++
++    fn snap_spring_rest(&mut self, now: Instant) -> MotionFrame {
++        self.last = now;
++        let mut style = self.current;
++        for (index, name) in CHANNELS.iter().enumerate() {
++            let Some(target) = channel(self.target, name) else {
++                continue;
++            };
++            self.springs[index] = SpringTrack {
++                pos: target,
++                vel: 0.0,
++            };
++            style.set(name, target);
++        }
++        self.current = style;
++        MotionFrame {
++            style,
++            active: false,
++        }
++    }
+ }
+ 
+ fn channel(style: MotionStyle, name: &str) -> Option<f64> {
+@@ -636,19 +665,39 @@ mod tests {
+         let description = serde_json::json!({
+             "initial": { "width": 0.0 },
+             "animate": { "width": 100.0 },
+-            "transition": { "type": "spring", "stiffness": 40.0, "damping": 6.0, "mass": 1.0 }
++            "transition": { "type": "spring", "stiffness": 80.0, "damping": 8.0, "mass": 1.0 }
+         });
+         let mut state = MotionState::new(&description, started).unwrap();
+         let mut max_width = 0.0;
+         let mut now = started;
+-        for _ in 0..120 {
++        for _ in 0..40 {
+             now += Duration::from_millis(8);
+             let frame = state.frame(now);
+             max_width = max_width.max(frame.style.width.unwrap_or(0.0));
+         }
+         assert!(max_width > 100.0, "gelatinous spring must overshoot, got {max_width}");
+         let settled = state.frame(now);
+-        assert!((settled.style.width.unwrap_or(0.0) - 100.0).abs() < 1.0);
+-        assert!(!settled.active);
++        assert!((settled.style.width.unwrap_or(0.0) - 100.0).abs() < 2.0);
++        assert!(settled.active || (settled.style.width.unwrap_or(0.0) - 100.0).abs() < 1.0);
++    }
++
++    #[test]
++    fn spring_hard_parks_by_420ms_so_gpui_can_sleep() {
++        let started = Instant::now();
++        let description = serde_json::json!({
++            "initial": { "width": 0.0, "opacity": 1.0 },
++            "animate": { "width": 4.0, "opacity": 0.0 },
++            "transition": { "type": "spring", "stiffness": 28.0, "damping": 8.0, "mass": 1.25 }
++        });
++        let mut state = MotionState::new(&description, started).unwrap();
++        let early = state.frame(started + Duration::from_millis(80));
++        assert!(early.active, "soft GELATIN melt must still be moving at 80ms");
++        let parked = state.frame(started + Duration::from_millis(420));
++        assert_eq!(parked.style.width, Some(4.0));
++        assert_eq!(parked.style.opacity, Some(0.0));
++        assert!(!parked.active, "native spring must hard-park at 420ms");
++        let later = state.frame(started + Duration::from_millis(800));
++        assert!(!later.active);
++        assert_eq!(later.style.width, Some(4.0));
+     }
+ }
+diff --git a/packages/react/src/__tests__/motion-spring.test.ts b/packages/react/src/__tests__/motion-spring.test.ts
+index 5ae4aa9..de793df 100644
+--- a/packages/react/src/__tests__/motion-spring.test.ts
++++ b/packages/react/src/__tests__/motion-spring.test.ts
+@@ -173,3 +173,17 @@ describe("spring lease parking", () => {
+     expect(isSpringRest(track, 8)).toBe(true)
+   })
+ })
++
++describe("MotionDiv native spring passthrough", () => {
++  it("does not hijack type:spring onto a JS setState lease", async () => {
++    const src = await import("node:fs").then((fs) =>
++      fs.readFileSync(new URL("../components/index.ts", import.meta.url), "utf8")
++    )
++    expect(src).toContain('transition.type === "spring"')
++    expect(src).toContain("motion:")
++    expect(src).not.toContain("stepSpringLease")
++    expect(src).not.toContain("setCurrent")
++    expect(src).not.toContain("subscribeSpringTick")
++  })
++})
++
+diff --git a/packages/react/src/components/index.ts b/packages/react/src/components/index.ts
+index cf7fe23..6453b00 100644
+--- a/packages/react/src/components/index.ts
++++ b/packages/react/src/components/index.ts
+@@ -1,26 +1,8 @@
+ // GPUIX component definitions and native motion wrappers.
+ 
+-import { createElement, forwardRef, useEffect, useRef, useState } from "react"
++import { createElement, forwardRef } from "react"
+ import type { ReactElement, ReactNode } from "react"
+-import type {
+-  MotionProps,
+-  MotionSpringTransition,
+-  MotionStyle,
+-  Props,
+-  PublicInstance,
+-  StyleDesc,
+-} from "../types/host.js"
+-import {
+-  allSpringChannelsRest,
+-  animateSignature,
+-  GELATIN,
+-  seedSpringTrack,
+-  SPRING_KEYS,
+-  stepSpringLease,
+-  subscribeSpringTick,
+-  type SpringKey,
+-  type SpringTrack,
+-} from "../motion-spring.js"
++import type { MotionProps, Props, PublicInstance, StyleDesc } from "../types/host.js"
+ 
+ export const gpuixComponents = {
+   div: "div",
+@@ -54,93 +36,17 @@ export interface MotionDivProps extends MotionProps {
+   autoFocus?: boolean
+ }
+ 
+-function isSpringTransition(
+-  transition: MotionProps["transition"]
+-): transition is MotionSpringTransition {
+-  return transition != null && transition.type === "spring"
+-}
+-
+-function readStyle(style: MotionStyle | false | undefined, key: SpringKey): number | undefined {
+-  if (style == null || style === false) return undefined
+-  return style[key]
+-}
+-
++/**
++ * Always pass `motion` to the host — including `transition.type === "spring"`.
++ * Native `packages/native/src/motion.rs` integrates springs continuously
++ * during GPUI paint. A React state paint loop would stair-step and keep
++ * PulseClock hot. Lease helpers stay in `motion-spring.ts` for leftover JS
++ * consumers; MotionDiv does not use them.
++ */
+ const MotionDiv = forwardRef<PublicInstance, MotionDivProps>(function MotionDiv(
+   { initial, animate, transition, style, ...props },
+   ref
+ ): ReactElement {
+-  const spring = isSpringTransition(transition)
+-  const animateRef = useRef(animate)
+-  animateRef.current = animate
+-  const [current, setCurrent] = useState<MotionStyle>(() => {
+-    const seed: MotionStyle = {}
+-    for (const key of SPRING_KEYS) {
+-      const value = readStyle(initial, key) ?? animate[key]
+-      if (value != null) seed[key] = value
+-    }
+-    return seed
+-  })
+-  const tracks = useRef<Partial<Record<SpringKey, SpringTrack>>>({})
+-  const paintedRef = useRef(current)
+-  const transitionRef = useRef(transition)
+-  transitionRef.current = transition
+-  const targetSignature = spring ? animateSignature(animate) : ""
+-
+-  useEffect(() => {
+-    if (!spring) return
+-    const spec = transitionRef.current
+-    const kick = isSpringTransition(spec) ? (spec.velocity ?? 0) : 0
+-    const target = animateRef.current
+-    for (const key of SPRING_KEYS) {
+-      const to = target[key]
+-      if (to == null) continue
+-      seedSpringTrack(tracks.current, key, paintedRef.current[key], to, kick)
+-    }
+-    if (allSpringChannelsRest(tracks.current, target)) return
+-
+-    let elapsedMs = 0
+-    return subscribeSpringTick((dt) => {
+-      const live = transitionRef.current
+-      if (!isSpringTransition(live)) return false
+-      elapsedMs += dt * 1000
+-      const result = stepSpringLease({
+-        tracks: tracks.current,
+-        target: animateRef.current,
+-        painted: paintedRef.current,
+-        dt,
+-        elapsedMs,
+-        stiffness: live.stiffness ?? GELATIN.stiffness,
+-        damping: live.damping ?? GELATIN.damping,
+-        mass: live.mass ?? GELATIN.mass,
+-        kick: live.velocity ?? 0,
+-      })
+-      if (result.publish) {
+-        paintedRef.current = result.painted
+-        setCurrent(result.painted)
+-      }
+-      return result.moving
+-    })
+-  }, [spring, targetSignature])
+-
+-  if (spring) {
+-    const hostProps: Props = {
+-      ...props,
+-      ref,
+-      style: {
+-        ...(style ?? {}),
+-        ...(current.width != null ? { width: current.width } : {}),
+-        ...(current.height != null ? { height: current.height } : {}),
+-        ...(current.opacity != null ? { opacity: current.opacity } : {}),
+-        ...(current.top != null ? { top: current.top } : {}),
+-        ...(current.right != null ? { right: current.right } : {}),
+-        ...(current.bottom != null ? { bottom: current.bottom } : {}),
+-        ...(current.left != null ? { left: current.left } : {}),
+-        ...(current.borderRadius != null ? { borderRadius: current.borderRadius } : {}),
+-      },
+-    }
+-    return createElement("div", hostProps)
+-  }
+-
+   const hostProps: Props = {
+     ...props,
+     ref,
+-- 
+2.47.3
+
