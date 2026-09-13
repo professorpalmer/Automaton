@@ -1,7 +1,7 @@
 import type { QuestionWidget } from '../domain'
 
 /** Who started this turn. Auto may only follow a user-authored kickoff. */
-export type TurnKickoff = 'user' | 'webhook' | 'routine' | 'peer-hop' | 'intro' | 'unknown'
+export type TurnKickoff = 'user' | 'webhook' | 'routine' | 'channel' | 'peer-hop' | 'intro' | 'unknown'
 
 export type ApprovalDecision = 'auto' | 'ask' | 'deny'
 
@@ -40,7 +40,7 @@ export type ApprovalOutcome = {
     | 'grant-always'
 }
 
-export const UNATTENDED_SOURCES = ['webhook', 'routine', 'peer-hop', 'intro', 'unknown'] as const
+export const UNATTENDED_SOURCES = ['webhook', 'routine', 'channel', 'peer-hop', 'intro', 'unknown'] as const
 
 /**
  * Extra ask on obvious host damage. This is not a sandbox and not a permit:
@@ -109,10 +109,10 @@ export function cancelPendingApprovals(pending: PendingApproval[]): PendingAppro
 }
 
 export function unattendedApprovalWidget(
-  source: 'webhook' | 'routine' | 'peer-hop',
+  source: 'webhook' | 'routine' | 'channel' | 'peer-hop',
   prompt?: string,
 ): QuestionWidget {
-  const label = source === 'peer-hop' ? 'peer hop' : source
+  const label = source === 'peer-hop' ? 'peer hop' : source === 'channel' ? 'channel' : source
   return {
     prompt: prompt ?? `Approve this ${label} action?`,
     options: [

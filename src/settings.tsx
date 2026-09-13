@@ -43,6 +43,14 @@ import {
   scheduleOrTriggerSummary,
   type Routine,
 } from './runtime/routines'
+import {
+  channelStatusLabel,
+  connectSlack,
+  disconnectChannel,
+  hasSlackGrant,
+  slackStatus,
+  type Channel,
+} from './runtime/channels'
 
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
@@ -421,6 +429,8 @@ export function Settings({
     return out
   })
   const [presence, setPresence] = useState(openRouterPresence)
+  const [slack, setSlack] = useState<Channel>(() => slackStatus())
+  const [slackDraft, setSlackDraft] = useState('')
   const [openRouter, setOpenRouter] = useState(openRouterRow)
   const [probeNote, setProbeNote] = useState<{ id: string; text: string } | null>(null)
   const [catalog, setCatalog] = useState<CatalogModel[]>(() => {
@@ -482,6 +492,18 @@ export function Settings({
     if (!shouldLiveProbe()) return
     void probeConnector(OPENROUTER_ID).then(setOpenRouter)
     loadCatalog()
+  }
+  const saveSlack = () => {
+    const token = slackDraft.trim()
+    if (!token) return
+    const row = connectSlack({ botToken: token })
+    setSlackDraft('')
+    setSlack(row)
+  }
+  const dropSlack = () => {
+    const row = disconnectChannel('slack')
+    setSlack(row ?? slackStatus())
+    setSlackDraft('')
   }
   const pickModel = (seatId: string, value: string) => {
     const model = value.trim()
@@ -609,6 +631,61 @@ export function Settings({
             >
               <div style={{ fontSize: T.type.sm, color: T.text }}>{openRouter.name}</div>
               <div style={{ fontSize: T.type.sm, color: T.secondary }}>{connectorStatusLabel(openRouter)}</div>
+            </div>
+          </div>
+        </Section>
+        <Section title="Channels">
+          <div testId="settings-channels" style={CARD_STYLE}>
+            <div
+              testId="channel-slack"
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: T.space.sm,
+              }}
+            >
+              <div
+                style={{
+                  display: 'flex',
+                  flexDirection: 'row',
+                  justifyContent: 'space-between',
+                  gap: T.space.md,
+                }}
+              >
+                <div style={{ fontSize: T.type.sm, color: T.text }}>Slack</div>
+                <div style={{ fontSize: T.type.sm, color: T.secondary }}>
+                  {channelStatusLabel(slack)}
+                </div>
+              </div>
+              <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                Mentions and DMs wake Staff. Token stays out of chat — same vault as OpenRouter.
+              </div>
+              {slack.connected && hasSlackGrant() ? (
+                <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm }}>
+                  <Chip testId="settings-slack-disconnect" tone="ghost" onClick={dropSlack}>
+                    Disconnect
+                  </Chip>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
+                  <textarea
+                    testId="settings-slack-token"
+                    value={slackDraft}
+                    placeholder="Paste Slack bot token here, not in chat"
+                    minRows={1}
+                    maxRows={2}
+                    theme={FIELD_THEME}
+                    style={{ ...FIELD_STYLE, flexGrow: 1 }}
+                    onChange={(event) => setSlackDraft(event.value ?? '')}
+                  />
+                  <Chip testId="settings-slack-connect" tone="action" onClick={saveSlack}>
+                    Connect
+                  </Chip>
+                </div>
+              )}
+              {slack.lastError ? (
+                <div style={{ fontSize: T.type.xs, color: T.danger }}>{slack.lastError}</div>
+              ) : null}
             </div>
           </div>
         </Section>

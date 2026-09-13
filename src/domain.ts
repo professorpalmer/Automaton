@@ -170,7 +170,7 @@ export type FeedItem =
       at?: number
       sisterHop?: { to: AgentId; depth: number }
       /** Unattended wakes (routine/webhook) — turnKickoff reads this. */
-      kickoff?: 'user' | 'webhook' | 'routine' | 'peer-hop' | 'intro' | 'unknown'
+      kickoff?: 'user' | 'webhook' | 'routine' | 'channel' | 'peer-hop' | 'intro' | 'unknown'
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
@@ -202,6 +202,15 @@ export type SteerLine = {
   attachmentIds?: string[]
 }
 
+/** Where to post a mouth reply for a channel-origin turn (Slack MVP). */
+export type ChannelReplyRouting = {
+  platform: 'slack'
+  connectionId: string
+  slackChannel: string
+  threadTs?: string
+  expectReply: boolean
+}
+
 export type Thread = {
   agentId: AgentId
   items: FeedItem[]
@@ -217,6 +226,8 @@ export type Thread = {
   computerBusy?: boolean
   /** Sister hops still out for this coordinator turn. Assess waits until empty. */
   pendingHops: AgentId[]
+  /** Slack (etc.) reply address for the active channel-origin turn. */
+  pendingChannelReply?: ChannelReplyRouting
 }
 
 export const STAFF_AGENT: Agent = {

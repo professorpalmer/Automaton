@@ -11,6 +11,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys
 - [Routines](docs/routines.md) — schedule/event mouth wakes (product; app must be open for MVP ticks)
+- [Channels](docs/channels.md) — Slack mention/DM wake + reply (Settings connect; inbox drop MVP)
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run
