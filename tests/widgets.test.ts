@@ -14,6 +14,7 @@ import {
   staffWithSisters,
   widgetDismissOnMoveOn,
   widgetReplyText,
+  scrubSecretRequestItem,
   type WidgetOption,
 } from '../src/domain'
 import { OPENROUTER_ID } from '../src/runtime/connectors'
@@ -22,13 +23,17 @@ import {
   answerWidget,
   completeJob,
   completeMouth,
+  dismissSecretRequest,
   emitSecretRequest,
   emitWidget,
   failJob,
   fulfillSecretRequest,
+  normalizeSession,
   send,
   type Session,
 } from '../src/session'
+import { applyMaskedSecretEdit } from '../src/cards'
+import { openStaffStore } from '../src/runtime/store'
 
 function fresh(): Session {
   resetIdsForTests()
@@ -211,6 +216,94 @@ describe('secret-request', () => {
     expect(
       s.threads.staff.items.some((item) => item.kind === 'msg' && item.text === 'Need a connector grant.'),
     ).toBe(true)
+  })
+
+  test('fulfill never persists secret in session snapshot / round-trip JSON', () => {
+    const prev = process.env.AUTOMATON_HOME
+    const home = join(tmpdir(), `automaton-secret-persist-${Date.now()}`)
+    mkdirSync(home, { recursive: true })
+    process.env.AUTOMATON_HOME = home
+    const secret = 'sk-or-never-in-sqlite-9f3a'
+    try {
+      resetIdsForTests()
+      let s = emitSecretRequest(fresh(), 'staff', OPENROUTER_ID)
+      const card = s.threads.staff.items.find((item) => item.kind === 'secret-request')
+      expect(card?.kind).toBe('secret-request')
+      s = fulfillSecretRequest(s, card!.id, secret)
+      expect(JSON.stringify(s)).not.toContain(secret)
+      const scrubbed = normalizeSession(s)
+      expect(JSON.stringify(scrubbed)).not.toContain(secret)
+      const path = join(home, 'staff-secret-roundtrip.sqlite')
+      const store = openStaffStore(path)
+      store.save(s)
+      const loaded = store.load()
+      expect(loaded).toBeTruthy()
+      expect(JSON.stringify(loaded)).not.toContain(secret)
+      const saved = loaded!.threads.staff.items.find((item) => item.kind === 'secret-request')
+      expect(saved?.kind === 'secret-request' && saved.status).toBe('saved')
+      expect(JSON.stringify(saved)).not.toContain(secret)
+      expect(saved).not.toHaveProperty('value')
+      expect(saved).not.toHaveProperty('token')
+      expect(saved).not.toHaveProperty('secret')
+      // scrub drops accidental value if somehow present on a row
+      const dirty = {
+        kind: 'secret-request' as const,
+        id: 'item_x',
+        agentId: 'staff' as const,
+        connectorId: OPENROUTER_ID,
+        status: 'saved' as const,
+        configured: true,
+        value: secret,
+      }
+      const clean = scrubSecretRequestItem(dirty as never)
+      expect(JSON.stringify(clean)).not.toContain(secret)
+      expect(clean).not.toHaveProperty('value')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('dismiss speaks Need once and does not re-open a card', () => {
+    resetIdsForTests()
+    let s = emitSecretRequest(fresh(), 'staff', OPENROUTER_ID)
+    const card = s.threads.staff.items.find((item) => item.kind === 'secret-request')
+    expect(card?.kind === 'secret-request' && card.status).toBe('open')
+    s = dismissSecretRequest(s, card!.id)
+    const row = s.threads.staff.items.find((item) => item.id === card!.id)
+    expect(row?.kind === 'secret-request' && row.status).toBe('dismissed')
+    const needs = s.threads.staff.items.filter(
+      (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Still need a connector grant.',
+    )
+    expect(needs).toHaveLength(1)
+    // dismiss again is a no-op — no second Need line
+    s = dismissSecretRequest(s, card!.id)
+    const needsAgain = s.threads.staff.items.filter(
+      (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Still need a connector grant.',
+    )
+    expect(needsAgain).toHaveLength(1)
+  })
+
+  test('duplicate emit does not stack open cards for the same connector', () => {
+    resetIdsForTests()
+    let s = emitSecretRequest(fresh(), 'staff', OPENROUTER_ID)
+    s = emitSecretRequest(s, 'staff', OPENROUTER_ID)
+    const opens = s.threads.staff.items.filter(
+      (item) => item.kind === 'secret-request' && item.status === 'open' && item.connectorId === OPENROUTER_ID,
+    )
+    expect(opens).toHaveLength(1)
+    expect(opens[0]?.kind === 'secret-request' && opens[0].fieldLabel).toBe('API key')
+    expect(opens[0]?.kind === 'secret-request' && opens[0].storeHint).toContain('keys.json')
+  })
+
+  test('masked field edit helper never leaves plaintext in the display string', () => {
+    expect(applyMaskedSecretEdit('', 'sk-abc')).toBe('sk-abc')
+    expect(applyMaskedSecretEdit('ab', '••c')).toBe('abc')
+    expect(applyMaskedSecretEdit('abc', '••')).toBe('ab')
+    expect(applyMaskedSecretEdit('abc', '•••')).toBe('abc')
+    expect(applyMaskedSecretEdit('old', 'brand-new')).toBe('brand-new')
+    expect('•'.repeat(3)).not.toMatch(/[a-z]/)
   })
 })
 

@@ -14,6 +14,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Channels](docs/channels.md) — Slack mention/DM wake + reply (Settings connect; inbox drop MVP)
 - [Rooms](docs/rooms.md) — local multi-agent rooms + SendToAgent-class async peer notes
 - [MCP catalog](docs/mcp.md) — curated in-app MCP install / auth / schema hints (Settings)
+- [Secrets](docs/secrets.md) — secret-request card, masked entry, vault (never chat-paste)
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run

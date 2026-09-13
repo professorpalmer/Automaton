@@ -86,3 +86,5 @@ cookies or invent transports.
 - **filesystem** — `@modelcontextprotocol/server-filesystem`
 - **puppetmaster** — `puppetmaster-ai` (`python -m puppetmaster.mcp_server`)
 - **memory** — `@modelcontextprotocol/server-memory`
+
+See also [Secrets](secrets.md) for the shared secret-request / Connect UX.

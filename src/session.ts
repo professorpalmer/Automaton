@@ -70,6 +70,7 @@ import {
   visibleAgents,
   widgetDismissOnMoveOn,
   widgetReplyText,
+  scrubSecretRequestItem,
 } from './domain'
 import { kitForAgent } from './runtime/profile'
 import { displayForMouth } from './runtime/computer'
@@ -79,7 +80,12 @@ import {
   looksLikeComputerUse,
   needsOperatorHandoff,
 } from './runtime/computer-tools'
-import { knownConnectorId, writeConnectorSecret } from './runtime/connectors'
+import {
+  connectorFieldLabel,
+  connectorStoreHint,
+  knownConnectorId,
+  writeConnectorSecret,
+} from './runtime/connectors'
 import {
   cancelPendingApprovals,
   decideApproval,
@@ -164,6 +170,11 @@ export function normalizeSession(session: Session): Session {
     leftover.steerQueue = Array.isArray(leftover.steerQueue) ? leftover.steerQueue : []
     leftover.jobSteerQueue = Array.isArray(leftover.jobSteerQueue) ? leftover.jobSteerQueue : []
     leftover.pendingHops = Array.isArray(leftover.pendingHops) ? leftover.pendingHops : []
+    leftover.items = Array.isArray(leftover.items)
+      ? leftover.items.map((item) =>
+          item.kind === 'secret-request' ? scrubSecretRequestItem(item) : item,
+        )
+      : []
     threads[id] = leftover
   }
   return {
@@ -1765,14 +1776,21 @@ export function emitSecretRequest(session: Session, agentId: AgentId, connectorI
   if (!session.threads[agentId]) return session
   const id = connectorId.trim()
   if (!id || !knownConnectorId(id)) return session
-  const item: FeedItem = {
+  const open = thread(session, agentId).items.find(
+    (item) => item.kind === 'secret-request' && item.connectorId === id && item.status === 'open',
+  )
+  // Honesty: do not stack duplicate open cards / re-ask loops for the same connector.
+  if (open) return wakeMouth(session, agentId, 'idle')
+  const item: FeedItem = scrubSecretRequestItem({
     kind: 'secret-request',
     id: nextId('item'),
     agentId,
     connectorId: id,
     status: 'open',
+    fieldLabel: connectorFieldLabel(id),
+    storeHint: connectorStoreHint(id),
     at: Date.now(),
-  }
+  })
   let next = append(session, agentId, item, session.activeAgentId)
   return wakeMouth(next, agentId, 'idle')
 }
@@ -1861,17 +1879,25 @@ export function fulfillSecretRequest(session: Session, itemId: string, value: st
   const secret = value.trim()
   if (!secret) return session
   if (!writeConnectorSecret(item.connectorId, secret)) return session
+  // Confirm "provided" only — never persist `value` / secret onto the feed item or session JSON.
   return patchItem(session, itemId, (row) =>
-    row.kind === 'secret-request' ? { ...row, status: 'saved' as const, configured: true } : row,
+    row.kind === 'secret-request'
+      ? scrubSecretRequestItem({ ...row, status: 'saved', configured: true })
+      : row,
   )
 }
 
 export function dismissSecretRequest(session: Session, itemId: string): Session {
   const item = findFeedItem(session, itemId)
   if (!item || item.kind !== 'secret-request' || item.status !== 'open') return session
-  return patchItem(session, itemId, (row) =>
-    row.kind === 'secret-request' ? { ...row, status: 'dismissed' as const } : row,
+  let next = patchItem(session, itemId, (row) =>
+    row.kind === 'secret-request'
+      ? scrubSecretRequestItem({ ...row, status: 'dismissed' })
+      : row,
   )
+  // Decline once — speak Need; do not re-emit / loop another secret-request card.
+  next = speak(next, item.agentId, 'Still need a connector grant.', next.activeAgentId)
+  return next
 }
 
 export function waitComputerHost(
