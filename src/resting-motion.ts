@@ -88,7 +88,7 @@ const MARK_PX_REST = 0.05
 const MARK_OPACITY_REST = 0.002
 
 export function quantizeMarkPx(value: number): number {
-  return Math.round(value / MARK_PX_PUBLISH_EPS) * MARK_PX_PUBLISH_EPS
+  return Number(value.toFixed(1))
 }
 
 export function markPxShouldPublish(previous: number, next: number): boolean {
