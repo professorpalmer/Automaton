@@ -20,7 +20,8 @@ OpenRouter is configured in Settings (or `~/.automaton/keys.json`).
 ```sh
 bun install
 bun test
-bun run app
+bun run app          # cold default (Dock face; reclaim zombies)
+# bun run dev        # opt-in --hot remounts only; can zombie — prefer app
 ```
 
 On macOS, `bun run app` opens `macos/Automaton.app` so the Dock and the
@@ -30,8 +31,11 @@ still works, but a bun process spawned from Cursor stays under Cursor's
 menu (Cmd+Plus / Cmd+Minus go to the editor). The in-window titlebar paints
 **Automaton** next to the focused mouth.
 
-`--hot` remounts can leave a zombie window. If clicks miss, quit leftover
-Automaton windows and run `bun run app` (or `bun src/main.tsx`).
+Cold launch is `bun run app` (default / Update relaunch). `bun run dev`
+(`bun --hot src/main.tsx`) is **dev-only / opt-in** — remounts can leave a
+zombie window. Cold open reclaims prior Automaton windows for this install
+before focusing or opening the face (no default `open -n` stack). If clicks
+miss or doctor WARNs on leftovers, quit them and kick cold with `bun run app`.
 
 `bun test` is the suite. CI runs that job on macOS. `bun scripts/replay-tough-eval.ts` measures recall safety (avoidance, false-hit rate, stale-hit rate, cost) on a seeded mixed workload. It is not the 95% repeated-work replay. `bun run doctor` checks
 Puppetmaster. `bun scripts/probe-kernel.ts` launches a read-only analyze

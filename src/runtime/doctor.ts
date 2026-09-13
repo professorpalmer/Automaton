@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process'
 import { boxStatus, computerLabel } from './box'
+import { doctorLiveInstance, type LiveInstanceDoctor, type LiveInstanceSeams } from './live-instance'
 
 export type DoctorReport = {
   ok: boolean
@@ -8,6 +9,10 @@ export type DoctorReport = {
   chrome: 'found' | 'missing'
   chromePath?: string
   computer: string
+  /** Live-instance / zombie check — WARN only; does not alone flip ok false. */
+  liveInstance: 'ok' | 'warn'
+  liveInstancePids?: number[]
+  liveInstanceNote?: string
   error?: string
 }
 
@@ -32,7 +37,20 @@ function chromeReport() {
   }
 }
 
-export function doctorPuppetmaster(): DoctorReport {
+function withLiveInstance(
+  base: Omit<DoctorReport, 'liveInstance' | 'liveInstancePids' | 'liveInstanceNote'>,
+  liveSeams?: LiveInstanceSeams,
+): DoctorReport {
+  const live: LiveInstanceDoctor = doctorLiveInstance(liveSeams ?? {})
+  return {
+    ...base,
+    liveInstance: live.status,
+    liveInstancePids: live.pids.length ? live.pids : undefined,
+    liveInstanceNote: live.message,
+  }
+}
+
+export function doctorPuppetmaster(liveSeams?: LiveInstanceSeams): DoctorReport {
   const attempts: Array<[string, string[]]> = [
     ['puppetmaster', ['doctor']],
     ['python', ['-m', 'puppetmaster', 'doctor']],
@@ -44,24 +62,30 @@ export function doctorPuppetmaster(): DoctorReport {
     last = text
     if (status === 0 && /ok\s+python/.test(text)) {
       const { computer, chrome, chromePath } = chromeReport()
-      return {
-        ok: true,
-        python: [command, ...args].join(' '),
-        puppetmaster: 'reachable',
-        chrome,
-        chromePath,
-        computer: computerLabel(computer),
-      }
+      return withLiveInstance(
+        {
+          ok: true,
+          python: [command, ...args].join(' '),
+          puppetmaster: 'reachable',
+          chrome,
+          chromePath,
+          computer: computerLabel(computer),
+        },
+        liveSeams,
+      )
     }
   }
   const { computer, chrome, chromePath } = chromeReport()
-  return {
-    ok: false,
-    python: 'puppetmaster | python -m puppetmaster',
-    puppetmaster: 'failed',
-    chrome,
-    chromePath,
-    computer: computerLabel(computer),
-    error: last.slice(0, 800),
-  }
+  return withLiveInstance(
+    {
+      ok: false,
+      python: 'puppetmaster | python -m puppetmaster',
+      puppetmaster: 'failed',
+      chrome,
+      chromePath,
+      computer: computerLabel(computer),
+      error: last.slice(0, 800),
+    },
+    liveSeams,
+  )
 }
