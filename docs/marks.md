@@ -1,7 +1,7 @@
 # Living marks (P1.7)
 
 Rail marks are Automaton art (`SisterBlob` + baked `src/marks/` frames), not
-Grok/Hermes assets. Package is **0.7.0** (Wave 2 P2 band cut).
+Grok/Hermes assets. Package is **0.8.0** (Wave 2 P2 band cut).
 
 ## What improved
 

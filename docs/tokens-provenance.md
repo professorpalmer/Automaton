@@ -5,7 +5,7 @@ mechanics (environment-read tokens, Brand knobs, named MotionSpec) — not a
 bezel crate. Dark is the default snapshot. Light is a designed role
 assignment (white content, grey chrome, opaque input plate) — not an invert.
 
-Package / Info.plist are **0.7.0** (Wave 2 P2 band cut). Light / Brand
+Package / Info.plist are **0.8.0** (Wave 2 P2 band cut). Light / Brand
 completion shipped with this cut (designed light + remaining CARD/FIELD via
 useChrome).
 

@@ -1,6 +1,6 @@
 # Cloud agent / Origin (optional, public only)
 
-Package **0.7.0**. Cloud agent and Cursor Origin are an **opt-in** Jobs /
+Package **0.8.0**. Cloud agent and Cursor Origin are an **opt-in** Jobs /
 Settings transport — not required for the local Docker box or Mac staff.
 Local Puppetmaster jobs still own durable analyze / implement. Mouths stay
 Send. Fail soft when the public API is unavailable.

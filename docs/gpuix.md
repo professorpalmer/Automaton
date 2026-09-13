@@ -1,8 +1,8 @@
 # `@gpuix/react` vendor pin (P2.1 honesty)
 
 Automaton stays on **vendored** `@gpuix/react` **0.6.1**
-(`file:vendor/gpuix-react-0.6.1.tgz`). Package / Info.plist are **0.7.0**
-(Wave 2 P2 band cut). Still vendored 0.6.1 — do not drop onto npm 0.7.0.
+(`file:vendor/gpuix-react-0.6.1.tgz`). Package / Info.plist are **0.8.0**
+(Wave 2 P2 band cut). Still vendored 0.6.1 — do not drop onto npm 0.8.0.
 
 ## Decision: stay vendored
 
@@ -10,12 +10,12 @@ Automaton stays on **vendored** `@gpuix/react` **0.6.1**
 | --- | --- |
 | Pin today | `package.json` → `"@gpuix/react": "file:vendor/gpuix-react-0.6.1.tgz"` |
 | Why vendor | Dist includes spring lease parking (`motion-spring`, `onFrame` park) that P1.6 idle parks need |
-| npm latest | `@gpuix/react@0.7.0` on the registry **does not** ship `motion-spring` / lease-park in dist |
+| npm latest | `@gpuix/react@0.8.0` on the registry **does not** ship `motion-spring` / lease-park in dist |
 | Upstream | [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34) (`feat/motion-springs`, park commit) is still **OPEN** (mergeable / unstable) |
 | Publish | Cary does **not** own the `@gpuix` npm scope. Never ask for `NPM_TOKEN` to publish `@gpuix` |
 
-**Do not** switch the dependency to npm `0.7.0`. Dropping `file:vendor` onto
-registry 0.7.0 would lose P1.6 idle parks (`spring-lease` / `frame-pace` in
+**Do not** switch the dependency to npm `0.8.0`. Dropping `file:vendor` onto
+registry 0.8.0 would lose P1.6 idle parks (`spring-lease` / `frame-pace` in
 [`docs/idle-cpu.md`](./idle-cpu.md)).
 
 ## When to drop the vendor tarball
@@ -59,7 +59,7 @@ lease, then:
 - keeps opacity on the gpuix kind helpers
 - still hard-parks at 420ms; frozen sisters still `immediate`
 
-Stay vendored 0.6.1. Do not switch to npm 0.7.0 for a finer px quantize.
+Stay vendored 0.6.1. Do not switch to npm 0.8.0 for a finer px quantize.
 
 ## Related
 

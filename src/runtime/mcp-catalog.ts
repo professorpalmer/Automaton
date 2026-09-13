@@ -428,7 +428,7 @@ export function callMcpTool(
     value: {
       stub: true,
       message:
-        'MCP live call not wired in Automaton 0.7.0 — discoverTools/schema hints only. See docs/mcp.md.',
+        'MCP live call not wired in Automaton 0.8.0 — discoverTools/schema hints only. See docs/mcp.md.',
     },
   }
 }
