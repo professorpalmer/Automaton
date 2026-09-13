@@ -61,7 +61,7 @@ import { copyFeedSelection, feedMsgIds, hitMsgIdAtY, selectFeedRange } from './r
 import { abandonJob, claimRepoForJob, ensureDispatched, isLiveAnalyzeGoal } from './runtime/jobs'
 import { cloneAgent, createAgent, destroyAgent, ensureMarkFrames, hydrateSession, liveAgentFromProfile, applyHomeBinds } from './runtime/factory'
 import { adoptMarionetteOpenRouterKey, listOpenRouterKeys } from './runtime/keys'
-import { dropMouthStarts, ensureMouth } from './runtime/mouth'
+import { dropMouthStarts, ensureMouth, compactMouthNow } from './runtime/mouth'
 import { fireDueRoutines } from './runtime/routines'
 import { connectorConfigured } from './runtime/connectors'
 import {
@@ -114,6 +114,7 @@ import {
   failComputer,
   failJob,
   failMouth,
+  noteMouthNeed,
   noteJobStatus,
   patchLiveAgent,
   queuePaths,
@@ -127,6 +128,7 @@ import {
   runningComputerWorkers,
   runningJobs,
   setActive,
+  setThreadCompactSummary,
   setDraft,
   stopRun,
   cancelGoal,
@@ -501,6 +503,12 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
           persistIntroIfUserSpoke(next)
           return next
         })
+      },
+      onCompact: (agentId, summary) => {
+        setSession((current) => setThreadCompactSummary(current, agentId, summary))
+      },
+      onCompactFail: (agentId, note) => {
+        setSession((current) => noteMouthNeed(current, agentId, note))
       },
     })
   }, [store, mouthEpoch])
@@ -1109,6 +1117,39 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 onSkinChange={() => {
                   applyChromeToTokens(readSkin())
                   setChromeTick((n) => n + 1)
+                }}
+                onCompactNow={() => {
+                  const agentId = session.activeAgentId
+                  void compactMouthNow(session, store, agentId, {
+                    onCompact: (id, summary) => {
+                      setSession((current) => setThreadCompactSummary(current, id, summary))
+                    },
+                    onCompactFail: (id, note) => {
+                      setSession((current) => noteMouthNeed(current, id, note))
+                    },
+                  }).then((result) => {
+                    if (result === 'need-key') {
+                      setSession((current) =>
+                        noteMouthNeed(current, agentId, 'Need an OpenRouter key.'),
+                      )
+                    } else if (result === 'skipped') {
+                      setSession((current) =>
+                        noteMouthNeed(
+                          current,
+                          agentId,
+                          'Mouth context already fits — nothing to compact.',
+                        ),
+                      )
+                    } else if (result === 'compacted') {
+                      setSession((current) =>
+                        noteMouthNeed(
+                          current,
+                          agentId,
+                          'Compacted mouth context (summary + recent turns). Jobs strip unchanged.',
+                        ),
+                      )
+                    }
+                  })
                 }}
               />
             ) : null}

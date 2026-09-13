@@ -1,5 +1,6 @@
 import { looksLikeLiveCheck, type Agent, type AgentKit, type Thread } from '../domain'
 import { imageDataUrl } from './attachments'
+import { formatCompactSummary } from './compact'
 import { formatWellKnown, listWellKnownProjects, type MachineProject } from './machine'
 import { skillPromptLayers, type SkillMeta } from './skills'
 
@@ -366,6 +367,8 @@ export function buildWorkingSet(input: {
   skillIds?: string[]
   query?: string
   mode?: 'chat' | 'assess' | 'intro'
+  /** Optional override; defaults to thread.compactSummary. Mouth context only. */
+  compactSummary?: string
 }): ChatTurn[] {
   const layers = skillPromptLayers({
     skills: input.skills,
@@ -413,6 +416,10 @@ export function buildWorkingSet(input: {
         .map((row) => `- ${row.ownerAgentId}: ${row.text}`)
         .join('\n')}`,
     })
+  }
+  const summary = (input.compactSummary ?? input.thread.compactSummary)?.trim()
+  if (summary) {
+    messages.push({ role: 'user', content: formatCompactSummary(summary) })
   }
   const attachments = input.attachments ?? []
   const tail = input.thread.items.filter((item) => item.kind === 'msg').slice(-TAIL)

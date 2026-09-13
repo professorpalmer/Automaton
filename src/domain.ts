@@ -234,6 +234,11 @@ export type Thread = {
   pendingHops: AgentId[]
   /** Slack (etc.) reply address for the active channel-origin turn. */
   pendingChannelReply?: ChannelReplyRouting
+  /**
+   * Mouth working-set summary (P2.4). Model window = this + recent TAIL turns.
+   * Not a Jobs/PM artifact. Honest: summarized, not verbatim transcript.
+   */
+  compactSummary?: string
 }
 
 export const STAFF_AGENT: Agent = {

@@ -82,10 +82,12 @@ the sister's checkout instead of a bare mouth turn.
 
 The titlebar computer control and Cmd+Shift+I open the inspector: computer
 status, screen thumbnail, and Take control. Settings holds OpenRouter and
-the model plane.
+the model plane. Mouth context compaction (summary + recent turns, Compact
+now) lives under Settings → Mouth context — see [compaction](compaction.md).
 
 ## Related
 
 - [Computer](computer.md)
 - [Jobs](jobs.md)
 - [Durable state](durability.md)
+- [Mouth compaction](compaction.md)

@@ -10,6 +10,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
 - [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys
+- [Mouth compaction](docs/compaction.md) — working set summary + recent turns; Compact now
 - [Routines](docs/routines.md) — schedule/event mouth wakes (product; app must be open for MVP ticks)
 - [Channels](docs/channels.md) — Slack mention/DM wake + reply (Settings connect; inbox drop MVP)
 - [Rooms](docs/rooms.md) — local multi-agent rooms + SendToAgent-class async peer notes

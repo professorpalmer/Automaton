@@ -5,9 +5,19 @@ import {
   cachePrefixText,
   compactRequestMessages,
   COMPACT_CHAR_BUDGET,
+  COMPACT_FAIL_COOLDOWN_MS,
   COMPACT_INSTRUCTIONS,
+  COMPACT_KEEP_TAIL,
+  COMPACT_MIN_MIDDLE,
   COMPACT_MODEL,
+  COMPACT_SUMMARY_PREFIX,
+  formatCompactSummary,
+  isCompactSummaryTurn,
+  markCompactFail,
+  middleFingerprint,
   prefixHasVolatile,
+  resetCompactForTests,
+  runCompact,
   SCREENSHOT_PRUNE_EVERY,
   shouldCompact,
   shouldPruneScreenshots,
@@ -98,11 +108,102 @@ describe('cache-stable compaction', () => {
     expect(JSON.stringify(request)).toContain(COMPACT_INSTRUCTIONS)
     expect(COMPACT_INSTRUCTIONS).toContain('file paths')
     expect(COMPACT_INSTRUCTIONS).toContain('decisions')
+    expect(COMPACT_INSTRUCTIONS).toContain('verbatim quotes')
     expect(COMPACT_MODEL).toBe('openai/gpt-4o-mini')
     const compacted = applyCompact(messages, 'Kept src/runtime/mouth.ts. Decision: cache the system prefix.')
     expect(compacted[0]?.content).toBe(messages[0]?.content)
     expect(JSON.stringify(compacted)).toContain('src/runtime/mouth.ts')
     expect(compacted.length).toBeLessThan(messages.length)
+    expect(isCompactSummaryTurn(compacted[1]!)).toBe(true)
+    expect(String(compacted[1]?.content)).toContain(COMPACT_SUMMARY_PREFIX)
+  })
+
+  test('honesty banner marks summarized vs verbatim-recent', () => {
+    expect(formatCompactSummary('Pinned mouth.ts')).toBe(
+      `${COMPACT_SUMMARY_PREFIX}\nPinned mouth.ts`,
+    )
+    const messages = big(12)
+    const compacted = applyCompact(messages, 'Pinned mouth.ts')
+    expect(COMPACT_KEEP_TAIL).toBe(4)
+    expect(COMPACT_MIN_MIDDLE).toBe(2)
+    const summary = compacted.find(isCompactSummaryTurn)
+    expect(summary).toBeTruthy()
+    const after = compacted.slice(compacted.indexOf(summary!) + 1)
+    expect(after.length).toBe(COMPACT_KEEP_TAIL)
+    expect(after.every((row) => !isCompactSummaryTurn(row))).toBe(true)
+  })
+
+  test('runCompact fail-soft keeps prior set and cooldown skips re-hit', async () => {
+    resetCompactForTests()
+    const messages = big(20)
+    const fail = await runCompact(
+      messages,
+      async () => {
+        throw new Error('openrouter 500')
+      },
+      'sk-test',
+    )
+    expect(fail.status).toBe('failed')
+    if (fail.status !== 'failed') throw new Error('expected failed')
+    expect(fail.messages).toBe(messages)
+    markCompactFail(1_000)
+    const skipped = await runCompact(
+      messages,
+      async () => 'should not run',
+      'sk-test',
+      { now: 1_000 + COMPACT_FAIL_COOLDOWN_MS - 1 },
+    )
+    expect(skipped.status).toBe('skipped')
+    let calls = 0
+    const ok = await runCompact(
+      messages,
+      async () => {
+        calls += 1
+        return 'Kept paths.'
+      },
+      'sk-test',
+      { now: 1_000 + COMPACT_FAIL_COOLDOWN_MS + 1 },
+    )
+    expect(ok.status).toBe('compacted')
+    expect(calls).toBe(1)
+    const fp = middleFingerprint(messages)
+    const again = await runCompact(
+      messages,
+      async () => {
+        calls += 1
+        return 'again'
+      },
+      'sk-test',
+      { now: 1_000 + COMPACT_FAIL_COOLDOWN_MS + 2 },
+    )
+    expect(again.status).toBe('skipped')
+    expect(calls).toBe(1)
+    expect(fp).toBe(middleFingerprint(messages))
+  })
+
+  test('force Compact now bypasses char budget when middle exists', async () => {
+    resetCompactForTests()
+    const messages: ChatTurn[] = [
+      { role: 'system', content: 'You are Staff.' },
+      { role: 'user', content: 'one' },
+      { role: 'assistant', content: 'two' },
+      { role: 'user', content: 'three' },
+      { role: 'assistant', content: 'four' },
+      { role: 'user', content: 'five' },
+      { role: 'assistant', content: 'six' },
+    ]
+    expect(shouldCompact(messages)).toBe(false)
+    expect(shouldCompact(messages, COMPACT_CHAR_BUDGET, { force: true })).toBe(true)
+    const forced = await runCompact(
+      messages,
+      async () => 'Short summary of earlier turns.',
+      'sk-test',
+      { force: true },
+    )
+    expect(forced.status).toBe('compacted')
+    if (forced.status !== 'compacted') throw new Error('expected compacted')
+    expect(forced.messages.length).toBeLessThan(messages.length)
+    expect(JSON.stringify(forced.messages)).toContain(COMPACT_SUMMARY_PREFIX)
   })
 
   test('OpenRouter breakpoint sits on the system prefix; tools JSON stays ordered', () => {

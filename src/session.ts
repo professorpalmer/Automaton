@@ -1291,6 +1291,23 @@ export function failMouth(session: Session, agentId: AgentId, spoken: string): S
   return completeMouth(session, agentId, spoken)
 }
 
+/** Persist mouth compact summary. Does not touch Jobs / PM artifacts. */
+export function setThreadCompactSummary(
+  session: Session,
+  agentId: AgentId,
+  summary: string,
+): Session {
+  if (!session.threads[agentId]) return session
+  const text = summary.trim()
+  return setThread(session, agentId, { compactSummary: text || undefined })
+}
+
+/** Soft Need line without failing a live mouth turn. */
+export function noteMouthNeed(session: Session, agentId: AgentId, spoken: string): Session {
+  if (!session.threads[agentId]) return session
+  return speak(session, agentId, spoken, session.activeAgentId)
+}
+
 export function attachPmJob(session: Session, jobId: string, pmJobId: string): Session {
   const id = pmJobId.trim()
   if (!id) return session

@@ -10,7 +10,7 @@ import { DEFAULT_SEAT_MODEL, mouthModelFor, seatBinding, type SeatBinding } from
 import { applyProviderReasoningControls, type ProviderMapContext } from './provider-maps'
 import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
-import { applyCompact, compactRequestMessages, COMPACT_MODEL, shouldCompact, withCacheBreakpoint } from './compact'
+import { markCompactFail, runCompact, withCacheBreakpoint } from './compact'
 import {
   buildWorkingSet,
   formatRecallSpoken,
@@ -25,9 +25,16 @@ export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
 export const INTRO_MOUTH_MODEL = 'openai/gpt-4o-mini'
 export const MOUTH_MAX_TOKENS = 2048
 
+export const COMPACT_FAIL_NEED =
+  'Need: mouth compact failed — kept prior working set. Jobs strip unchanged.'
+
 export type MouthHooks = {
   onComplete: (agentId: AgentId, spoken: string) => void
   onFail: (agentId: AgentId, spoken: string) => void
+  /** Persist mouth compact summary (not a Jobs artifact). */
+  onCompact?: (agentId: AgentId, summary: string) => void
+  /** Soft Need after compact fail — mouth turn continues with prior set. */
+  onCompactFail?: (agentId: AgentId, note: string) => void
 }
 
 export type MouthUsage = {
@@ -94,16 +101,67 @@ async function maybeCompactMessages(
   messages: ChatTurn[],
   chat: ChatFn,
   key: string,
-): Promise<ChatTurn[]> {
-  if (!shouldCompact(messages)) return messages
-  const request = compactRequestMessages(messages)
-  if (!request) return messages
-  try {
-    const result = asChatResult(await chat(request, key, COMPACT_MODEL))
-    return applyCompact(messages, result.text)
-  } catch {
-    return messages
+  agentId: AgentId,
+  hooks: MouthHooks,
+  force = false,
+): Promise<{ messages: ChatTurn[]; status: 'skipped' | 'compacted' | 'failed' }> {
+  const outcome = await runCompact(messages, chat, key, { force })
+  if (outcome.status === 'compacted') {
+    hooks.onCompact?.(agentId, outcome.summary)
+    return { messages: outcome.messages, status: 'compacted' }
   }
+  if (outcome.status === 'failed') {
+    return { messages: outcome.messages, status: 'failed' }
+  }
+  return { messages: outcome.messages, status: 'skipped' }
+}
+
+/** Settings / feed "Compact now" — force a mouth-only compact pass. */
+export async function compactMouthNow(
+  session: Session,
+  store: StaffStore,
+  agentId: AgentId,
+  hooks: Pick<MouthHooks, 'onCompact' | 'onCompactFail'>,
+  chat: ChatFn = liveMouthChat,
+  keys?: ResolvedKey[],
+): Promise<'compacted' | 'skipped' | 'failed' | 'need-key'> {
+  const agent = session.agents.find((item) => item.id === agentId)
+  if (!agent) return 'skipped'
+  const candidates = keys ?? (runningTests() ? [] : listOpenRouterKeys())
+  if (candidates.length === 0) return 'need-key'
+  let claims: ReturnType<StaffStore['recall']> = []
+  try {
+    claims = store.recall('')
+  } catch {
+    claims = []
+  }
+  const model = mouthModelFor(agentId)
+  const profile = readProfile(agentId)
+  const messages = buildWorkingSet({
+    agent,
+    thread: session.threads[agentId],
+    claims,
+    rules: profile?.rules,
+    kit: kitForAgent(agentId),
+    roster: session.agents,
+    homeRepo: profile?.homeRepo,
+    model,
+    skills: listSkills(),
+    skillIds: profile?.skillIds ?? [],
+  })
+  for (const candidate of candidates) {
+    const outcome = await runCompact(messages, chat, candidate.key, { force: true })
+    if (outcome.status === 'compacted') {
+      hooks.onCompact?.(agentId, outcome.summary)
+      return 'compacted'
+    }
+    if (outcome.status === 'failed') {
+      markCompactFail()
+      hooks.onCompactFail?.(agentId, COMPACT_FAIL_NEED)
+      return 'failed'
+    }
+  }
+  return 'skipped'
 }
 
 export function asChatResult(value: string | ChatResult): { text: string; usage: MouthUsage; map?: string } {
@@ -295,8 +353,25 @@ export async function ensureMouth(
       let usage = unknownUsage()
       let authRejected = false
       let lastError: unknown
+      let compactFailed = false
       for (const candidate of candidates) {
-        packed = await maybeCompactMessages(packed, chat, candidate.key)
+        const pass = await maybeCompactMessages(packed, chat, candidate.key, turn.agentId, hooks)
+        if (pass.status === 'compacted') {
+          packed = pass.messages
+          compactFailed = false
+          break
+        }
+        if (pass.status === 'failed') {
+          compactFailed = true
+          continue
+        }
+        break
+      }
+      if (compactFailed) {
+        markCompactFail()
+        hooks.onCompactFail?.(turn.agentId, COMPACT_FAIL_NEED)
+      }
+      for (const candidate of candidates) {
         for (let attempt = 0; attempt < 2 && !spoken; attempt += 1) {
           try {
             inferenceAttempted = true

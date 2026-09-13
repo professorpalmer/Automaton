@@ -80,6 +80,7 @@ Invariants:
 - Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; sister-freeze parks idle rail; honesty on stubby life; package 0.3.0.
 - `@gpuix/react` vendor (`docs/gpuix.md`) — stay on vendored 0.6.1 park until remorses/gpuix#34 merges **and** a park-bearing npm publish; never switch to registry 0.7.0 (no motion-spring); never ask NPM_TOKEN for `@gpuix`; package 0.3.0.
 - Cloud agent / Origin (`docs/cloud-origin.md`) — optional public Cloud Agents API (`CURSOR_API_KEY`); Settings/Jobs parked when unavailable (no fake Launch); Origin browse only from explicit `origin.cursor.com` remotes; never guess Origin from GitHub; package 0.3.0.
+- Mouth compaction (`docs/compaction.md`) — working set = compact summary + recent turns; auto when over char budget; Compact now in Settings; fail-soft Need; Jobs strip untouched; package 0.3.0.
 
 ## Safety
 

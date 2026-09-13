@@ -35,5 +35,10 @@ not invent confidence. Receipts record hit/miss
 and token totals when the provider sent them. Unknown cost is not stored
 as zero. Never infer success from a missing event.
 
+Mouth context is bounded separately: a thread may carry `compactSummary`
+plus the recent feed tail for OpenRouter (`docs/compaction.md`). That
+summary is honesty-marked (not verbatim quotes). Jobs / PM artifacts are
+never compacted away from the Jobs strip.
+
 Do not commit `keys.json` or `*.sqlite`. The repo gitignore already covers
 those.
