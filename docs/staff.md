@@ -69,8 +69,12 @@ assessment; it does not paint the sister's words as its own bubble.
 
 GitHub URLs bind a product home onto the named automata, and so does a
 local repo mention (`the local dugout repo` binds `~/Projects/dugout`).
-A numbered issue or pull URL is not bind-only: Staff binds, then creates
-a GoalRun and books the first criterion on that mouth. Workers have no
+**Clone URLs count too** — `https://github.com/owner/repo.git`,
+`git@github.com:owner/repo.git`, and `ssh://git@github.com/owner/repo.git`
+parse the same as the https page URL, then `ensureHomeCheckout` clones into
+`~/Projects/<repo>` when missing (P0.2 / P2.5). A numbered issue or pull URL
+is not bind-only: Staff binds, then creates a GoalRun and books the first
+criterion on that mouth. Workers have no
 mandate. Leftover land/ship continue from the original ask when the user
 named them. `create a new bot ... name the bot Dugout` registers Dugout on the
 roster at send time; the runtime does the provisioning, not the mouth. Bound code
