@@ -4,6 +4,7 @@ import { flushSync, motion, useGpuix } from '@gpuix/react'
 import {
   DEFAULT_AGENTS,
   bindHomes,
+  homeAck,
   composerEnterBusy,
   createAgentNames,
   emptyThreads,
@@ -526,8 +527,37 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         for (const row of created) next = addLiveAgent(next, row.agent, false)
         if (kitForAgent(carry.agentId) === 'coordinator') {
           const trimmed = carry.draft.trim()
-          for (const agent of applyHomeBinds(bindHomes(trimmed, visibleAgents(next.agents)))) {
-            next = patchLiveAgent(next, agent)
+          const binds = bindHomes(trimmed, visibleAgents(next.agents))
+          const { agents: boundAgents, notes } = applyHomeBinds(binds)
+          for (const agent of boundAgents) next = patchLiveAgent(next, agent)
+          if (binds.length > 0 || notes.length > 0) {
+            const tid = carry.agentId
+            const row = next.threads[tid]
+            if (row?.items.length) {
+              const items = [...row.items]
+              for (let i = items.length - 1; i >= 0; i -= 1) {
+                const item = items[i]
+                if (item?.kind !== 'msg' || item.from !== 'agent') continue
+                const ack = homeAck(next.agents, binds, notes)
+                let text = item.text
+                if (ack) {
+                  if (text.includes('Bound.') || !binds.length) {
+                    const add = notes.map((n) => n.trim()).filter(Boolean).join(' ')
+                    if (add && !text.includes(add)) text = `${text} ${add}`.trim()
+                  } else if (!text.includes(ack)) {
+                    text = `${text} ${ack}`.trim()
+                  }
+                }
+                if (text !== item.text) {
+                  items[i] = { ...item, text }
+                  next = {
+                    ...next,
+                    threads: { ...next.threads, [tid]: { ...row, items } },
+                  }
+                }
+                break
+              }
+            }
           }
           for (const agent of next.agents) {
             const profile = readProfile(agent.id)

@@ -158,8 +158,18 @@ describe('agent factory', () => {
       'Point Puppetmaster at https://github.com/example/Puppetmaster',
       [created.agent],
     )
-    applyHomeBinds(binds, home)
+    const fakePath = '/tmp/Projects/Puppetmaster'
+    const { agents, notes } = applyHomeBinds(binds, home, {
+      projectsRoot: '/tmp/Projects',
+      productRoot: '/tmp/Automaton',
+      exists: (p) => p === fakePath,
+      isGit: (p) => p === fakePath,
+      readOrigin: () => 'https://github.com/example/Puppetmaster',
+    })
+    expect(agents).toHaveLength(1)
     expect(readProfile(created.agent.id, home)?.homeRepo).toBe('example/Puppetmaster')
+    expect(readProfile(created.agent.id, home)?.homePath).toBe(fakePath)
+    expect(notes).toEqual([])
     rmSync(home, { recursive: true, force: true })
   })
 
