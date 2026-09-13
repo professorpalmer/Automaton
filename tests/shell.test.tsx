@@ -90,8 +90,8 @@ describe('app chords', () => {
   })
 
   test('titlebar inspects only from the computer button', () => {
-    const src = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
-    const title = src.split('function Titlebar(')[1]?.split('function SpokenLine(')[0] ?? ''
+    const src = readFileSync(join(import.meta.dir, '../src/chrome/titlebar.tsx'), 'utf8')
+    const title = src.split('export function Titlebar(')[1] ?? ''
     const beforeButton = title.split('testId="titlebar-computer"')[0] ?? ''
     const button = title.split('testId="titlebar-computer"')[1] ?? ''
     expect(title).toContain('testId="titlebar-computer"')

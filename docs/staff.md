@@ -32,9 +32,22 @@ park via `src/resting-motion.ts` so idle GPUI is not rebuilt every frame.
 
 Streaming feed growth pins the tail (`src/runtime/feed-pin.ts`, ~120ms
 coalesce) and fingerprints rows (`src/runtime/feed-row.ts`) so last-line
-growth does not rebuild earlier bubbles.
+growth does not rebuild earlier bubbles. Thinking / job-trace disclosure
+auto-opens while the mouth is streaming; a header press takes over
+(`src/chrome/activity.ts`). Idle parks stay parked — no perpetual rebuild.
+
+Settings and inspector cards use the frosted group-box recipe
+(`src/chrome/surface.ts`): one radius for border + wash, translucent over
+frost, opaque in solid mode. Menus stay opaque so they do not punch through
+the window frost.
 
 ## Composer
+
+The field grows from one row to eight (gpuix 0.6.1 `minRows` / `maxRows`).
+Type `#` at the end of the draft for a filter popover (skills → `@id`,
+rooms → `#name`, automata → name). Skills still offer-once on Send when
+unpinned. gpuix 0.6.1 Input has no caret API, so the query is the trailing
+`#token`.
 
 Send stays Send while a job is running. Mouth busy is only a
 live speak turn (`must_first` / `answer`). Fan-out to three or more named

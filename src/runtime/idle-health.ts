@@ -48,6 +48,12 @@ export function idleParkInventory(): IdlePark[] {
       path: 'vendored @gpuix/react startFrameLoop',
       summary: `${IDLE_FRAME_MS}ms paced AppKit pump (not setImmediate); GPUI parks when nothing is dirty`,
     },
+    {
+      id: 'activity-takeover',
+      path: 'src/chrome/activity.ts + src/chrome/activity-zone.tsx',
+      summary:
+        'Thinking/tool disclosure paints only while streaming or user-held; no MotionDiv / no interval ticks',
+    },
   ]
 }
 

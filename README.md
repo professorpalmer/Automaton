@@ -7,7 +7,7 @@ Linux is the shared computer; automata are screens, not VMs.
 ## Docs
 
 - [Staff surface](docs/staff.md) — rail, composer, factory, inspector
-- [Token provenance](docs/tokens-provenance.md) — measured chrome numbers; Brand / MotionSpec lift
+- [Token provenance](docs/tokens-provenance.md) — measured chrome numbers; Brand / MotionSpec / P1 surfaces
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
 - [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys

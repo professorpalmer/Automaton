@@ -20,6 +20,7 @@ describe('token environment', () => {
     expect(Object.isFrozen(T.radius)).toBe(true)
     const before = T.canvas
     const solid = tokensFromSkin(parseSkin({ windowMode: 'solid' }))
+    expect(solid.windowMode).toBe('solid')
     expect(solid.canvas).toBe('#141414')
     expect(solid).not.toBe(T)
     expect(T.canvas).toBe(before)
@@ -66,6 +67,18 @@ describe('token environment', () => {
     expect(field.textMuted).toBe(T.text)
     const branded = tokensFromSkin(parseSkin({ brand: { accent: T.catalog.green } }))
     expect(toChatTheme(branded).accent).toBe(T.catalog.green)
+  })
+
+  test('Settings and inspector paint from useChrome, not frozen CARD_STYLE', () => {
+    const settings = readFileSync(join(import.meta.dir, '../src/settings.tsx'), 'utf8')
+    const inspector = readFileSync(join(import.meta.dir, '../src/inspector.tsx'), 'utf8')
+    expect(settings).toContain('useChrome')
+    expect(settings).not.toContain('CARD_STYLE')
+    expect(settings).not.toContain('FIELD_THEME')
+    expect(inspector).toContain('useChrome')
+    expect(inspector).toContain('fieldTheme')
+    expect(inspector).not.toContain('FIELD_THEME')
+    expect(inspector).not.toContain("from './tokens'")
   })
 
   test('skin.json stores brand next to rail/window', () => {
