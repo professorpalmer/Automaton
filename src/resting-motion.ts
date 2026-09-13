@@ -1,17 +1,14 @@
 /**
- * Thin hook over vendored `@gpuix/react` motion-spring (Wave 3).
+ * JS motion-spring lease helpers (Wave 3 / 3.1 leftover).
  *
- * Living marks no longer own a hand-rolled 8ms timer clock. Ticks run on the
- * GPUIX frame loop (`onFrame` / `pumpFrames` from `startFrameLoop`) so
- * PulseClock can park when leases empty.
+ * Wave 3.2 living marks drive melt / lids / plate through `motion.div` →
+ * native `motion.rs`. This module stays for tests and any leftover JS
+ * `useRestingStyle` consumer. Frozen sisters never call it (sister-freeze
+ * uses a static div). Lease-park still matters if something else subscribes
+ * `onFrame` — PulseClock parks when the listener set is empty.
  *
- * Public `@gpuix/react` only re-exports `onFrame`, `stepSpring`, and `GELATIN`.
- * The lease helpers MotionDiv already uses (`subscribeSpringTick`,
- * `stepSpringLease`, channel kinds) live in `dist/motion-spring.js` but are
- * not on the package export map. Import that same file — not a second copy —
- * so marks share the MotionDiv / startFrameLoop listener set.
- *
- * TODO: drop this shim if gpuix grows a public `useRestingStyle` / immediate park.
+ * Public `@gpuix/react` re-exports `onFrame`, `stepSpring`, and `GELATIN`.
+ * Lease helpers live in `dist/motion-spring.js`.
  */
 import { useEffect, useRef, useState } from 'react'
 import { GELATIN } from '@gpuix/react'

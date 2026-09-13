@@ -47,6 +47,15 @@ describe('gpuix motion-spring lease', () => {
     expect(blobClockShouldHold(true)).toBe(true)
   })
 
+  test('vendored MotionDiv forwards type:spring to the host motion prop', () => {
+    const src = readFileSync(join(import.meta.dir, '../node_modules/@gpuix/react/dist/components/index.js'), 'utf8')
+    expect(src).toMatch(/motion:\s*\{/)
+    expect(src).toContain('transition')
+    expect(src).not.toMatch(/stepSpringLease/)
+    expect(src).not.toMatch(/subscribeSpringTick/)
+    expect(src).not.toMatch(/setCurrent/)
+  })
+
   test('mark life springs park immediately when the sister is frozen', () => {
     expect(markLifeSpringImmediate(false)).toBe(true)
     expect(markLifeSpringImmediate(true)).toBe(false)

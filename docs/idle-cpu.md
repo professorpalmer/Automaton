@@ -24,7 +24,7 @@ Honesty: do not claim a forever-0% process. Paced GPUIX baseline is ~**1.5%** (v
 
 | Id | Where | What parks |
 | --- | --- | --- |
-| `spring-lease` | `src/resting-motion.ts` + vendored `@gpuix/react` motion-spring | `onFrame` + mark-local 0.1px melt publish (not gpuix integer px) + opacity subpixel; 420ms hard park unsubscribe at rest |
+| `spring-lease` | `src/blob.tsx` SpringBox + vendored MotionDiv → native `motion.rs` | native GELATIN / EYE_SPRING; 420ms hard park so GPUI sleeps; JS motion-spring lease leftover only |
 | `sister-freeze` | `src/blob.tsx`, `alive = selected \|\| working` | Idle sisters drop wander/blink/melt; selected Staff may glance + soft `restMelt`; springs immediate when frozen |
 | `stream-commit` | `src/runtime/feed-pin.ts` | 120ms STREAM_COMMIT coalesce + `FEED_TAIL` pin |
 | `row-fingerprint` | `src/runtime/feed-row.ts` | Fingerprints avoid wholesale rebuilds on last-line growth |
@@ -48,10 +48,11 @@ Code mirror: `idleParkInventory()` in `src/runtime/idle-health.ts`.
 
 ## Vendor pin
 
-Idle parks that depend on MotionDiv lease-park stay on vendored
-`@gpuix/react` 0.6.1. Do **not** drop onto npm `@gpuix/react@0.7.0` (no
-`motion-spring` in dist). Hold until [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34)
-merges **and** a park-bearing release publishes — see [`docs/gpuix.md`](./gpuix.md).
+Idle parks that depend on native spring settle stay on vendored
+`@gpuix/react` 0.6.2 + matched `@gpuix/native` 0.6.2. Do **not** drop onto
+npm `@gpuix/react@0.7.0` / `0.8.0` (no native spring passthrough). Hold until
+[remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34) merges **and** a
+park-bearing react+native pair publishes — see [`docs/gpuix.md`](./gpuix.md).
 
 ## Out of scope
 

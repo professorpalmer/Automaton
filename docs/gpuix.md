@@ -1,68 +1,57 @@
-# `@gpuix/react` vendor pin (P2.1 honesty)
+# `@gpuix/react` vendor pin (P2.1 + Wave 3.2 honesty)
 
-Automaton stays on **vendored** `@gpuix/react` **0.6.1**
-(`file:vendor/gpuix-react-0.6.1.tgz`). Package / Info.plist are **0.7.0**
-(Wave 2 P2 band cut). Still vendored 0.6.1 — do not drop onto npm 0.7.0.
+Automaton stays on **vendored** `@gpuix/react` **0.6.2**
+(`file:vendor/gpuix-react-0.6.2.tgz`) plus a matched
+`@gpuix/native` **0.6.2** (`file:vendor/gpuix-native-0.6.2.tgz`).
+Package / Info.plist stay **0.7.0** (this pass does not cut v0.8.0).
 
-## Decision: stay vendored
+Do **not** drop onto npm `@gpuix/react@0.7.0` or `@gpuix/react@0.8.0`
+(registry dist has no motion-spring / no native spring passthrough).
+
+## Decision: stay vendored, matched react + native
 
 | Fact | Detail |
 | --- | --- |
-| Pin today | `package.json` → `"@gpuix/react": "file:vendor/gpuix-react-0.6.1.tgz"` |
-| Why vendor | Dist includes spring lease parking (`motion-spring`, `onFrame` park) that P1.6 idle parks need |
-| npm latest | `@gpuix/react@0.7.0` on the registry **does not** ship `motion-spring` / lease-park in dist |
-| Upstream | [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34) (`feat/motion-springs`, park commit) is still **OPEN** (mergeable / unstable) |
-| Publish | Cary does **not** own the `@gpuix` npm scope. Never ask for `NPM_TOKEN` to publish `@gpuix` |
+| React pin | `package.json` → `"@gpuix/react": "file:vendor/gpuix-react-0.6.2.tgz"` |
+| Native pin | `"@gpuix/native": "file:vendor/gpuix-native-0.6.2.tgz"` (override) |
+| Why vendor | #34 park + Wave 3.2 native spring passthrough are not on npm |
+| Upstream | [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34) is still **OPEN** |
+| Publish | Cary does **not** own the `@gpuix` npm scope. Never ask for `NPM_TOKEN` |
 
-**Do not** switch the dependency to npm `0.7.0`. Dropping `file:vendor` onto
-registry 0.7.0 would lose P1.6 idle parks (`spring-lease` / `frame-pace` in
-[`docs/idle-cpu.md`](./idle-cpu.md)).
+**Do not** leave spring-to-native React against shipped `@gpuix/native@0.6.0`.
+That binary only interpolates tweens; `type: "spring"` would degrade to a
+default duration tween.
+
+## Wave 3.2: springs hit native
+
+Vendored MotionDiv used to hijack `transition.type === "spring"` onto a JS
+`stepSpringLease` + `setCurrent` loop and **omit** the host `motion` prop.
+Rail/pane tweens (`duration` / `ease`) already reached native `motion.rs` and
+felt continuous. Marks did not.
+
+0.6.2 MotionDiv always forwards `motion` (tween **and** spring) to the host.
+Native `packages/native/src/motion.rs` integrates stiffness/damping/mass
+during GPUI paint and hard-parks at **420ms** so the process can sleep.
+Frozen sisters never mount a `motion.div` (static `div`).
+
+JS `motion-spring` / `useRestingStyle` stays in the tarball for leftover
+lease-park and tests. Living marks no longer paint through it.
 
 ## When to drop the vendor tarball
 
 Only after **both**:
 
-1. remorses merges [gpuix#34](https://github.com/remorses/gpuix/pull/34) (or equivalent park-bearing work), **and**
-2. a park-bearing `@gpuix/react` is **published** to npm
+1. remorses merges [gpuix#34](https://github.com/remorses/gpuix/pull/34) **and** the native-passthrough fix, **and**
+2. a park-bearing `@gpuix/react` + matching `@gpuix/native` (with spring integrator) are **published** to npm
 
-Then: drop `file:vendor/gpuix-react-0.6.1.tgz`, pin the real npm version that
-contains lease-park, re-verify idle CPU (`bun run sample:idle-cpu` /
+Then: drop `file:vendor/gpuix-react-0.6.2.tgz` and the native tarball, pin the
+real npm versions, re-verify idle CPU (`bun run sample:idle-cpu` /
 [`docs/idle-cpu.md`](./idle-cpu.md)), and remove this honesty hold.
 
-Until then: keep the vendored tarball; prefer Automaton-side or vendored park
-paths; do not publish `@gpuix`.
-
-## Wave 3 consumption
-
-Living marks (`src/blob.tsx` / `src/resting-motion.ts`) drive melt, lids, and
-the selected plate through this vendored `motion-spring` module — not a
-hand-rolled `setTimeout` clock. Public `@gpuix/react` re-exports `onFrame`,
-`stepSpring`, and `GELATIN`. Lease helpers (`subscribeSpringTick`,
-`stepSpringLease`, `px` vs `opacity` publish) live in `dist/motion-spring.js`
-and share the MotionDiv / `startFrameLoop` listener set so PulseClock can
-park. Frozen sisters still pass `markLifeSpringImmediate` and never lease.
-Live marks also force-snap at 420ms (`stepMarkSpringLease`) so a 0↔1 lid
-travel cannot sit outside gpuix's 0.08 opacity crawl window and hold the clock.
-
-## Wave 3.1 mark-local px
-
-gpuix `stepSpringLease` still rounds **all** px channels (`Math.round`) and
-only publishes when the integer changes. Living melts are ±2–4px, so that
-path paints ~2–3 frames and looks like a stair-step. Automaton does **not**
-fork `motion-spring.js`. `stepMarkSpringLease` steps the same Euler / `onFrame`
-lease, then:
-
-- publishes left/top/width/height at **0.1px**
-- near-snaps only the last 0.1px of leftover crawl (gpuix's 1.05px window
-  would pop the 1px left/top shift on frame one)
-- skips gpuix's 280ms / 2.25px budget snap on px (that window *is* the melt)
-- keeps opacity on the gpuix kind helpers
-- still hard-parks at 420ms; frozen sisters still `immediate`
-
-Stay vendored 0.6.1. Do not switch to npm 0.7.0 for a finer px quantize.
+Until then: keep the vendored pair; do not publish `@gpuix`.
 
 ## Related
 
 - Park inventory: [`docs/idle-cpu.md`](./idle-cpu.md)
-- Living marks / spring leases: [`docs/marks.md`](./marks.md)
+- Living marks: [`docs/marks.md`](./marks.md)
 - Agent invariant: `AGENTS.md` (vendored pin + idle GPUI sleeps)

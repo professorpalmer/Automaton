@@ -6,7 +6,7 @@ import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
 import { MOTION, type MotionName } from './motion'
-import { springClockBusy, useRestingStyle } from './resting-motion'
+import { springClockBusy } from './resting-motion'
 import { runningTests } from './runtime/test-env'
 import { useTokens } from './theme'
 import { T } from './tokens'
@@ -265,6 +265,49 @@ export function livingMelt(id: string, look: number, live: boolean, busyBody: bo
 /** Park melt/lid springs when the mark is frozen or mid-drag — never lease the spring clock. */
 export function markLifeSpringImmediate(live: boolean, pointerDown = false): boolean {
   return !live || pointerDown
+}
+
+type SpringAnimate = {
+  left?: number
+  top?: number
+  width?: number
+  height?: number
+  opacity?: number
+}
+
+type SpringSpec = { type: 'spring'; stiffness: number; damping: number; mass: number }
+
+/**
+ * Wave 3.2: living channels go through host `motion` → native `motion.rs`.
+ * Frozen / mid-drag sisters stay a static div — no native track, no JS lease.
+ */
+function SpringBox({
+  immediate,
+  animate,
+  transition,
+  style,
+  testId,
+  children,
+}: {
+  immediate: boolean
+  animate: SpringAnimate
+  transition: SpringSpec
+  style?: Record<string, unknown>
+  testId?: string
+  children?: React.ReactNode
+}) {
+  if (immediate) {
+    return (
+      <div testId={testId} style={{ ...style, ...animate }}>
+        {children}
+      </div>
+    )
+  }
+  return (
+    <motion.div testId={testId} initial={false} animate={animate} transition={transition} style={style}>
+      {children}
+    </motion.div>
+  )
 }
 
 /** Face anchors in the 38px stamp. Default T.blob.eyeX/eyeY is blob-ish mass. */
@@ -635,26 +678,15 @@ export function SisterBlob({
   const eyes = entered ? busyEyeLayout(look, blink, eyeKind, glance, mark.shape) : []
   const leftEye = eyes[0]
   const rightEye = eyes[1]
-  const plate = useRestingStyle(
-    { opacity: selected ? 1 : 0 },
-    BODY_SPRING,
-    { immediate: pointer.down || !selected },
-  )
-  const lids = useRestingStyle(
-    { opacity: live && blink ? 0 : 1 },
-    EYE_SPRING,
-    { immediate: lifeImmediate },
-  )
-  const markPaint = useRestingStyle(
-    {
-      left: glyphLeft + meltBox.left,
-      top: glyphTop + meltBox.top + lift,
-      width: meltBox.width,
-      height: meltBox.height,
-    },
-    BODY_SPRING,
-    { immediate: lifeImmediate },
-  )
+  const plateImmediate = pointer.down || !selected
+  const plateOpacity = selected ? 1 : 0
+  const markBox = {
+    left: glyphLeft + meltBox.left,
+    top: glyphTop + meltBox.top + lift,
+    width: meltBox.width,
+    height: meltBox.height,
+  }
+  const lidOpen = live && blink ? 0 : 1
   const svg = useMemo(() => shapeSvgSource(mark.shape, fill, T.blob.size), [mark.shape, fill])
   const speed = Math.hypot(pointer.vx, pointer.vy)
   if (pointer.down && speed > 0.35) {
@@ -708,8 +740,11 @@ export function SisterBlob({
         opacity: 1,
       }}
     >
-      <div
+      <SpringBox
         testId={`blob-plate-${agent.id}`}
+        immediate={plateImmediate}
+        animate={{ opacity: plateOpacity }}
+        transition={BODY_SPRING}
         style={{
           position: 'absolute',
           left: PLATE_INSET,
@@ -719,7 +754,6 @@ export function SisterBlob({
           borderRadius: PLATE_RADIUS,
           backgroundColor: T.selected,
           pointerEvents: 'none',
-          opacity: plate.opacity,
         }}
       />
       {smears.current.map((smear, i) => (
@@ -739,16 +773,27 @@ export function SisterBlob({
           <svg source={svg} style={svgStampStyle(fill)} />
         </div>
       ))}
-      <FrozenMark
-        shape={mark.shape}
-        fill={fill}
-        left={markPaint.left}
-        top={markPaint.top}
-        width={markPaint.width}
-        height={markPaint.height}
-        unread={unread}
-        pose={pose}
-      />
+      <SpringBox
+        immediate={lifeImmediate}
+        animate={markBox}
+        transition={BODY_SPRING}
+        style={{
+          position: 'absolute',
+          overflow: 'visible',
+          pointerEvents: 'none',
+        }}
+      >
+        <FrozenMark
+          shape={mark.shape}
+          fill={fill}
+          left={0}
+          top={0}
+          width={markBox.width}
+          height={markBox.height}
+          unread={unread}
+          pose={pose}
+        />
+      </SpringBox>
       {leftEye && rightEye ? (
         <>
           {(
@@ -757,28 +802,34 @@ export function SisterBlob({
               { side: 1, eye: rightEye },
             ] as const
           ).map(({ side, eye }) => {
-            const lidOpen = Math.max(0, Math.min(1, lids.opacity))
-            const eyeHeight = px(Math.max(T.space.xxs, eye.height * lidOpen))
+            const closed = live && blink
+            const eyeHeight = px(Math.max(T.space.xxs, closed ? T.space.xxs : eye.height))
+            const eyeTop = px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0) + (eye.height - eyeHeight) / 2)
+            const eyeLeft = px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0))
             return (
-            <div
+            <SpringBox
               key={side}
               testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
+              immediate={lifeImmediate}
+              animate={{
+                opacity: lidOpen,
+                height: eyeHeight,
+                top: eyeTop,
+                left: eyeLeft,
+                width: eye.width,
+              }}
+              transition={EYE_SPRING}
               style={{
                 position: 'absolute',
-                left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
-                top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0) + (eye.height - eyeHeight) / 2),
-                width: eye.width,
-                height: eyeHeight,
                 overflow: 'hidden',
                 pointerEvents: 'none',
-                opacity: lidOpen,
               }}
             >
               <svg
                 source={eyeSvg}
                 style={svgStampStyle(T.catalog.black)}
               />
-            </div>
+            </SpringBox>
             )
           })}
         </>
