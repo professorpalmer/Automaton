@@ -76,21 +76,82 @@ export {
 }
 
 /**
- * gpuix lease step plus Automaton's 420ms hard park.
- * Opacity 0↔1 (lids / plate) can sit outside gpuix's 0.08 crawl window;
- * force-snap so a blink cannot hold the PulseClock past SETTLE_HARD_MS.
+ * Soft-wide / soft-tall are only ±2–4px. gpuix `stepSpringLease` rounds every
+ * px channel and publishes only when the integer changes — ~2–3 paints for the
+ * whole melt. Marks publish at 0.1px so the same travel looks like gel.
+ */
+export const MARK_PX_PUBLISH_EPS = 0.1
+
+/** gpuix `stepSpring` rest for px (not exported from motion-spring). */
+const MARK_PX_REST = 0.05
+/** gpuix SNAP_POS_OPACITY — same rest MotionDiv uses for lids / plate. */
+const MARK_OPACITY_REST = 0.002
+
+export function quantizeMarkPx(value: number): number {
+  return Math.round(value / MARK_PX_PUBLISH_EPS) * MARK_PX_PUBLISH_EPS
+}
+
+export function markPxShouldPublish(previous: number, next: number): boolean {
+  return quantizeMarkPx(previous) !== quantizeMarkPx(next)
+}
+
+/**
+ * Near-snap leftover px crawl (gpuix `elapsedMs = 0` path). Skip the 280ms /
+ * 2.25px budget snap — that window is the entire living melt, so it jumps
+ * mid-gel. Hard park stays at SETTLE_HARD_MS after the loop.
+ */
+export function shouldSnapMarkSpring(
+  track: SpringTrack,
+  target: number,
+  elapsedMs: number,
+  kind: SpringChannelKind = 'px',
+): boolean {
+  if (kind === 'opacity') return shouldSnapSpring(track, target, elapsedMs, 'opacity')
+  return shouldSnapSpring(track, target, 0, 'px')
+}
+
+/**
+ * Mark-local lease: gpuix Euler + onFrame, 0.1px melt publishes, 420ms park.
+ * Do not call `stepSpringLease` for left/top/width/height — its integer
+ * quantize and 280ms budget snap are the stair-step. Opacity still uses the
+ * gpuix kind helpers. Frozen sisters never reach this (immediate park).
  */
 export function stepMarkSpringLease(
   opts: Parameters<typeof stepSpringLease>[0],
 ): ReturnType<typeof stepSpringLease> {
-  const result = stepSpringLease(opts)
-  if (!result.moving || opts.elapsedMs < SETTLE_HARD_MS) return result
-  const painted: Partial<Record<SpringKey, number>> = { ...result.painted }
-  let publish = result.publish
+  const { tracks, target, dt, elapsedMs, stiffness, damping, mass, kick = 0 } = opts
+  let moving = false
+  let publish = false
+  const painted: Partial<Record<SpringKey, number>> = { ...opts.painted }
   for (const key of SPRING_KEYS) {
-    const to = opts.target[key]
+    const to = target[key]
     if (to == null) continue
-    opts.tracks[key] = snapSpring(to)
+    const kind = springChannelKind(key)
+    const rest = kind === 'opacity' ? MARK_OPACITY_REST : MARK_PX_REST
+    let track = seedSpringTrack(tracks, key, painted[key], to, kick)
+    track = stepSpring(track, to, dt, stiffness, damping, mass, rest)
+    if (shouldSnapMarkSpring(track, to, elapsedMs, kind)) track = snapSpring(to)
+    tracks[key] = track
+    if (!isSpringRest(track, to)) moving = true
+    const visual = isSpringRest(track, to)
+      ? to
+      : kind === 'opacity'
+        ? quantizeSpringValue(track.pos, 'opacity')
+        : quantizeMarkPx(track.pos)
+    const previous = painted[key]
+    const changed =
+      previous == null ||
+      (kind === 'opacity' ? springShouldPublish(previous, visual, 'opacity') : markPxShouldPublish(previous, visual))
+    if (changed && previous !== visual) {
+      painted[key] = visual
+      publish = true
+    }
+  }
+  if (!moving || elapsedMs < SETTLE_HARD_MS) return { painted, moving, publish }
+  for (const key of SPRING_KEYS) {
+    const to = target[key]
+    if (to == null) continue
+    tracks[key] = snapSpring(to)
     if (painted[key] !== to) {
       painted[key] = to
       publish = true
@@ -100,12 +161,11 @@ export function stepMarkSpringLease(
 }
 
 /**
- * Spring-drive numeric style channels on the gpuix lease.
- * `px` keys publish integer pixels; `opacity` keeps subpixel publishes
- * (`springChannelKind` / `stepSpringLease`). Unsubscribes `onFrame` when
- * every channel is at rest so GPUI can sleep.
- * Mark life (melt / lids / plate) must pass `immediate: true` when the sister
- * is frozen so idle rails never lease this clock (see docs/marks.md).
+ * Spring-drive numeric style channels on the gpuix onFrame lease.
+ * Mark px (left/top/width/height) publishes at 0.1px; opacity keeps gpuix
+ * subpixel steps. Unsubscribes `onFrame` when every channel is at rest so
+ * GPUI can sleep. Mark life must pass `immediate: true` when the sister is
+ * frozen so idle rails never lease this clock (see docs/marks.md).
  */
 export function useRestingStyle<T extends Partial<Record<SpringKey, number>>>(
   targets: T,

@@ -44,6 +44,21 @@ park. Frozen sisters still pass `markLifeSpringImmediate` and never lease.
 Live marks also force-snap at 420ms (`stepMarkSpringLease`) so a 0↔1 lid
 travel cannot sit outside gpuix's 0.08 opacity crawl window and hold the clock.
 
+## Wave 3.1 mark-local px
+
+gpuix `stepSpringLease` still rounds **all** px channels (`Math.round`) and
+only publishes when the integer changes. Living melts are ±2–4px, so that
+path paints ~2–3 frames and looks like a stair-step. Automaton does **not**
+fork `motion-spring.js`. `stepMarkSpringLease` steps the same Euler / `onFrame`
+lease, then:
+
+- publishes left/top/width/height at **0.1px**
+- skips gpuix's 280ms / 2.25px budget snap on px (that window *is* the melt)
+- keeps opacity on the gpuix kind helpers
+- still hard-parks at 420ms; frozen sisters still `immediate`
+
+Stay vendored 0.6.1. Do not switch to npm 0.7.0 for a finer px quantize.
+
 ## Related
 
 - Park inventory: [`docs/idle-cpu.md`](./idle-cpu.md)
