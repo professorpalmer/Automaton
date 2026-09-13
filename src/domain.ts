@@ -194,6 +194,12 @@ export type FeedItem =
       connectorId: string
       status: SecretRequestStatus
       configured?: boolean
+      /** Optional help under the connector label. Never a secret. */
+      description?: string
+      /** Field caption (e.g. API key). Never a secret. */
+      fieldLabel?: string
+      /** Vault path hint (e.g. ~/.automaton/keys.json). Never a secret. */
+      storeHint?: string
       at?: number
     }
 
@@ -1674,6 +1680,26 @@ export function hopDepthFromItems(from: AgentId, items: FeedItem[]): number {
     }
   }
   return 1
+}
+
+
+/** Drop any accidental secret-bearing keys from a secret-request feed row. */
+export function scrubSecretRequestItem(
+  item: Extract<FeedItem, { kind: 'secret-request' }>,
+): Extract<FeedItem, { kind: 'secret-request' }> {
+  const next: Extract<FeedItem, { kind: 'secret-request' }> = {
+    kind: 'secret-request',
+    id: item.id,
+    agentId: item.agentId,
+    connectorId: item.connectorId,
+    status: item.status,
+  }
+  if (item.configured != null) next.configured = item.configured
+  if (item.description?.trim()) next.description = item.description.trim()
+  if (item.fieldLabel?.trim()) next.fieldLabel = item.fieldLabel.trim()
+  if (item.storeHint?.trim()) next.storeHint = item.storeHint.trim()
+  if (item.at != null) next.at = item.at
+  return next
 }
 
 export type MouthEmit =

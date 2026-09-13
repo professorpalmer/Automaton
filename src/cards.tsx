@@ -230,9 +230,56 @@ export function QuestionCard({
   )
 }
 
+/**
+ * Map a bullet-masked field onChange into the real secret.
+ * GPUIX InputProps has no secureTextEntry/password — obscure display in React.
+ */
+export function applyMaskedSecretEdit(prior: string, reported: string): string {
+  if (/^•*$/.test(reported)) return prior.slice(0, reported.length)
+  let bullets = 0
+  while (bullets < reported.length && reported[bullets] === '•') bullets += 1
+  if (bullets > 0 && bullets <= prior.length) {
+    return prior.slice(0, bullets) + reported.slice(bullets)
+  }
+  return reported.replace(/•/g, '')
+}
+
+export function MaskedSecretField({
+  testId,
+  value,
+  placeholder,
+  theme,
+  style,
+  onChange,
+}: {
+  testId: string
+  value: string
+  placeholder: string
+  theme?: typeof CHAT_THEME
+  // Looser than FIELD_STYLE so Settings (ui.FIELD_STYLE) can reuse this field.
+  style?: object
+  onChange: (next: string) => void
+}) {
+  return (
+    <input
+      testId={testId}
+      value={'•'.repeat(value.length)}
+      placeholder={placeholder}
+      theme={theme}
+      style={style}
+      // Best-effort: pass through if a future GPUI build honors it (not in 0.6.1 InputProps).
+      {...({ secureTextEntry: true, password: true } as object)}
+      onChange={(event) => onChange(applyMaskedSecretEdit(value, event.value ?? ''))}
+    />
+  )
+}
+
 export function SecretRequestCard({
   testId,
   connectorName,
+  description,
+  fieldLabel,
+  storeHint,
   status = 'open',
   configured,
   onSave,
@@ -240,6 +287,9 @@ export function SecretRequestCard({
 }: {
   testId?: string
   connectorName: string
+  description?: string
+  fieldLabel?: string
+  storeHint?: string
   status?: 'open' | 'saved' | 'dismissed'
   configured?: boolean
   onSave?: (value: string) => void
@@ -253,23 +303,32 @@ export function SecretRequestCard({
     onSave?.(value)
     setDraft('')
   }
+  const help =
+    description?.trim() ||
+    'Stays out of the chat. Stored securely, never shown to an automaton.'
   return (
     <div testId={testId ?? 'secret-request'} style={CARD_STYLE}>
       <div style={{ fontSize: T.type.sm, color: T.text }}>{connectorName}</div>
-      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
-        Stays out of the chat. Stored securely, never shown to an automaton.
-      </div>
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{help}</div>
+      {fieldLabel?.trim() ? (
+        <div testId="secret-request-field-label" style={{ fontSize: T.type.xs, color: T.secondary }}>
+          {fieldLabel.trim()}
+        </div>
+      ) : null}
+      {storeHint?.trim() ? (
+        <div testId="secret-request-store-hint" style={{ fontSize: T.type.xs, color: T.tertiary }}>
+          {storeHint.trim()}
+        </div>
+      ) : null}
       {open ? (
         <>
-          <textarea
+          <MaskedSecretField
             testId="secret-request-input"
             value={draft}
-            placeholder="Paste the key here, not in chat"
-            minRows={1}
-            maxRows={2}
+            placeholder="Enter key — stays out of chat"
             theme={CHAT_THEME}
             style={FIELD_STYLE}
-            onChange={(event) => setDraft(event.value ?? '')}
+            onChange={setDraft}
           />
           <div
             testId="secret-request-save"
@@ -306,7 +365,7 @@ export function SecretRequestCard({
         </>
       ) : (
         <div testId="secret-request-configured" style={{ fontSize: T.type.sm, color: T.secondary }}>
-          {configured || status === 'saved' ? 'Configured' : 'Dismissed'}
+          {configured || status === 'saved' ? 'Provided' : 'Dismissed'}
         </div>
       )}
     </div>

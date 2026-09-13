@@ -1982,6 +1982,9 @@ const FeedSecretRow = React.memo(function FeedSecretRow({
       <SecretRequestCard
         testId={`secret-request-${item.id}`}
         connectorName={connectorDisplayName(item.connectorId)}
+        description={item.description}
+        fieldLabel={item.fieldLabel}
+        storeHint={item.storeHint}
         status={item.status}
         configured={item.configured}
         onSave={(value) => onSave?.(item.id, value)}
@@ -2380,6 +2383,7 @@ export const Feed = forwardRef<FeedApi, {
             status: item.status,
             configured: item.configured,
             connectorId: item.connectorId,
+            text: [item.fieldLabel, item.storeHint, item.description].filter(Boolean).join('|'),
           })
           return (
             <FeedSecretRow

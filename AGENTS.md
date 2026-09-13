@@ -69,6 +69,7 @@ Invariants:
 - External channels (`docs/channels.md`) — Slack MVP: connect in Settings (never paste bot tokens in chat); inbound via `~/.automaton/inbox/slack` or future socket; `kickoff=channel` wakes Staff; outbound fail-closed as the user. Channel traffic is mouth/staff; Jobs still own coding.
 - Multi-agent rooms (`docs/rooms.md`) — local SendToAgent-class + named rooms; sisters keep separate threads; mouth only (not Slack); `needsFanoutConfirm` for 3+; version stays 0.1.0.
 - MCP catalog (`docs/mcp.md`) — Settings curated plugins; install registry under `~/.automaton/mcp`; auth via secret-request / Connect (never chat-paste); schema hints only until live MCP client; package 0.2.0.
+- Secrets (`docs/secrets.md`) — in-app secret-request card with masked entry; vault via `writeConnectorSecret`; never persist secret values in session JSON / feed / Jobs / Slack / speech; package 0.2.0.
 
 ## Safety
 

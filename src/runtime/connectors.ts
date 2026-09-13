@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { connectorsPath } from './computer'
 import { automatonHome, listOpenRouterKeys, writeOpenRouterKey } from './keys'
-import { hasMcpGrant, mcpAcceptsSecret, mcpDisplayName, mcpStatus, writeMcpSecret } from './mcp-catalog'
+import { catalogEntry, hasMcpGrant, mcpAcceptsSecret, mcpDisplayName, mcpStatus, writeMcpSecret } from './mcp-catalog'
 
 export const OPENROUTER_ID = 'openrouter'
 export const OPENROUTER_ORIGIN = 'https://openrouter.ai'
@@ -128,6 +128,22 @@ export function knownConnectorId(id: string, home = automatonHome()): boolean {
   if (readConnectors(home).some((row) => row.id === trimmed)) return true
   // Installed MCP entries that needAuth reuse secret-request / Connect (never chat-paste).
   return mcpAcceptsSecret(trimmed, home)
+}
+
+
+export function connectorFieldLabel(id: string): string {
+  return id.trim() === OPENROUTER_ID ? 'API key' : 'Token'
+}
+
+/** Public vault path hint for the secret-request card. Never includes a secret. */
+export function connectorStoreHint(id: string, home = automatonHome()): string {
+  const trimmed = id.trim()
+  if (!trimmed) return '~/.automaton/keys.json'
+  if (trimmed === OPENROUTER_ID) return '~/.automaton/keys.json'
+  if (mcpAcceptsSecret(trimmed, home) || catalogEntry(trimmed)?.needsAuth) {
+    return `~/.automaton/mcp/secrets/${trimmed}.grant`
+  }
+  return '~/.automaton/keys.json'
 }
 
 export function connectorDisplayName(id: string, home = automatonHome()): string {

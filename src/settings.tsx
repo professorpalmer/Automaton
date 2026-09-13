@@ -19,7 +19,7 @@ import {
   writeConnectorSecret,
   type Connector,
 } from './runtime/connectors'
-import { listOpenRouterKeys, writeOpenRouterKey } from './runtime/keys'
+import { listOpenRouterKeys } from './runtime/keys'
 import { boxStatus, computerLabel } from './runtime/box'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import {
@@ -35,6 +35,7 @@ import type { Agent } from './domain'
 import { visibleAgents } from './domain'
 import { CARD_STYLE, CLIP, Chip, FIELD_LINE_STYLE, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
 import { CHAT_THEME, FIELD_THEME, T } from './tokens'
+import { MaskedSecretField } from './cards'
 import {
   createRoutine,
   deleteRoutine,
@@ -676,17 +677,13 @@ function McpCatalogCard() {
                 </div>
                 {row.status === 'needsAuth' ? (
                   <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
-                    <textarea
+                    <MaskedSecretField
                       testId={`settings-mcp-${row.id}-secret`}
                       value={secretDraft[row.id] ?? ''}
-                      placeholder="Paste token here, not in chat"
-                      minRows={1}
-                      maxRows={2}
+                      placeholder="Enter key — stays out of chat"
                       theme={FIELD_THEME}
                       style={{ ...FIELD_STYLE, flexGrow: 1 }}
-                      onChange={(event) =>
-                        setSecretDraft((cur) => ({ ...cur, [row.id]: event.value ?? '' }))
-                      }
+                      onChange={(next) => setSecretDraft((cur) => ({ ...cur, [row.id]: next }))}
                     />
                     <Chip testId={`settings-mcp-${row.id}-connect-save`} tone="action" onClick={() => connect(row.id)}>
                       Connect
@@ -790,7 +787,8 @@ export function Settings({
   const saveKey = () => {
     const key = draft.trim()
     if (!key) return
-    writeOpenRouterKey(key)
+    // Same vault path as mouth secret-request / fulfillSecretRequest.
+    if (!writeConnectorSecret(OPENROUTER_ID, key)) return
     setDraft('')
     setPresence('present')
     if (!shouldLiveProbe()) return
@@ -893,15 +891,13 @@ export function Settings({
               Stays out of the chat. Stored securely, never shown to an automaton.
             </div>
             <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
-              <textarea
+              <MaskedSecretField
                 testId="settings-key-input"
                 value={draft}
-                placeholder="Paste the key here, not in chat"
-                minRows={1}
-                maxRows={2}
+                placeholder="Enter key — stays out of chat"
                 theme={FIELD_THEME}
                 style={{ ...FIELD_STYLE, flexGrow: 1 }}
-                onChange={(event) => setDraft(event.value ?? '')}
+                onChange={setDraft}
               />
               <Chip testId="settings-key-save" tone="action" onClick={saveKey}>
                 Save
@@ -978,15 +974,13 @@ export function Settings({
                 </div>
               ) : (
                 <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
-                  <textarea
+                  <MaskedSecretField
                     testId="settings-slack-token"
                     value={slackDraft}
-                    placeholder="Paste Slack bot token here, not in chat"
-                    minRows={1}
-                    maxRows={2}
+                    placeholder="Enter key — stays out of chat"
                     theme={FIELD_THEME}
                     style={{ ...FIELD_STYLE, flexGrow: 1 }}
-                    onChange={(event) => setSlackDraft(event.value ?? '')}
+                    onChange={setSlackDraft}
                   />
                   <Chip testId="settings-slack-connect" tone="action" onClick={saveSlack}>
                     Connect
