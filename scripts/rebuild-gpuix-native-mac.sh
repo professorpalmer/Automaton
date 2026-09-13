@@ -20,6 +20,12 @@ if [[ "$(uname -m)" != "arm64" ]]; then
 fi
 
 export PATH="$HOME/.cargo/bin:$PATH"
+PATCH="$ROOT/vendor/gpuix-native-spring-passthrough.patch"
+if [[ -f "$PATCH" ]] && ! git -C "$GPUIX" log --oneline | grep -q "pass spring transitions through to native"; then
+  echo "applying $PATCH onto $GPUIX"
+  git -C "$GPUIX" apply --check "$PATCH" && git -C "$GPUIX" apply "$PATCH"
+fi
+
 cd "$GPUIX/packages/native"
 bun install
 bun run build
