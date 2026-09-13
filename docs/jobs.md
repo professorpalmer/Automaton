@@ -13,6 +13,16 @@ analyze/implement stay concurrent. Ship tags a version already on the
 tree. Workers never appear as chat. Spoken lines must not include job
 ids unless the user asked.
 
+## Board embed
+
+Every durable Jobs-rail entry is a Puppetmaster job. The skinny strip is an
+index only — Jobs never land in chat transcripts. Selecting a durable
+`job_…` pops the stock `puppetmaster dashboard` in host Chrome with
+`?job=<id>&embed=1`. Overview / alias opens the board without a job query.
+Locate reuses `dashboard --status` or spawns `dashboard --background
+--no-open`; fail closed with Need/doctor when that fails. No second
+server and no GPUIX webview.
+
 ## Analyze vs implement vs shell vs land
 
 Kit sets the default. Code mouths book implement on job-shaped asks.
