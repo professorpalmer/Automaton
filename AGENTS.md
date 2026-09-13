@@ -80,7 +80,7 @@ Invariants:
 - Version / releases (`docs/version.md`) — Settings About + optional titlebar chip from `package.json` / Info.plist; GitHub Latest notify-only (never auto-upgrade); git tip/dirty modal stays; doctor WARNs on package≠plist; package 0.7.0.
 - Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.7.0.
 - Idle CPU (`docs/idle-cpu.md`) — park inventory + Mac idle proof; doctor notes checklist (optional `AUTOMATON_IDLE_CPU=1` live sample); package 0.7.0.
-- Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; sister-freeze parks idle rail; honesty on stubby life; package 0.7.0.
+- Living marks (`docs/marks.md`) — selected glance / soft melt / lid springs; Wave 3.1 mark-local 0.1px melt publish (gpuix px stays integer); sister-freeze parks idle rail; honesty on stubby life; package 0.7.0.
 - `@gpuix/react` vendor (`docs/gpuix.md`) — stay on vendored 0.6.1 park until remorses/gpuix#34 merges **and** a park-bearing npm publish; never switch to registry 0.7.0 (no motion-spring); never ask NPM_TOKEN for `@gpuix`; package 0.7.0.
 - Cloud agent / Origin (`docs/cloud-origin.md`) — optional public Cloud Agents API (`CURSOR_API_KEY`); Settings/Jobs parked when unavailable (no fake Launch); Origin browse only from explicit `origin.cursor.com` remotes; never guess Origin from GitHub; package 0.7.0.
 - Mouth compaction (`docs/compaction.md`) — working set = compact summary + recent turns; auto when over char budget; Compact now in Settings; fail-soft Need; Jobs strip untouched; package 0.7.0.
