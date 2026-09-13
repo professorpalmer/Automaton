@@ -17,10 +17,10 @@ const TURN_COUNT = 20
 const MOCK_KEYS = [{ key: 'sk-or-test', source: 'automaton' as const }]
 
 export const SESSION_RATE_NOTE =
-  'This 95% is a session-level hit rate across a day of work, not a discount on a single new task. The first look at a repo, paper, or bug still pays a full mouth call. Later turns that come back to that same finding query the store and skip the model. A typical day is mostly those later turns; that mix is why 19 of 20 turns avoided inference. One novel task is still one paid call (100% of that turn).'
+  'Bench only — not a live product guarantee. Measured synthetic repeated-domain recall: 19/20 under a seeded Kernel claim on ensureMouth + StaffStore + queryFirst. Spoken hits may include an honesty prefix (Already have … from …). This is not a 95% savings claim for mixed desk work. Live ~/.automaton/staff.sqlite remains a separate mixed ledger.'
 
 export const WORKLOAD_DESCRIPTION =
-  '20 user turns against Automaton ensureMouth + StaffStore + queryFirst. Turn 1 is a novel question that is not a recall, so queryFirst misses and one mocked ChatFn call is the paid inference. Chat misses do not auto-remember(); after that miss the replay seeds one job-sourced Kernel claim as if a worker had finished. Turns 2-20 send the recall query from tests/mouth.test.ts and must hit with inferenceAvoided=true and no further ChatFn calls. Uses a temp sqlite path, never ~/.automaton/staff.sqlite. This is not Cary Palmer live mixed ledger (1 hit / 51 turns).'
+  'Bench script: synthetic repeated-domain recall (19/20 under seeded claim), not a live product guarantee. 20 user turns against Automaton ensureMouth + StaffStore + queryFirst. Turn 1 is a novel question that is not a recall, so queryFirst misses and one mocked ChatFn call is the paid inference. Chat misses do not auto-remember(); after that miss the replay seeds one job-sourced Kernel claim as if a worker had finished. Turns 2-20 send the recall query from tests/mouth.test.ts and must hit with inferenceAvoided=true and no further ChatFn calls (spoken may include Already have). Uses a temp sqlite path, never ~/.automaton/staff.sqlite. This is not Cary Palmer live mixed ledger (1 hit / 51 turns).'
 
 export type ReplayTurnRow = {
   n: number
@@ -266,6 +266,6 @@ if (import.meta.main) {
   const report = await runRepeatedWorkReplay()
   const { summary } = report
   console.log(
-    `repeated-work replay turns=${summary.turns} misses=${summary.misses} hits=${summary.hits} avoided=${summary.inferenceAvoided} calls=${summary.inferenceCalls} avoided/total=${summary.avoidedOverTotal} sha=${report.gitSha}`,
+    `repeated-work bench (synthetic 19/20, not product guarantee) turns=${summary.turns} misses=${summary.misses} hits=${summary.hits} avoided=${summary.inferenceAvoided} calls=${summary.inferenceCalls} avoided/total=${summary.avoidedOverTotal} sha=${report.gitSha}`,
   )
 }

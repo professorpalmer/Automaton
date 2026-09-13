@@ -4,9 +4,13 @@ import { assessAsk, looksLikeInspect, looksLikeLiveCheck, looksLikeRepoAsk } fro
 import {
   buildWorkingSet,
   claimTaskKey,
+  claimTextFromRecallSpoken,
+  formatRecallSpoken,
+  honestRecallMiss,
   INTRO_CUE,
   introFallback,
   looksLikeRecallRequest,
+  looksLikeRefreshRequest,
   queryFirst,
   TAIL,
 } from '../src/runtime/working-set.ts'
@@ -110,12 +114,12 @@ describe('mouth working set', () => {
   })
 
   test('query-first restates a stored claim with no inference', () => {
-    expect(
-      queryFirst('what did Kernel find', [
-        { ownerAgentId: 'staff', text: 'I am Staff.' },
-        { ownerAgentId: 'kernel', text: 'The ledger replay is deterministic.' },
-      ]),
-    ).toBe('The ledger replay is deterministic.')
+    const hit = queryFirst('what did Kernel find', [
+      { ownerAgentId: 'staff', text: 'I am Staff.' },
+      { ownerAgentId: 'kernel', text: 'The ledger replay is deterministic.' },
+    ])
+    expect(hit?.text).toBe('The ledger replay is deterministic.')
+    expect(hit?.claim.ownerAgentId).toBe('kernel')
     expect(looksLikeRecallRequest('what did Kernel find about ledger replay')).toBe(true)
     expect(looksLikeLiveCheck('what did Kernel find about ledger replay')).toBe(false)
     expect(queryFirst('Hello, what is your name?', [{ ownerAgentId: 'staff', text: 'x' }])).toBeNull()
@@ -142,7 +146,7 @@ describe('mouth working set', () => {
       { ownerAgentId: 'kernel', text: 'The ledger replay is deterministic.', freshness: 'fresh' as const },
       { ownerAgentId: 'research', text: 'The ledger parser notes are complete.', freshness: 'fresh' as const },
     ]
-    expect(queryFirst('what did Research find about parser', claims)).toBe(
+    expect(queryFirst('what did Research find about parser', claims)?.text).toBe(
       'The ledger parser notes are complete.',
     )
     expect(queryFirst('what did you find about ledger', claims)).toBeNull()
@@ -187,7 +191,7 @@ describe('mouth working set', () => {
           artifactKind: 'analyze',
           freshness: 'fresh',
         },
-      ]),
+      ])?.text,
     ).toBe('The ledger replay is deterministic.')
     expect(
       queryFirst('what did Kernel find about ledger replay', [
@@ -200,6 +204,63 @@ describe('mouth working set', () => {
         },
       ]),
     ).toBeNull()
+  })
+
+  test('formatRecallSpoken cites owner and optional job', () => {
+    const withJob = formatRecallSpoken({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      jobId: 'job_1',
+    })
+    expect(withJob).toBe('Already have this from kernel (job_1): The ledger replay is deterministic.')
+    expect(claimTextFromRecallSpoken(withJob)).toBe('The ledger replay is deterministic.')
+    expect(
+      formatRecallSpoken({
+        ownerAgentId: 'research',
+        text: 'Notes are complete.',
+      }),
+    ).toBe('Already have this from research: Notes are complete.')
+    expect(claimTextFromRecallSpoken('plain claim text')).toBeNull()
+  })
+
+  test('honestRecallMiss speaks only for recall-shaped asks', () => {
+    const fresh = {
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      freshness: 'fresh' as const,
+    }
+    expect(honestRecallMiss('Hello, what is your name?', [fresh])).toBeNull()
+    expect(honestRecallMiss('what did Kernel find about ledger replay', [])).toBe(
+      "I don't have a durable record of that.",
+    )
+    expect(
+      honestRecallMiss('what did Kernel find about ledger replay', [
+        {
+          ownerAgentId: 'kernel',
+          text: 'The ledger replay is deterministic.',
+          taskKey: claimTaskKey({ ownerAgentId: 'kernel', kind: 'analyze', goal: 'ledger replay' }),
+          artifactKind: 'analyze',
+          freshness: 'stale',
+        },
+      ]),
+    ).toBe("That finding looks stale. I don't have a fresh durable record.")
+    expect(
+      honestRecallMiss('what did you find about ledger', [
+        fresh,
+        {
+          ownerAgentId: 'research',
+          text: 'The ledger parser notes are complete.',
+          freshness: 'fresh',
+        },
+      ]),
+    ).toBe("I don't have a durable record of that.")
+  })
+
+  test('looksLikeRefreshRequest detects re-check cues', () => {
+    expect(looksLikeRefreshRequest('refresh what Kernel found about ledger replay')).toBe(true)
+    expect(looksLikeRefreshRequest('look again at the ledger finding')).toBe(true)
+    expect(looksLikeRefreshRequest('re-check the ledger replay')).toBe(true)
+    expect(looksLikeRefreshRequest('what did Kernel find about ledger replay')).toBe(false)
   })
 
   test('working set is a tail plus recalled claims, not the whole thread', () => {

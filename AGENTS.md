@@ -33,7 +33,7 @@ windows/pids for this install before focus/open (no default `open -n` stack).
 leave a zombie window; prefer `bun run app`. Doctor WARNs on leftovers with a
 path to kick cold. `bun scripts/probe-kernel.ts` is a
 read-only analyze launch. `bun scripts/probe-mouth.ts` exercises the bounded
-OpenRouter mouth and its zero-call query path. `bun scripts/replay-tough-eval.ts` measures recall safety on a seeded mixed workload; it is not the 95% repeated-work replay. `bun scripts/replay-workday-eval.ts` streams a seeded workday from an empty store (persist job-sourced Kernel claims after first-look misses; 5/10/20% novel) and writes the saturation ledger.
+OpenRouter mouth and its zero-call query path. `bun scripts/replay-repeated-work.ts` is a measured synthetic bench (19/20 under a seeded claim), not a live 95% product claim. `bun scripts/replay-tough-eval.ts` measures recall safety on a seeded mixed workload. `bun scripts/replay-workday-eval.ts` streams a seeded workday from an empty store (persist job-sourced Kernel claims after first-look misses; 5/10/20% novel) and writes the saturation ledger.
 
 The computer is one local Docker Linux. Every automaton shares that machine.
 An automaton is a cheap screen (X display plus a Chrome profile), not another

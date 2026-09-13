@@ -21,7 +21,7 @@ describe('mouth probe report', () => {
     expect(report.recall.inferenceAttempted).toBe(false)
     expect(report.recall.promptTokens).toBe(0)
     expect(report.recall.costUsd).toBe(0)
-    expect(report.recall.spoken).toBe('The ledger replay is deterministic.')
+    expect(report.recall.spoken).toBe('Already have this from kernel (job_probe_seed): The ledger replay is deterministic.')
     expect(report.inference.spoken).not.toBe('The ledger replay is deterministic.')
     expect(report.inference.calls).toBe(1)
     expect(report.inference.outcome).toBe('miss')

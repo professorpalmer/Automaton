@@ -11,7 +11,15 @@ import { applyProviderReasoningControls, type ProviderMapContext } from './provi
 import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
 import { applyCompact, compactRequestMessages, COMPACT_MODEL, shouldCompact, withCacheBreakpoint } from './compact'
-import { buildWorkingSet, introFallback, queryFirst, type ChatTurn } from './working-set'
+import {
+  buildWorkingSet,
+  formatRecallSpoken,
+  honestRecallMiss,
+  introFallback,
+  looksLikeRefreshRequest,
+  queryFirst,
+  type ChatTurn,
+} from './working-set'
 
 export const DEFAULT_MOUTH_MODEL = DEFAULT_SEAT_MODEL
 export const INTRO_MOUTH_MODEL = 'openai/gpt-4o-mini'
@@ -225,14 +233,35 @@ export async function ensureMouth(
       }
       const prior = priorUserAsk(session.threads[turn.agentId]?.items ?? [])
       const liveCheck = turn.mode !== 'assess' && looksLikeLiveCheck(turn.userText, [], prior)
-      const claims = liveCheck ? [] : store.recall(turn.userText)
+      const wantsRefresh = looksLikeRefreshRequest(turn.userText)
+      let claims: ReturnType<StaffStore['recall']> = []
+      if (!liveCheck) {
+        try {
+          claims = store.recall(turn.userText)
+        } catch {
+          store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'failed', false))
+          hooks.onFail(turn.agentId, 'Need a usable staff store. Run doctor.')
+          continue
+        }
+      }
       const attached = store.attachmentsForItem(turn.itemId)
       const hasVision = attached.some((row) => row.kind === 'image')
       const recalled =
-        turn.mode === 'assess' || hasVision || liveCheck ? null : queryFirst(turn.userText, claims, prior)
+        wantsRefresh || turn.mode === 'assess' || hasVision || liveCheck
+          ? null
+          : queryFirst(turn.userText, claims, prior)
       if (recalled) {
         store.recordReceipt(hitReceipt(turn.itemId))
-        hooks.onComplete(turn.agentId, recalled)
+        hooks.onComplete(turn.agentId, formatRecallSpoken(recalled.claim))
+        continue
+      }
+      const recallMiss =
+        wantsRefresh || turn.mode === 'assess' || hasVision || liveCheck
+          ? null
+          : honestRecallMiss(turn.userText, claims, prior)
+      if (recallMiss) {
+        store.recordReceipt(missReceipt(turn.itemId, null, unknownUsage(), 'complete', false))
+        hooks.onComplete(turn.agentId, recallMiss)
         continue
       }
       const candidates = keys ?? (runningTests() ? [] : listOpenRouterKeys())

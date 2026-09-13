@@ -13,7 +13,7 @@ import {
 } from '../src/runtime/mouth.ts'
 import { INTRO_CUE, introFallback } from '../src/runtime/working-set.ts'
 import { markIntroPlayedAt, readProfile, writeProfile } from '../src/runtime/profile.ts'
-import { openStaffStore } from '../src/runtime/store.ts'
+import { openStaffStore, type StaffStore } from '../src/runtime/store.ts'
 import { completeJob, completeMouth, maybeIntro, pendingMouthTurns, send } from '../src/session'
 
 describe('mouth sidecar', () => {
@@ -56,7 +56,7 @@ describe('mouth sidecar', () => {
       },
     )
     expect(calls).toBe(0)
-    expect(spoken).toBe('The ledger replay is deterministic.')
+    expect(spoken).toBe('Already have this from kernel (job_1): The ledger replay is deterministic.')
     expect(store.listClaims()).toHaveLength(before)
     const receipt = store.receipt(turn.itemId)
     expect(receipt?.outcome).toBe('hit')
@@ -70,6 +70,136 @@ describe('mouth sidecar', () => {
     const ledger = store.metrics()
     expect(ledger.inferenceAvoided).toBe(1)
     expect(ledger.inferenceCalls).toBe(0)
+  })
+
+
+  test('recall-shaped miss speaks honesty without ChatFn', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-miss-${Date.now()}.sqlite`))
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'what did Kernel find about ledger replay')
+    const turn = pendingMouthTurns(session)[0]
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'should not invent a recall'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(0)
+    expect(spoken).toBe("I don't have a durable record of that.")
+    const receipt = store.receipt(turn.itemId)
+    expect(receipt?.outcome).toBe('miss')
+    expect(receipt?.inferenceAvoided).toBe(false)
+    expect(receipt?.inferenceAttempted).toBe(false)
+    expect(receipt?.status).toBe('complete')
+  })
+
+  test('refresh cue skips durable hit and mouths', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-refresh-${Date.now()}.sqlite`))
+    store.remember({
+      ownerAgentId: 'kernel',
+      text: 'The ledger replay is deterministic.',
+      source: 'job',
+      jobId: 'job_1',
+    })
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'refresh what did Kernel find about ledger replay')
+    let spoken = ''
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'Re-checked. Still deterministic.'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(1)
+    expect(spoken).toBe('Re-checked. Still deterministic.')
+    expect(spoken).not.toMatch(/^Already have/)
+  })
+
+  test('corrupt store.recall fails closed with Need/doctor', async () => {
+    resetIdsForTests()
+    resetMouthForTests()
+    const store = openStaffStore(join(tmpdir(), `automaton-mouth-corrupt-${Date.now()}.sqlite`))
+    ;(store as { recall: StaffStore['recall'] }).recall = () => {
+      throw new Error('sqlite corrupt')
+    }
+    let session = {
+      agents: staffWithSisters(),
+      activeAgentId: 'staff' as const,
+      threads: emptyThreads(staffWithSisters()),
+      jobs: [],
+      pendingFanout: null,
+    }
+    session = send(session, 'what did Kernel find about ledger replay')
+    const turn = pendingMouthTurns(session)[0]
+    let spoken = ''
+    let failed = false
+    let calls = 0
+    await ensureMouth(
+      session,
+      store,
+      {
+        onComplete: (_agentId, text) => {
+          spoken = text
+        },
+        onFail: (_agentId, text) => {
+          failed = true
+          spoken = text
+        },
+      },
+      async () => {
+        calls += 1
+        return 'should not run'
+      },
+      [{ key: 'sk-or-test', source: 'automaton' }],
+    )
+    expect(calls).toBe(0)
+    expect(failed).toBe(true)
+    expect(spoken).toBe('Need a usable staff store. Run doctor.')
+    const receipt = store.receipt(turn.itemId)
+    expect(receipt?.outcome).toBe('miss')
+    expect(receipt?.status).toBe('failed')
+    expect(receipt?.inferenceAttempted).toBe(false)
   })
 
   test('live check does not speak a stored issue claim', async () => {
@@ -450,12 +580,14 @@ describe('mouth sidecar', () => {
       },
       [{ key: 'sk-or-test', source: 'automaton' }],
     )
-    expect(calls).toBe(1)
+    expect(calls).toBe(0)
+    expect(spoken).toBe("I don't have a durable record of that.")
     expect(spoken).not.toBe('The ledger replay is deterministic.')
     const receipt = store.receipt(turn.itemId)
     expect(receipt?.outcome).toBe('miss')
     expect(receipt?.inferenceAvoided).toBe(false)
-    expect(receipt?.inferenceAttempted).toBe(true)
+    expect(receipt?.inferenceAttempted).toBe(false)
+    expect(receipt?.status).toBe('complete')
   })
 
   test('stale claim is not spoken as a hit', async () => {
@@ -498,8 +630,8 @@ describe('mouth sidecar', () => {
       },
       [{ key: 'sk-or-test', source: 'automaton' }],
     )
-    expect(calls).toBe(1)
-    expect(spoken).toBe('should infer')
+    expect(calls).toBe(0)
+    expect(spoken).toBe("That finding looks stale. I don't have a fresh durable record.")
   })
 
   test('implement claim is not spoken as an analyze finding', async () => {
@@ -542,8 +674,8 @@ describe('mouth sidecar', () => {
       },
       [{ key: 'sk-or-test', source: 'automaton' }],
     )
-    expect(calls).toBe(1)
-    expect(spoken).toBe('should infer')
+    expect(calls).toBe(0)
+    expect(spoken).toBe("I don't have a durable record of that.")
   })
 
   test('coordinator assess sees the sister line and skips query-first', async () => {

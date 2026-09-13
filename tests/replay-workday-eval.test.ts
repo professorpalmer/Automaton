@@ -37,7 +37,9 @@ describe('workday saturation eval', () => {
     expect(report.turns[0]?.gold.reason).toBe('first-look')
     expect(report.turns[0]?.outcome).toBe('miss')
     expect(report.turns[0]?.inferenceAvoided).toBe(false)
-    expect(report.turns[0]?.chatCalls).toBe(1)
+    // Recall-shaped first-looks speak an honest miss without inventing via ChatFn.
+    expect(report.turns[0]?.chatCalls).toBe(0)
+    expect(report.turns[0]?.inferenceAttempted).toBe(false)
 
     const firstLooks = report.turns.filter((row) => row.gold.reason === 'first-look')
     expect(firstLooks.length).toBe(mixFor(PRIMARY_NOVEL_RATE).firstLook)

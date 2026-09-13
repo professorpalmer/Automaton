@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { emptyThreads, jobKindForKit, resetIdsForTests, staffWithSisters } from '../src/domain'
 import { ensureMouth, resetMouthForTests, type ChatFn } from '../src/runtime/mouth'
 import { openStaffStore, type LedgerMetrics, type RememberInput } from '../src/runtime/store'
-import { claimTaskKey } from '../src/runtime/working-set'
+import { claimTaskKey, claimTextFromRecallSpoken } from '../src/runtime/working-set'
 import { completeMouth, pendingMouthTurns, send, type Session } from '../src/session'
 
 const PRODUCT_ROOT = join(import.meta.dir, '..')
@@ -23,7 +23,7 @@ export const WORKLOAD_DESCRIPTION =
   'Seeded workday saturation workload against Automaton ensureMouth + StaffStore + queryFirst. Empty store. 400 turns that look like a workday: morning-weighted first-looks (novel miss, then persist a job-sourced Kernel claim the way a finished worker would), later recall-shaped paraphrases of findings already persisted that day, interleaved so the cumulative curve climbs. Small follow-up/unrelated tail, labeled in gold. Primary mix is ~5% first-looks (1 in 20 novel). Same generator also runs 10% and 20% novel. Measures current gates (RECALL_REQUEST, uniqueSpeakable, skip stale, taskKey, owner) without retuning queryFirst. Chat misses do not remember() themselves. Temp sqlite only; never ~/.automaton/staff.sqlite.'
 
 export const INTERPRETATION =
-  '95% is the cost of a workday when about 1 in 20 turns is novel and the rest are recall-shaped revisits of work already in the store. When the novel fraction is F, avoidance tracks ~1-F if the gates are clean. The 19/20 replay is the single-finding limit (1 miss + 19 hits). The hostile 330 (25.15% avoidance, 0 false hits, 0 stale hits) is the safety score: the cache refuses the wrong commit. Live ~/.automaton/staff.sqlite (1 hit / 51 turns) is an early mixed desk, not a full workday on one domain.'
+  'When about 1 in 20 turns is novel and the rest are recall-shaped revisits, avoidance can track ~1-F if the gates are clean — a measured mix, not a product savings claim. The 19/20 replay is a synthetic single-finding bench (1 miss + 19 hits under a seeded claim), not a live guarantee. The hostile 330 (25.15% avoidance, 0 false hits, 0 stale hits) is the safety score: the cache refuses the wrong commit. Live ~/.automaton/staff.sqlite (1 hit / 51 turns) is an early mixed desk, not a full workday on one domain.'
 
 export type GoldReason = 'first-look' | 'revisit-paraphrase' | 'followup' | 'unrelated'
 
@@ -643,7 +643,8 @@ function scoreTurn(input: {
   if (input.outcome !== 'hit') {
     return { falseHit: false, staleHit: false }
   }
-  const served = input.claims.find((row) => row.text === input.spoken)
+  const claimBody = claimTextFromRecallSpoken(input.spoken) ?? input.spoken
+  const served = input.claims.find((row) => row.text === claimBody || row.text === input.spoken)
   const staleHit = served?.freshness === 'stale'
   let falseHit = false
   if (!served) falseHit = true
@@ -938,7 +939,7 @@ async function runOneWorkday(input: {
       repeatedWorkReplay: {
         hits: 19,
         turns: 20,
-        note: '19/20 (95%) is the single-finding limit: 1 miss + 19 hits of one stored Kernel claim.',
+        note: '19/20 is a synthetic single-finding bench (not a product guarantee): 1 miss + 19 hits of one stored Kernel claim.',
       },
       toughEval: {
         turns: 330,
@@ -948,7 +949,7 @@ async function runOneWorkday(input: {
         staleHits: 0,
         costUsd: 0.247,
         inferenceCalls: 247,
-        note: 'Hostile mix: 330 turns, 83/330 = 25.15% avoidance, 0 false hits, 0 stale hits, $0.247, 247 calls. Safety score of the gates, not a retraction of the workday 95%.',
+        note: 'Hostile mix: 330 turns, 83/330 = 25.15% avoidance, 0 false hits, 0 stale hits, $0.247, 247 calls. Safety score of the gates, separate from the synthetic 19/20 bench.',
       },
       gates: ['RECALL_REQUEST', 'uniqueSpeakable', 'skip stale', 'taskKey', 'owner'],
     },
