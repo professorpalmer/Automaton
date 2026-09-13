@@ -90,6 +90,7 @@ import { JobsPane, JobsStrip } from './jobs-pane'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser, focusHostChrome, hostDeskSeams, readHostHandle } from './runtime/chrome'
 import { ensureLocalDashboard, isDashboardJobId, openDashboardUrl } from './runtime/pm-dashboard'
+import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud-origin'
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
 import { setHumanDriving } from './runtime/driving'
@@ -1118,6 +1119,15 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
                 jobs={jobs}
                 agents={session.agents}
                 note={jobsNote}
+                bindRepository={(() => {
+                  const profile = readProfile(session.activeAgentId)
+                  return profile?.homeRepo ? githubUrlFromHomeRepo(profile.homeRepo) ?? undefined : undefined
+                })()}
+                bindLabel={readProfile(session.activeAgentId)?.homeRepo || active?.name}
+                originRemote={(() => {
+                  const path = readProfile(session.activeAgentId)?.homePath?.trim()
+                  return path ? readExplicitOriginRemote(path) ?? undefined : undefined
+                })()}
                 onClose={() => {
                   setJobsNote('')
                   setPane('none')

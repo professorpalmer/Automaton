@@ -1,6 +1,7 @@
 import React from 'react'
 import type { Agent, JobHandle } from './domain'
 import { jobKindLabel } from './domain'
+import { CloudOriginPanel } from './cloud-origin-panel'
 import { isDashboardJobId } from './runtime/pm-dashboard'
 import { PaneHeader, Section } from './inspector'
 import { Chip } from './ui'
@@ -87,6 +88,9 @@ export function JobsPane({
   jobs,
   agents,
   note,
+  bindRepository,
+  bindLabel,
+  originRemote,
   onClose,
   onOpenBoard,
   onOpenJob,
@@ -94,6 +98,11 @@ export function JobsPane({
   jobs: JobHandle[]
   agents: Agent[]
   note?: string
+  /** GitHub home for the focused mouth — cloud launch only when present + API ready. */
+  bindRepository?: string
+  bindLabel?: string
+  /** Explicit Origin remote only — never guessed from GitHub. */
+  originRemote?: string
   onClose: () => void
   onOpenBoard: () => void
   onOpenJob: (job: JobHandle) => void
@@ -127,6 +136,14 @@ export function JobsPane({
           Expand board
         </Chip>
       </div>
+      <Section title="Cloud / Origin">
+        <CloudOriginPanel
+          mode="jobs"
+          bindRepository={bindRepository}
+          bindLabel={bindLabel}
+          originRemote={originRemote}
+        />
+      </Section>
       <Section title="Flying">
         {jobs.length === 0 ? (
           <div testId="jobs-empty" style={{ fontSize: T.type.sm, color: T.tertiary }}>

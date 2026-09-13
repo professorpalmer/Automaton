@@ -80,6 +80,14 @@ restates that line and does not start a new mouth turn. Jobs do not
 pixel-click the shared computer. Take control is the operator on that
 X display.
 
+## Optional cloud agent / Origin
+
+Cloud implement is an **opt-in** alternate transport (public Cloud Agents
+API + optional Origin forge links). It does not replace Puppetmaster jobs
+on the strip. When `CURSOR_API_KEY` is missing or the account blocks Cloud
+Agents, Settings/Jobs show **parked / unavailable** — never a fake Cloud
+button. See [`docs/cloud-origin.md`](./cloud-origin.md).
+
 ## Watch, hydrate, and cwd
 
 Job watch and `attachExisting` read PM status/refs asynchronously on the
