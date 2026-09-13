@@ -1,7 +1,9 @@
+import type { Appearance } from './appearance'
+
 /** Closed token set. Paint reads an immutable snapshot — never a mutated export. */
 
 export type Tokens = {
-  appearance: 'dark'
+  appearance: Appearance
   windowMode: 'frosted' | 'solid'
   canvas: string
   sidebar: string

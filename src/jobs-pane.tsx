@@ -2,6 +2,7 @@ import React from 'react'
 import type { Agent, JobHandle } from './domain'
 import { jobKindLabel } from './domain'
 import { CloudOriginPanel } from './cloud-origin-panel'
+import { EmptyState } from './chrome'
 import { foldJobTraces, stepRow } from './chrome/step-row'
 import { groupBoxStyle } from './chrome/surface'
 import { isDashboardJobId } from './runtime/pm-dashboard'
@@ -156,9 +157,11 @@ export function JobsPane({
       </Section>
       <Section title="Flying">
         {jobs.length === 0 ? (
-          <div testId="jobs-empty" style={{ fontSize: T.type.sm, color: T.tertiary }}>
-            No running jobs.
-          </div>
+          <EmptyState
+            testId="jobs-empty"
+            title="No running jobs."
+            style={{ fontSize: T.type.sm, color: T.tertiary, gap: 0 }}
+          />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
             {jobs.map((job) => {

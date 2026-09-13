@@ -1,5 +1,6 @@
 import React from 'react'
-import { T } from './tokens'
+import { groupBoxStyle } from './chrome/surface'
+import { useTokens } from './theme'
 import { Chip } from './ui'
 
 export function UpdateModal({
@@ -22,6 +23,7 @@ export function UpdateModal({
   onUpdate: () => void
   onLater: () => void
 }) {
+  const T = useTokens()
   const title = kind === 'release' ? 'Release available' : 'Updates available'
   const body =
     kind === 'release'
@@ -41,7 +43,7 @@ export function UpdateModal({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        backgroundColor: '#00000099',
+        backgroundColor: T.scrim,
         pointerEvents: 'auto',
       }}
     >
@@ -51,10 +53,7 @@ export function UpdateModal({
           width: 320,
           minWidth: 0,
           padding: T.space.xl,
-          borderRadius: T.radius.lg,
-          backgroundColor: '#1A1A1A',
-          borderWidth: T.stroke.hairline,
-          borderColor: T.border,
+          ...groupBoxStyle(T, 'menu'),
           display: 'flex',
           flexDirection: 'column',
           gap: T.space.md,

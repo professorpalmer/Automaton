@@ -7,6 +7,9 @@ export {
   type ActivityTakeover,
 } from './activity'
 export { Composer, COMPOSER_MAX_ROWS, COMPOSER_MIN_ROWS } from './composer'
+export { EmptyState } from './empty-state'
+export { Sheet } from './sheet'
+export { ToggleGroup, type ToggleOption } from './toggle-group'
 export {
   controlClusterStyle,
   titlebarHitStyle,

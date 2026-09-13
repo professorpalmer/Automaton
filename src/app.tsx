@@ -145,7 +145,7 @@ import {
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, Composer, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
+import { ActivityZone, Composer, EmptyState, Sheet, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition } from './motion'
@@ -1082,7 +1082,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               />
             </div>
           </div>
-          <SlidePane testId="inspector-pane" open={pane === 'inspector' && Boolean(active)} width={T.inspector.width}>
+          <Sheet testId="inspector-pane" open={pane === 'inspector' && Boolean(active)} width={T.inspector.width}>
             {pane === 'inspector' && active ? (
               <Inspector
                 agent={active}
@@ -1113,8 +1113,8 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                 }}
               />
             ) : null}
-          </SlidePane>
-          <SlidePane testId="settings-pane" open={pane === 'settings'} width={T.inspector.settings}>
+          </Sheet>
+          <Sheet testId="settings-pane" open={pane === 'settings'} width={T.inspector.settings}>
             {pane === 'settings' ? (
               <Settings
                 metrics={store.metrics()}
@@ -1159,8 +1159,8 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                 }}
               />
             ) : null}
-          </SlidePane>
-          <SlidePane testId="jobs-slide" open={pane === 'jobs'} width={T.inspector.width}>
+          </Sheet>
+          <Sheet testId="jobs-slide" open={pane === 'jobs'} width={T.inspector.width}>
             {pane === 'jobs' ? (
               <JobsPane
                 jobs={jobs}
@@ -1186,7 +1186,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                 }}
               />
             ) : null}
-          </SlidePane>
+          </Sheet>
         </div>
       </div>
       </div>
@@ -1712,44 +1712,6 @@ function SpokenLine({ text }: { text: string }) {
   )
 }
 
-function SlidePane({
-  open,
-  testId,
-  width: paneWidth = T.inspector.width,
-  children,
-}: {
-  open: boolean
-  testId: string
-  width?: number
-  children: React.ReactNode
-}) {
-  const width = open ? paneWidth : 0
-  return (
-    <div
-      testId={testId}
-      style={{
-        width,
-        height: '100%',
-        overflow: 'hidden',
-        flexShrink: 0,
-      }}
-    >
-      <motion.div
-        initial={false}
-        animate={{ width }}
-        transition={motionTransition('paneIn')}
-        style={{
-          width,
-          height: '100%',
-          overflow: 'hidden',
-        }}
-      >
-        <div style={{ width: paneWidth, height: '100%', minHeight: 0 }}>{children}</div>
-      </motion.div>
-    </div>
-  )
-}
-
 function precedingUserId(items: FeedItem[], index: number): string | null {
   for (let cursor = index - 1; cursor >= 0; cursor -= 1) {
     const prior = items[cursor]
@@ -2272,22 +2234,16 @@ export const Feed = forwardRef<FeedApi, {
       }}
     >
       {items.length === 0 ? (
-        <div
+        <EmptyState
           testId="feed-empty"
+          title="Start shipping. No strings attached."
+          detail="Pick a mouth on the rail. Words go here."
           style={{
             ...feedLane,
             paddingTop: T.space.hero,
             paddingBottom: T.space.hero,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: T.space.sm,
           }}
-        >
-          <div style={{ fontSize: T.type.lg, lineHeight: T.line.lg, color: T.secondary }}>
-            Start shipping. No strings attached.
-          </div>
-          <div style={{ fontSize: T.type.sm, color: T.ghost }}>Pick a mouth on the rail. Words go here.</div>
-        </div>
+        />
       ) : null}
       {items.map((item, index) => {
         if (item.kind === 'relay') {

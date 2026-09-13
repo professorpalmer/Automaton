@@ -2,9 +2,11 @@
 
 Measured Automaton chrome numbers. Style is a TypeScript lift of Bezel
 mechanics (environment-read tokens, Brand knobs, named MotionSpec) — not a
-bezel crate. Dark-first; no designed light mode in this pass.
+bezel crate. Dark is the default snapshot. Light is a designed role
+assignment (white content, grey chrome, opaque input plate) — not an invert.
 
-Package / Info.plist are **0.6.0** (Wave 2 P1 band cut).
+Package / Info.plist are **0.6.0** (Wave 2 P1 band cut). Light / Brand
+completion is the P2 Bezel backlog; this pass does not bump the band.
 
 Sources: this checkout’s `src/theme/tokens.ts` (formerly `src/tokens.ts`),
 `src/main.tsx` window options, and Bezel’s own measured notes where the
@@ -85,6 +87,15 @@ unsubscribe at rest (`src/resting-motion.ts`, settle ≤420ms).
 | Activity / takeover | `src/chrome/activity.ts` | Auto-open while streaming; header press locks. Feed-pin still owns tail. No idle MotionDiv |
 | Composer grow + `#` picker | `src/chrome/composer.tsx` | `minRows` 1 / `maxRows` 8. gpuix 0.6.1 has no caret API — `#` query is end-of-draft |
 | Titlebar / control bar | `src/chrome/layout.ts` | Darwin `trafficLightClearance` 86; trailing cluster stays off the lights |
+
+## P2 appearance + named widgets
+
+| Recipe | Where | Notes |
+| --- | --- | --- |
+| Designed light | `src/theme/appearance.ts` | White content, grey receding chrome, opaque composer plate. Not a hex invert. Dark remains default |
+| Brand contrast | `accentForAppearance` | Walks a swatch toward ink/paper until AA on the content plane. Hue stays |
+| Light frost tint | Brand `tint` wash | Paper / linen / mist swatches sit next to graphite. Default tint stays `#101010` |
+| ToggleGroup / EmptyState / Sheet | `src/chrome/toggle-group.tsx`, `empty-state.tsx`, `sheet.tsx` | Extracted from Settings, feed, Jobs, inspector kit, slide panes. No skeleton zoo; Jobs list stays short |
 
 ## Honesty
 

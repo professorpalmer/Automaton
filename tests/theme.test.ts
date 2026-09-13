@@ -72,13 +72,19 @@ describe('token environment', () => {
   test('Settings and inspector paint from useChrome, not frozen CARD_STYLE', () => {
     const settings = readFileSync(join(import.meta.dir, '../src/settings.tsx'), 'utf8')
     const inspector = readFileSync(join(import.meta.dir, '../src/inspector.tsx'), 'utf8')
+    const cloud = readFileSync(join(import.meta.dir, '../src/cloud-origin-panel.tsx'), 'utf8')
     expect(settings).toContain('useChrome')
     expect(settings).not.toContain('CARD_STYLE')
     expect(settings).not.toContain('FIELD_THEME')
+    expect(settings).toContain('settings-appearance')
     expect(inspector).toContain('useChrome')
     expect(inspector).toContain('fieldTheme')
     expect(inspector).not.toContain('FIELD_THEME')
     expect(inspector).not.toContain("from './tokens'")
+    expect(cloud).toContain('useChrome')
+    expect(cloud).not.toContain('CARD_STYLE')
+    expect(cloud).not.toContain('FIELD_THEME')
+    expect(cloud).not.toContain("from './tokens'")
   })
 
   test('skin.json stores brand next to rail/window', () => {

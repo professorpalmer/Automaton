@@ -19,6 +19,7 @@ describe('titlebar / control-bar discipline', () => {
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).toContain("from './chrome'")
     expect(app).not.toContain('function Titlebar(')
+    expect(app).not.toContain('function SlidePane(')
     expect(app).not.toContain('paddingLeft: TRAFFIC')
     const bar = readFileSync(join(import.meta.dir, '../src/chrome/titlebar.tsx'), 'utf8')
     expect(bar).toContain('titlebarRowStyle')

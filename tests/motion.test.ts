@@ -11,6 +11,7 @@ const HOT = [
   'src/chrome/composer.tsx',
   'src/chrome/activity-zone.tsx',
   'src/chrome/titlebar.tsx',
+  'src/chrome/sheet.tsx',
   'src/blob.tsx',
 ]
 
@@ -38,8 +39,9 @@ describe('MotionSpec catalog', () => {
       expect(src, rel).not.toContain('applyChromeToTokens')
     }
     const app = readFileSync(join(import.meta.dir, '..', 'src/app.tsx'), 'utf8')
+    const sheet = readFileSync(join(import.meta.dir, '..', 'src/chrome/sheet.tsx'), 'utf8')
     expect(app).toContain("motionTransition('railResize'")
-    expect(app).toContain("motionTransition('paneIn')")
+    expect(sheet).toContain("motionTransition('paneIn')")
     expect(app).toContain("motionTransition('unreadFade')")
     expect(app).toContain('useTokens()')
     expect(app).toContain('toChatTheme')

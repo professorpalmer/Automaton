@@ -11,8 +11,9 @@ export function groupBoxRadius(tokens: Tokens, role: SurfaceRole = 'card'): numb
 }
 
 /**
- * Wash behind the hairline. Frosted cards stay translucent so the window
- * frost shows through. Menus stay opaque — alpha punch-through reads as a hole.
+ * Wash behind the hairline. Dark frost cards stay translucent so the window
+ * frost shows through. Light raised plates are opaque grey (designed, not a
+ * black dent). Menus stay opaque — alpha punch-through reads as a hole.
  */
 export function groupBoxWash(tokens: Tokens, role: SurfaceRole = 'card'): string {
   if (role === 'menu') return tokens.menu
