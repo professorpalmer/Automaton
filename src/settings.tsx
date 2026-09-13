@@ -16,6 +16,7 @@ import {
   hasOpenRouterGrant,
   OPENROUTER_ID,
   readConnectors,
+  writeConnectorSecret,
   type Connector,
 } from './runtime/connectors'
 import { listOpenRouterKeys, writeOpenRouterKey } from './runtime/keys'
@@ -60,6 +61,13 @@ import {
   updateRoomMembers,
   type Room,
 } from './runtime/rooms'
+import {
+  installMcp,
+  listCatalog,
+  mcpStatusLabel,
+  uninstallMcp,
+  type CatalogEntryStatus,
+} from './runtime/mcp-catalog'
 
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
@@ -559,6 +567,148 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
   )
 }
 
+
+function McpCatalogCard() {
+  const [query, setQuery] = useState('')
+  const [note, setNote] = useState('')
+  const [secretDraft, setSecretDraft] = useState<Record<string, string>>({})
+  const [tick, setTick] = useState(0)
+  const refresh = () => setTick((n) => n + 1)
+  void tick
+  const rows = listCatalog({ query })
+  const install = (id: string) => {
+    const result = installMcp(id)
+    if (!result.ok) {
+      setNote(result.error)
+      return
+    }
+    setNote('')
+    refresh()
+  }
+  const uninstall = (id: string) => {
+    const result = uninstallMcp(id)
+    if (!result.ok) {
+      setNote(result.error)
+      return
+    }
+    setNote('')
+    setSecretDraft((cur) => {
+      const next = { ...cur }
+      delete next[id]
+      return next
+    })
+    refresh()
+  }
+  const connect = (id: string) => {
+    const value = (secretDraft[id] ?? '').trim()
+    if (!value) {
+      setNote(`Need a secret for ${id}.`)
+      return
+    }
+    if (!writeConnectorSecret(id, value)) {
+      setNote(`Need: could not save auth for ${id}.`)
+      return
+    }
+    setSecretDraft((cur) => {
+      const next = { ...cur }
+      delete next[id]
+      return next
+    })
+    setNote('')
+    refresh()
+  }
+  const statusTone = (status: CatalogEntryStatus): 'action' | 'ghost' =>
+    status === 'installed' ? 'action' : 'ghost'
+  return (
+    <div testId="settings-mcp-catalog" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+        Curated MCP connectors (install registry under ~/.automaton/mcp). OpenRouter stays in Connectors above — mouth HTTP, not MCP. Auth uses the same secret-request / Connect path (never paste in chat). Live tool call is stubbed; discoverTools returns schema hints.
+      </div>
+      <textarea
+        testId="settings-mcp-search"
+        value={query}
+        placeholder="Search catalog"
+        minRows={1}
+        maxRows={1}
+        theme={FIELD_THEME}
+        style={FIELD_STYLE}
+        onChange={(event) => setQuery(event.value ?? '')}
+      />
+      {rows.length === 0 ? (
+        <div testId="settings-mcp-empty" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+          Need: no catalog entries match. (Curated list only — never invent plugins.)
+        </div>
+      ) : (
+        rows.map((row) => (
+          <div
+            key={row.id}
+            testId={`settings-mcp-${row.id}`}
+            style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+          >
+            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+              <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
+              <Chip testId={`settings-mcp-${row.id}-status`} tone={statusTone(row.status)}>
+                {mcpStatusLabel(row.status)}
+              </Chip>
+            </div>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary }}>{row.description}</div>
+            {row.package ? (
+              <div style={{ fontSize: T.type.xs, color: T.secondary }}>{row.package}</div>
+            ) : null}
+            <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+              {row.status === 'available' || row.status === 'error' ? (
+                <Chip testId={`settings-mcp-${row.id}-install`} tone="action" onClick={() => install(row.id)}>
+                  Install
+                </Chip>
+              ) : (
+                <Chip testId={`settings-mcp-${row.id}-uninstall`} tone="ghost" onClick={() => uninstall(row.id)}>
+                  Uninstall
+                </Chip>
+              )}
+            </div>
+            {row.status === 'needsAuth' || (row.needsAuth && row.status === 'installed') ? (
+              <div
+                testId={`settings-mcp-${row.id}-connect`}
+                style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+              >
+                <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                  Connect — stays out of chat. Same vault path as connector secret-request.
+                </div>
+                {row.status === 'needsAuth' ? (
+                  <div style={{ display: 'flex', flexDirection: 'row', alignItems: 'center', gap: T.space.sm }}>
+                    <textarea
+                      testId={`settings-mcp-${row.id}-secret`}
+                      value={secretDraft[row.id] ?? ''}
+                      placeholder="Paste token here, not in chat"
+                      minRows={1}
+                      maxRows={2}
+                      theme={FIELD_THEME}
+                      style={{ ...FIELD_STYLE, flexGrow: 1 }}
+                      onChange={(event) =>
+                        setSecretDraft((cur) => ({ ...cur, [row.id]: event.value ?? '' }))
+                      }
+                    />
+                    <Chip testId={`settings-mcp-${row.id}-connect-save`} tone="action" onClick={() => connect(row.id)}>
+                      Connect
+                    </Chip>
+                  </div>
+                ) : (
+                  <div style={{ fontSize: T.type.xs, color: T.secondary }}>Configured</div>
+                )}
+              </div>
+            ) : null}
+          </div>
+        ))
+      )}
+      {note ? (
+        <div testId="settings-mcp-note" style={{ fontSize: T.type.xs, color: T.secondary }}>
+          {note}
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
 export function Settings({
   metrics,
   agents = [],
@@ -786,7 +936,13 @@ export function Settings({
               <div style={{ fontSize: T.type.sm, color: T.text }}>{openRouter.name}</div>
               <div style={{ fontSize: T.type.sm, color: T.secondary }}>{connectorStatusLabel(openRouter)}</div>
             </div>
+            <div style={{ fontSize: T.type.xs, color: T.tertiary, marginTop: T.space.sm }}>
+              OpenRouter is the mouth HTTP provider. MCP plugins live in the MCP catalog below.
+            </div>
           </div>
+        </Section>
+        <Section title="MCP catalog">
+          <McpCatalogCard />
         </Section>
         <Section title="Channels">
           <div testId="settings-channels" style={CARD_STYLE}>
