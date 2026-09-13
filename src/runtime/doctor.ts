@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process'
 import { boxStatus, computerLabel } from './box'
 import { doctorLiveInstance, type LiveInstanceDoctor, type LiveInstanceSeams } from './live-instance'
+import { doctorIdleCpu, type IdleCpuDoctor } from './idle-health'
 import { readInstalledVersion, readPlistVersion, versionsAligned } from './version'
 
 export type DoctorReport = {
@@ -19,6 +20,9 @@ export type DoctorReport = {
   versionNote?: string
   packageVersion?: string
   plistVersion?: string
+  /** Idle CPU checklist / optional live sample — WARN/skip only; never flips ok alone. */
+  idleCpu: 'ok' | 'warn' | 'skip'
+  idleCpuNote?: string
   error?: string
 }
 
@@ -60,18 +64,33 @@ function versionDoctor(cwd?: string): Pick<DoctorReport, 'version' | 'versionNot
 }
 
 function withExtras(
-  base: Omit<DoctorReport, 'liveInstance' | 'liveInstancePids' | 'liveInstanceNote' | 'version' | 'versionNote' | 'packageVersion' | 'plistVersion'>,
+  base: Omit<
+    DoctorReport,
+    | 'liveInstance'
+    | 'liveInstancePids'
+    | 'liveInstanceNote'
+    | 'version'
+    | 'versionNote'
+    | 'packageVersion'
+    | 'plistVersion'
+    | 'idleCpu'
+    | 'idleCpuNote'
+  >,
   liveSeams?: LiveInstanceSeams,
   cwd?: string,
+  idle?: IdleCpuDoctor,
 ): DoctorReport {
   const live: LiveInstanceDoctor = doctorLiveInstance(liveSeams ?? {})
   const ver = versionDoctor(cwd)
+  const idleCpu = idle ?? doctorIdleCpu()
   return {
     ...base,
     liveInstance: live.status,
     liveInstancePids: live.pids.length ? live.pids : undefined,
     liveInstanceNote: live.message,
     ...ver,
+    idleCpu: idleCpu.status,
+    idleCpuNote: idleCpu.note,
   }
 }
 

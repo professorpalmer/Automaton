@@ -46,7 +46,8 @@ Invariants:
 - Idle GPUI sleeps: no idle `MotionDiv` / spring ticks on sisters
   (`src/resting-motion.ts`). Feed grow ticks coalesce and pin the tail
   (`src/runtime/feed-pin.ts`); row fingerprints avoid wholesale rebuilds
-  (`src/runtime/feed-row.ts`).
+  (`src/runtime/feed-row.ts`). Re-verify with `docs/idle-cpu.md` /
+  `bun run sample:idle-cpu` (CI soft-skips GUI metrics).
 - PM watch/attach uses async status/refs (`WATCH_POLL_MS` 2500). Already-
   terminal jobs settle on hydrate via `attachExisting`. Tooling words
   (`puppetmaster`, `codegraph`, …) must not steal land/promote cwd from
@@ -72,6 +73,7 @@ Invariants:
 - Secrets (`docs/secrets.md`) — in-app secret-request card with masked entry; vault via `writeConnectorSecret`; never persist secret values in session JSON / feed / Jobs / Slack / speech; package 0.2.0.
 - Version / releases (`docs/version.md`) — Settings About + optional titlebar chip from `package.json` / Info.plist; GitHub Latest notify-only (never auto-upgrade); git tip/dirty modal stays; doctor WARNs on package≠plist; package stays 0.2.0 until next band cut.
 - Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.2.0.
+- Idle CPU (`docs/idle-cpu.md`) — park inventory + Mac idle proof; doctor notes checklist (optional `AUTOMATON_IDLE_CPU=1` live sample); package stays 0.2.0.
 
 ## Safety
 
