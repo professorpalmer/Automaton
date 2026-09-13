@@ -36,6 +36,14 @@ import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, re
 import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from './runtime/paste-hotkey'
 import { clockDuration, runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
+import {
+  checkLatestRelease,
+  dismissRelease,
+  readDismissedRelease,
+  readInstalledVersion,
+  shouldOfferRelease,
+  type ReleaseOffer,
+} from './runtime/version'
 import { copyTextToClipboard } from './runtime/clipboard'
 import {
   STREAM_COMMIT_MS,
@@ -246,9 +254,11 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
   const [railMenu, setRailMenu] = useState<RailMenuAt | null>(null)
   const [deskControl, setDeskControl] = useState(false)
   const [update, setUpdate] = useState<UpdateOffer | null>(null)
+  const [release, setRelease] = useState<ReleaseOffer | null>(null)
   const [jobsNote, setJobsNote] = useState('')
   const [updateBusy, setUpdateBusy] = useState(false)
   const [updateNote, setUpdateNote] = useState('')
+  const [installedVersion] = useState(() => readInstalledVersion())
   const [pendingSend, setPendingSend] = useState<PendingSendView | null>(null)
   const { renderer } = useGpuix()
   const railDrag = useRef<{ startX: number; startWidth: number } | null>(null)
@@ -363,6 +373,11 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
     if (runningTests()) return
     let gone = false
     const look = () => {
+      const releaseOffer = checkLatestRelease()
+      if (!gone && shouldOfferRelease(releaseOffer, readDismissedRelease())) {
+        setRelease(releaseOffer)
+        // Keep git check as a peer channel; don't clear an existing git offer.
+      }
       const offer = checkForUpdate()
       if (gone || !shouldOfferUpdate(offer, readDismissedSha())) return
       setUpdate(offer)
@@ -839,7 +854,7 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         if (quitChord(event)) quitAutomaton()
       }}
     >
-      <Titlebar name={active?.name ?? PRODUCT} onInspect={toggleInspector} onJobs={toggleJobs} />
+      <Titlebar name={active?.name ?? PRODUCT} version={installedVersion} onInspect={toggleInspector} onJobs={toggleJobs} />
       <div
         style={{
           display: 'flex',
@@ -1118,8 +1133,35 @@ export function App({ store: providedStore }: { store?: StaffStore } = {}) {
         </div>
       </div>
       </div>
-      {update ? (
+      {release ? (
         <UpdateModal
+          kind="release"
+          installed={release.installed}
+          latestTag={release.latestTag}
+          dirty={update?.dirty ?? false}
+          busy={updateBusy}
+          note={updateNote}
+          onUpdate={() => {
+            if (updateBusy || update?.dirty) return
+            setUpdateBusy(true)
+            setUpdateNote('')
+            const result = applyUpdate()
+            if (result.ok) {
+              relaunchAutomaton()
+              return
+            }
+            setUpdateNote(result.spoken)
+            setUpdateBusy(false)
+          }}
+          onLater={() => {
+            dismissRelease(release.latestTag)
+            setRelease(null)
+            setUpdateNote('')
+          }}
+        />
+      ) : update ? (
+        <UpdateModal
+          kind="git"
           dirty={update.dirty}
           busy={updateBusy}
           note={updateNote}
@@ -1642,10 +1684,12 @@ const inspectArmed = { current: false }
 
 function Titlebar({
   name,
+  version = '',
   onInspect,
   onJobs,
 }: {
   name: string
+  version?: string
   onInspect: () => void
   onJobs: () => void
 }) {
@@ -1681,6 +1725,24 @@ function Titlebar({
       <div testId="titlebar-name" style={{ fontSize: T.type.sm, color: T.secondary }}>
         {name}
       </div>
+      {version ? (
+        <div
+          testId="titlebar-version"
+          style={{
+            fontSize: T.type.xs,
+            color: T.tertiary,
+            paddingLeft: T.space.sm,
+            paddingRight: T.space.sm,
+            paddingTop: 2,
+            paddingBottom: 2,
+            borderRadius: T.radius.sm,
+            borderWidth: T.stroke.hairline,
+            borderColor: T.border,
+          }}
+        >
+          {version}
+        </div>
+      ) : null}
       <div style={{ flexGrow: 1 }} />
       <div
         testId="titlebar-computer"
