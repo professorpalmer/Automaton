@@ -1622,9 +1622,11 @@ native('staff shell (GPUI native)', () => {
     expect(text).toContain('Frosted')
     expect(text).toContain('Solid')
     expect(text).not.toContain('Theme')
-    expect(text).not.toContain('Puppetmaster')
+    expect(text).toContain('Rooms')
+    // Sister model seats stay collapsed; Rooms may list sister names for member multi-select.
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-staff')).toBeTruthy()
     expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-seat-puppet')).toBeFalsy()
+    expect(findTestId(asTree(JSON.parse(renderer.getAutomationTree())), 'settings-rooms')).toBeTruthy()
     scrollTestIdIntoPane(renderer, 'settings-seats-more', 'settings')
     clickTestId(renderer, 'settings-seats-more')
     renderer.flush()
