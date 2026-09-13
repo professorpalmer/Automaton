@@ -30,19 +30,20 @@ import {
 import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
+import { clampFrostWash, patchSkin, readSkin, type Skin, type WindowMode } from './runtime/skin'
 import {
-  applyChromeToTokens,
-  clampFrostWash,
-  patchSkin,
-  readSkin,
-  type Skin,
-  type WindowMode,
-} from './runtime/skin'
+  BRAND_ACCENT_SWATCHES,
+  BRAND_RADIUS_PRESETS,
+  BRAND_TINT_SWATCHES,
+  tokensFromSkin,
+  useTokenEnv,
+  useTokens,
+} from './theme'
 import type { LedgerMetrics } from './runtime/store'
 import type { Agent } from './domain'
 import { visibleAgents } from './domain'
 import { CARD_STYLE, CLIP, Chip, FIELD_LINE_STYLE, FIELD_STYLE, ITEM_PAD, MENU_STYLE, menuItemStyle, modelFamily } from './ui'
-import { CHAT_THEME, FIELD_THEME, T } from './tokens'
+import { FIELD_THEME, T } from './tokens'
 import { MaskedSecretField } from './cards'
 import {
   createRoutine,
@@ -119,6 +120,7 @@ function WashSlider({
   value: number
   onChange: (next: number) => void
 }) {
+  const T = useTokens()
   const bar = useRef<{ id: number } | null>(null)
   const { renderer } = useGpuix()
   const drag = useRef(false)
@@ -179,14 +181,17 @@ function WindowCard({
 }: {
   onSkinChange?: () => void
 }) {
+  const T = useTokens()
+  const { replace } = useTokenEnv()
   const [skin, setSkin] = useState<Skin>(() => readSkin())
   const pick = (patch: Partial<Skin>) => {
     const next = patchSkin(patch)
-    applyChromeToTokens(next)
+    replace(tokensFromSkin(next))
     setSkin(next)
     onSkinChange?.()
   }
   const mode = (windowMode: WindowMode) => () => pick({ windowMode })
+  const pickBrand = (patch: Partial<Skin['brand']>) => pick({ brand: { ...skin.brand, ...patch } })
   return (
     <div testId="settings-window" style={{ ...CARD_STYLE }}>
       <div style={{ fontSize: T.type.sm, color: T.secondary }}>Window</div>
@@ -209,6 +214,48 @@ function WindowCard({
       {skin.windowMode === 'frosted' ? (
         <WashSlider value={skin.frostWash} onChange={(frostWash) => pick({ frostWash })} />
       ) : null}
+      <div testId="settings-brand" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+        <div style={{ fontSize: T.type.sm, color: T.secondary }}>Brand</div>
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Tint</div>
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
+          {BRAND_TINT_SWATCHES.map((swatch) => (
+            <Chip
+              key={swatch.id}
+              testId={`settings-brand-tint-${swatch.id}`}
+              tone={skin.brand.tint === swatch.hex ? 'action' : 'ghost'}
+              onClick={() => pickBrand({ tint: swatch.hex })}
+            >
+              {swatch.id}
+            </Chip>
+          ))}
+        </div>
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Accent</div>
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
+          {BRAND_ACCENT_SWATCHES.map((swatch) => (
+            <Chip
+              key={swatch.id}
+              testId={`settings-brand-accent-${swatch.id}`}
+              tone={skin.brand.accent === swatch.hex ? 'action' : 'ghost'}
+              onClick={() => pickBrand({ accent: swatch.hex })}
+            >
+              {swatch.id}
+            </Chip>
+          ))}
+        </div>
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Radius</div>
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
+          {BRAND_RADIUS_PRESETS.map((preset) => (
+            <Chip
+              key={preset.id}
+              testId={`settings-brand-radius-${preset.id}`}
+              tone={skin.brand.radius === preset.radius ? 'action' : 'ghost'}
+              onClick={() => pickBrand({ radius: preset.radius })}
+            >
+              {preset.id}
+            </Chip>
+          ))}
+        </div>
+      </div>
     </div>
   )
 }
@@ -1058,6 +1105,7 @@ export function Settings({
   /** Mouth-only compact for the focused automaton. Jobs strip untouched. */
   onCompactNow?: () => void
 }) {
+  const T = useTokens()
   const seats = visibleAgents(agents)
   const chief = seats.find((agent) => agent.id === 'staff')
   const others = seats.filter((agent) => agent.id !== 'staff')

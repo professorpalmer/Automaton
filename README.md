@@ -7,6 +7,7 @@ Linux is the shared computer; automata are screens, not VMs.
 ## Docs
 
 - [Staff surface](docs/staff.md) — rail, composer, factory, inspector
+- [Token provenance](docs/tokens-provenance.md) — measured chrome numbers; Brand / MotionSpec lift
 - [Computer](docs/computer.md) — Docker Linux box, screens, Take control
 - [Jobs](docs/jobs.md) — analyze, implement, box-shell, land, and ship
 - [Durable state](docs/durability.md) — store, claims, keys
@@ -68,7 +69,7 @@ Layout:
 - Mouth: `src/runtime/mouth.ts`
 - Jobs: `src/runtime/pm.ts`, `src/runtime/jobs.ts`
 - Optional cloud / Origin: `src/runtime/cloud-origin.ts`, `src/cloud-origin-panel.tsx`
-- Tokens: `src/tokens.ts`
+- Tokens: `src/theme/` (`useTokens()`); `src/tokens.ts` re-exports the default snapshot. Provenance: [`docs/tokens-provenance.md`](docs/tokens-provenance.md)
 - Mark: `brand/mark.svg` (control-bar marionette)
 - Box image: `box/Dockerfile`
 

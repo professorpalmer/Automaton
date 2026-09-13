@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { T } from '../tokens'
+import { DEFAULT_BRAND, parseBrand, type Brand } from '../theme/brand'
+import { DEFAULT_TOKENS } from '../theme/tokens'
 import { automatonHome } from './keys'
 
 export type WindowMode = 'frosted' | 'solid'
@@ -9,14 +10,16 @@ export type Skin = {
   railWidth: number
   windowMode: WindowMode
   frostWash: number
+  brand: Brand
 }
 
 export const DEFAULT_FROST_WASH = 12
 
 const DEFAULT_SKIN: Skin = {
-  railWidth: T.layout.sidebarWidth,
+  railWidth: DEFAULT_TOKENS.layout.sidebarWidth,
   windowMode: 'frosted',
   frostWash: DEFAULT_FROST_WASH,
+  brand: { ...DEFAULT_BRAND },
 }
 
 export function skinPath(home = automatonHome()): string {
@@ -24,8 +27,8 @@ export function skinPath(home = automatonHome()): string {
 }
 
 export function clampRailWidth(width: number): number {
-  const n = Number.isFinite(width) ? width : T.layout.sidebarWidth
-  return Math.round(Math.min(T.layout.sidebarMax, Math.max(T.layout.sidebarMin, n)))
+  const n = Number.isFinite(width) ? width : DEFAULT_TOKENS.layout.sidebarWidth
+  return Math.round(Math.min(DEFAULT_TOKENS.layout.sidebarMax, Math.max(DEFAULT_TOKENS.layout.sidebarMin, n)))
 }
 
 export function clampFrostWash(value: number): number {
@@ -38,11 +41,11 @@ export function parseWindowMode(value: unknown): WindowMode {
 }
 
 export function railIsCompact(width: number): boolean {
-  return clampRailWidth(width) <= T.layout.sidebarCompact
+  return clampRailWidth(width) <= DEFAULT_TOKENS.layout.sidebarCompact
 }
 
 export function railDragOrigin(width: number): number {
-  return clampRailWidth(width) + T.layout.railHandle / 2
+  return clampRailWidth(width) + DEFAULT_TOKENS.layout.railHandle / 2
 }
 
 export function railWidthFromDrag(startWidth: number, startX: number, x: number): number {
@@ -55,32 +58,44 @@ export function railWidthFromDrag(startWidth: number, startX: number, x: number)
 export function parseSkin(raw: unknown): Skin {
   const row = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
   return {
-    railWidth: clampRailWidth(typeof row.railWidth === 'number' ? row.railWidth : T.layout.sidebarWidth),
+    railWidth: clampRailWidth(typeof row.railWidth === 'number' ? row.railWidth : DEFAULT_TOKENS.layout.sidebarWidth),
     windowMode: parseWindowMode(row.windowMode),
     frostWash: clampFrostWash(typeof row.frostWash === 'number' ? row.frostWash : DEFAULT_FROST_WASH),
+    brand: parseBrand(row.brand),
   }
 }
 
 export function readSkin(home = automatonHome()): Skin {
   const path = skinPath(home)
-  if (!existsSync(path)) return { ...DEFAULT_SKIN }
+  if (!existsSync(path)) return { ...DEFAULT_SKIN, brand: { ...DEFAULT_BRAND } }
   try {
     return parseSkin(JSON.parse(readFileSync(path, 'utf8')))
   } catch {
-    return { ...DEFAULT_SKIN }
+    return { ...DEFAULT_SKIN, brand: { ...DEFAULT_BRAND } }
   }
 }
 
-export function writeSkin(skin: Skin, home = automatonHome()): Skin {
+export function writeSkin(skin: Skin | Partial<Skin>, home = automatonHome()): Skin {
   const next = parseSkin(skin)
   mkdirSync(home, { recursive: true })
-  writeFileSync(skinPath(home), `${JSON.stringify(next, null, 2)}
-`)
+  writeFileSync(
+    skinPath(home),
+    `${JSON.stringify(next, null, 2)}
+`,
+  )
   return next
 }
 
 export function patchSkin(patch: Partial<Skin>, home = automatonHome()): Skin {
-  return writeSkin({ ...readSkin(home), ...patch }, home)
+  const current = readSkin(home)
+  return writeSkin(
+    {
+      ...current,
+      ...patch,
+      brand: patch.brand ? parseBrand({ ...current.brand, ...patch.brand }) : current.brand,
+    },
+    home,
+  )
 }
 
 function washHex(rgb: string, wash: number): string {
@@ -101,6 +116,7 @@ export function chromeFromSkin(skin: Skin): {
   secondary: string
   tertiary: string
   ghost: string
+  accent: string
   windowBackground: 'blurred' | 'opaque'
 } {
   if (skin.windowMode === 'solid') {
@@ -113,11 +129,12 @@ export function chromeFromSkin(skin: Skin): {
       secondary: '#B4B4B4',
       tertiary: '#8A8A8A',
       ghost: '#5A5A5A',
+      accent: skin.brand.accent,
       windowBackground: 'opaque',
     }
   }
   return {
-    canvas: washHex('#101010', skin.frostWash),
+    canvas: washHex(skin.brand.tint, skin.frostWash),
     sidebar: '#FFFFFF0A',
     composer: '#FFFFFF38',
     raised: '#FFFFFF0D',
@@ -125,19 +142,7 @@ export function chromeFromSkin(skin: Skin): {
     secondary: '#F2F2F2',
     tertiary: '#E8E8E8',
     ghost: '#D8D8D8',
+    accent: skin.brand.accent,
     windowBackground: 'blurred',
   }
-}
-
-export function applyChromeToTokens(skin: Skin = readSkin()): typeof T {
-  const chrome = chromeFromSkin(skin)
-  T.canvas = chrome.canvas
-  T.sidebar = chrome.sidebar
-  T.composer = chrome.composer
-  T.raised = chrome.raised
-  T.selected = chrome.selected
-  T.secondary = chrome.secondary
-  T.tertiary = chrome.tertiary
-  T.ghost = chrome.ghost
-  return T
 }

@@ -15,6 +15,7 @@ import {
   readSkin,
   writeSkin,
 } from '../src/runtime/skin'
+import { DEFAULT_BRAND } from '../src/theme/brand'
 import { T } from '../src/tokens'
 
 function tmpHome(): string {
@@ -40,11 +41,13 @@ describe('graphite skin', () => {
       railWidth: T.layout.sidebarWidth,
       windowMode: 'frosted',
       frostWash: 12,
+      brand: DEFAULT_BRAND,
     })
     expect(parseSkin({ railWidth: 72, accent: 'violet' })).toEqual({
       railWidth: 72,
       windowMode: 'frosted',
       frostWash: 12,
+      brand: DEFAULT_BRAND,
     })
   })
 
@@ -56,6 +59,7 @@ describe('graphite skin', () => {
       railWidth: T.layout.sidebarMin,
       windowMode: 'frosted',
       frostWash: 12,
+      brand: DEFAULT_BRAND,
     })
     rmSync(home, { recursive: true, force: true })
   })
