@@ -37,7 +37,7 @@ zombie window. Cold open reclaims prior Automaton windows for this install
 before focusing or opening the face (no default `open -n` stack). If clicks
 miss or doctor WARNs on leftovers, quit them and kick cold with `bun run app`.
 
-`bun test` is the suite. CI runs that job on macOS. `bun scripts/replay-tough-eval.ts` measures recall safety (avoidance, false-hit rate, stale-hit rate, cost) on a seeded mixed workload. It is not the 95% repeated-work replay. `bun run doctor` checks
+`bun test` is the suite. CI runs that job on macOS. `bun scripts/replay-repeated-work.ts` is a **bench** for synthetic repeated-domain recall (measured 19/20 under a seeded claim) — not a live product guarantee. `bun scripts/replay-tough-eval.ts` measures recall safety (avoidance, false-hit rate, stale-hit rate, cost) on a seeded mixed workload; it is separate from that bench. `bun run doctor` checks
 Puppetmaster. `bun scripts/probe-kernel.ts` launches a read-only analyze
 job. Never run an implement worker against this checkout; implement work
 uses a sandbox.

@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { emptyThreads, jobKindForKit, resetIdsForTests, staffWithSisters } from '../src/domain'
 import { ensureMouth, resetMouthForTests, type ChatFn } from '../src/runtime/mouth'
 import { openStaffStore, type LedgerMetrics, type RememberInput } from '../src/runtime/store'
-import { claimTaskKey } from '../src/runtime/working-set'
+import { claimTaskKey, claimTextFromRecallSpoken } from '../src/runtime/working-set'
 import { completeMouth, pendingMouthTurns, send, type Session } from '../src/session'
 
 const PRODUCT_ROOT = join(import.meta.dir, '..')
@@ -14,10 +14,10 @@ export const MISS_COST_USD = 0.001
 const MOCK_KEYS = [{ key: 'sk-or-test', source: 'automaton' as const }]
 
 export const WORKLOAD_DESCRIPTION =
-  'Seeded mixed recall workload against Automaton ensureMouth + StaffStore + queryFirst. Several hundred turns: paraphrases of stored findings, follow-ups, changed requirements, evolved repositories, stale findings, conflicting claims, and unrelated questions. Measures current gates (RECALL_REQUEST, uniqueSpeakable, skip stale, taskKey, owner) without retuning queryFirst. Temp sqlite only; never ~/.automaton/staff.sqlite. This is not the 19/20 repeated-work replay and does not validate 95%.'
+  'Seeded mixed recall workload against Automaton ensureMouth + StaffStore + queryFirst. Several hundred turns: paraphrases of stored findings, follow-ups, changed requirements, evolved repositories, stale findings, conflicting claims, and unrelated questions. Measures current gates (RECALL_REQUEST, uniqueSpeakable, skip stale, taskKey, owner) without retuning queryFirst. Temp sqlite only; never ~/.automaton/staff.sqlite. This is not the 19/20 repeated-work replay and does not validate the synthetic 19/20 bench as a product guarantee.'
 
 export const INTERPRETATION =
-  'This mix will NOT be 95%. 95% was the easy repeated-domain recall; this scores safety of reuse. False hits are more important than avoidance. 40% avoidance with ~0 false hits is better than 90% that sometimes serves the wrong commit. A conservative miss is not a false hit. queryFirst was not retuned to inflate avoidance.'
+  'This mix will NOT match the synthetic 19/20 bench. That bench is easy repeated-domain recall under a seeded claim (not a product guarantee); this scores safety of reuse. False hits are more important than avoidance. 40% avoidance with ~0 false hits is better than 90% that sometimes serves the wrong commit. A conservative miss is not a false hit. queryFirst was not retuned to inflate avoidance.'
 
 type OwnerId = 'kernel' | 'research'
 type GoldReason =
@@ -427,8 +427,9 @@ function scoreTurn(input: {
   if (input.outcome !== 'hit') {
     return { falseHit: false, staleHit: false }
   }
-  const served = input.claims.find((row) => row.text === input.spoken)
-  const servedKey = logicalKeyForText(input.spoken)
+  const claimBody = claimTextFromRecallSpoken(input.spoken) ?? input.spoken
+  const served = input.claims.find((row) => row.text === claimBody || row.text === input.spoken)
+  const servedKey = logicalKeyForText(claimBody) ?? logicalKeyForText(input.spoken)
   const staleHit =
     served?.freshness === 'stale' ||
     Boolean(input.gold.currentRevision && served?.revision && served.revision !== input.gold.currentRevision)
@@ -584,7 +585,7 @@ export async function runToughEval(input?: {
       repeatedWorkReplay: {
         hits: 19,
         turns: 20,
-        note: 'The 19/20 (95%) figure is a separate easy repeated-domain recall. This eval does not validate 95%.',
+        note: 'The 19/20 figure is a separate synthetic repeated-domain bench under a seeded claim — not a live product guarantee. This eval does not validate that bench as product savings.',
       },
       seededClaims: allSeedClaims(),
       gates: ['RECALL_REQUEST', 'uniqueSpeakable', 'skip stale', 'taskKey', 'owner'],

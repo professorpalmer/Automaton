@@ -28,8 +28,10 @@ newly observed GoalRun facts, then writes the snapshot. Repeated saves
 and store reopen do not duplicate rows. `listGoalEvents(goalId?, limit?)`
 reads that ledger and normalizes `authority` at the SQLite boundary.
 Event text is bounded and never includes keys or raw
-environment. Claims are query-first: a later mouth turn may speak a
-stored finding instead of paying for inference. Receipts record hit/miss
+environment. Claims are query-first: a later mouth turn may cite a
+stored finding with honesty (`Already have … from …`) instead of
+paying for inference. Recall-shaped misses speak clearly; they do
+not invent confidence. Receipts record hit/miss
 and token totals when the provider sent them. Unknown cost is not stored
 as zero. Never infer success from a missing event.
 

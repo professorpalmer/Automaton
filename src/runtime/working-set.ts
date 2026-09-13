@@ -84,6 +84,9 @@ const STOP_TOKENS = new Set([
 const RECALL_REQUEST =
   /\b(what did|what was|finding|you (found|said)|last (job|result)|remember)\b/
 
+const REFRESH_REQUEST =
+  /\b(refresh|look again|re-?check|check again|look (it|that) up again)\b/i
+
 const ANALYZE_RECALL = /\b(find|finding|found|analyze|analysed|analyzed|lookup|looked)\b/
 
 const IMPLEMENT_RECALL = /\b(implement|fix|patch)\b/
@@ -139,7 +142,7 @@ function inferredTaskKey(query: string): string | null {
   return claimTaskKey({ ownerAgentId: owners[0], kind, goal: content.join(' ') })
 }
 
-function uniqueSpeakable(claims: ClaimRef[], content: string[]): string | null {
+function uniqueSpeakable(claims: ClaimRef[], content: string[]): ClaimRef | null {
   const identified =
     content.length === 0
       ? claims
@@ -147,7 +150,7 @@ function uniqueSpeakable(claims: ClaimRef[], content: string[]): string | null {
           const hay = claim.text.toLowerCase()
           return content.every((token) => hay.includes(token))
         })
-  return identified.length === 1 ? identified[0].text : null
+  return identified.length === 1 ? identified[0] : null
 }
 
 function seatFact(model?: string): string {
@@ -262,8 +265,57 @@ export function looksLikeRecallRequest(text: string): boolean {
   return RECALL_REQUEST.test(text.toLowerCase())
 }
 
+export function looksLikeRefreshRequest(text: string): boolean {
+  return REFRESH_REQUEST.test(text)
+}
+
+export type QueryFirstHit = { text: string; claim: ClaimRef }
+
+/** Honest reuse prefix: cite owner (and job when present), never pretend the finding is newly cooked. */
+export function formatRecallSpoken(claim: ClaimRef): string {
+  const from = claim.jobId ? `${claim.ownerAgentId} (${claim.jobId})` : claim.ownerAgentId
+  return `Already have this from ${from}: ${claim.text}`
+}
+
+/** Strip honesty prefix so benches can match the underlying claim text. */
+export function claimTextFromRecallSpoken(spoken: string): string | null {
+  const match = spoken.match(/^Already have this from [^:]+: (.+)$/s)
+  return match ? match[1] : null
+}
+
+function contentMatches(claim: ClaimRef, content: string[]): boolean {
+  if (content.length === 0) return true
+  const hay = claim.text.toLowerCase()
+  return content.every((token) => hay.includes(token))
+}
+
+/**
+ * When the ask is recall-shaped and queryFirst has no safe hit, speak an honest miss
+ * instead of inventing a recall. Returns null for normal chat (mouth should still run).
+ */
+export function honestRecallMiss(query: string, claims: ClaimRef[], prior = ''): string | null {
+  if (!looksLikeRecallRequest(query)) return null
+  if (looksLikeLiveCheck(query, [], prior)) return null
+  if (queryFirst(query, claims, prior)) return null
+
+  const q = query.toLowerCase()
+  const { owners, content } = queryTokens(query)
+  const owned = claims.filter((claim) => {
+    if (owners.length > 0 && !owners.includes(claim.ownerAgentId)) return false
+    if (ANALYZE_RECALL.test(q) && claim.artifactKind === 'implement') return false
+    return true
+  })
+  const matching = owned.filter((claim) => contentMatches(claim, content))
+  const staleMatches = matching.filter((claim) => asClaimFreshness(claim.freshness) === 'stale')
+  const freshMatches = matching.filter((claim) => asClaimFreshness(claim.freshness) !== 'stale')
+  if (freshMatches.length === 0 && staleMatches.length > 0) {
+    return "That finding looks stale. I don't have a fresh durable record."
+  }
+  return "I don't have a durable record of that."
+}
+
 /** Query-vs-inference: speak only a provenance-safe recall. Never grab an arbitrary recent row. */
-export function queryFirst(query: string, claims: ClaimRef[], prior = ''): string | null {
+export function queryFirst(query: string, claims: ClaimRef[], prior = ''): QueryFirstHit | null {
   if (claims.length === 0) return null
   if (looksLikeLiveCheck(query, [], prior)) return null
   const q = query.toLowerCase()
@@ -280,18 +332,22 @@ export function queryFirst(query: string, claims: ClaimRef[], prior = ''): strin
   })
   if (speakable.length === 0) return null
 
+  const asHit = (claim: ClaimRef): QueryFirstHit => ({ text: claim.text, claim })
+
   const derivedKey = inferredTaskKey(query)
   if (derivedKey) {
     const keyed = speakable.filter((claim) => claim.taskKey === derivedKey)
-    if (keyed.length === 1) return keyed[0].text
+    if (keyed.length === 1) return asHit(keyed[0])
     if (keyed.length > 1) return null
-    return uniqueSpeakable(
+    const unique = uniqueSpeakable(
       speakable.filter((claim) => !claim.taskKey),
       content,
     )
+    return unique ? asHit(unique) : null
   }
 
-  return uniqueSpeakable(speakable, content)
+  const unique = uniqueSpeakable(speakable, content)
+  return unique ? asHit(unique) : null
 }
 
 export function buildWorkingSet(input: {
