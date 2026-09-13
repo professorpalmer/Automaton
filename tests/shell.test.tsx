@@ -1094,7 +1094,7 @@ native('staff shell (GPUI native)', () => {
     expect(title?.text ?? title?.children?.[0]?.text).toBe('Kernel')
   })
 
-  test('running jobs show composer Stop and no job-strip', () => {
+  test('running jobs show composer Stop and jobs-strip index', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const store = testStore()
     const threads = emptyThreads(DEFAULT_AGENTS)
@@ -1110,6 +1110,7 @@ native('staff shell (GPUI native)', () => {
           goal: 'Ask research, what model and provider are we using right now?',
           status: 'running',
           kind: 'analyze',
+          pmJobId: 'job_abcdef012345',
         },
         {
           id: 'job_sister',
@@ -1129,6 +1130,7 @@ native('staff shell (GPUI native)', () => {
     renderer.captureScreenshot(shot)
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(tree, 'job-strip')).toBeFalsy()
+    expect(findTestId(tree, 'jobs-strip')).toBeTruthy()
     expect(findTestId(tree, 'composer-stop')).toBeTruthy()
     expect(findTestId(tree, 'dock')).toBeTruthy()
     const painted = renderer.getPaintedText().join(' ')
@@ -1140,6 +1142,7 @@ native('staff shell (GPUI native)', () => {
     const after = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(after, 'composer-stop')).toBeFalsy()
     expect(findTestId(after, 'job-strip')).toBeFalsy()
+    expect(findTestId(after, 'jobs-strip')).toBeFalsy()
   })
 
   test('goal blocker sits on the dock, not the transcript; Retry and Cancel work', () => {
