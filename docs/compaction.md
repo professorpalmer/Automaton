@@ -1,6 +1,6 @@
 # Mouth compaction / working set
 
-Package **0.3.0**. Mouth and Goal threads keep a **compact summary + recent
+Package **0.4.0**. Mouth and Goal threads keep a **compact summary + recent
 turns** in the model window — not an unbounded full transcript. Jobs /
 Puppetmaster artifacts and status stay on the Jobs strip; compaction never
 touches them.

@@ -1,7 +1,7 @@
 # `@gpuix/react` vendor pin (P2.1 honesty)
 
 Automaton stays on **vendored** `@gpuix/react` **0.6.1**
-(`file:vendor/gpuix-react-0.6.1.tgz`). Package / Info.plist remain **0.3.0**
+(`file:vendor/gpuix-react-0.6.1.tgz`). Package / Info.plist remain **0.4.0**
 (this pass does not bump the band).
 
 ## Decision: stay vendored
