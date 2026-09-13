@@ -3,24 +3,35 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { describe, expect, test } from 'bun:test'
 import { createHash } from 'node:crypto'
-import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests } from '../src/domain'
+import { DEFAULT_AGENTS, emptyThreads, resetIdsForTests, staffWithSisters } from '../src/domain'
 import {
   budgetCatalog,
   CATALOG_MAX_BYTES,
   CATALOG_MAX_SKILLS,
+  createSkill,
+  deleteSkill,
+  dismissSkillOffer,
   formatSkillBodies,
   formatSkillCatalog,
+  getSkill,
   hashSkillContent,
   importSkillFromUrl,
   importSkillMarkdown,
   isSkillId,
+  listDismissedSkillOffers,
   listSkills,
+  pickSkillOffer,
+  readSkillBody,
+  readSkillMarkdown,
   selectSkillBodies,
   setSkillEnabled,
   skillDir,
   SKILL_ID_RE,
+  updateSkill,
 } from '../src/runtime/skills'
+import { seedProfile, writeProfile } from '../src/runtime/profile'
 import { buildWorkingSet } from '../src/runtime/working-set.ts'
+import { answerWidget, dismissWidget, send, type Session } from '../src/session'
 
 function tmpHome(): string {
   const home = join(tmpdir(), `automaton-skills-${Date.now()}-${Math.random().toString(16).slice(2)}`)
@@ -318,5 +329,194 @@ describe('skill library', () => {
     expect(selectSkillBodies(skills, ['bill-spend'], 'hello').map((row) => row.id)).toEqual(['bill-spend'])
     expect(selectSkillBodies(skills, [], 'run @bill-spend').map((row) => row.id)).toEqual(['bill-spend'])
     rmSync(home, { recursive: true, force: true })
+  })
+})
+
+
+describe('skills library authoring', () => {
+  test('create / read / update local skill; unknown id is a clear miss', () => {
+    const home = tmpHome()
+    const created = createSkill({
+      home,
+      name: 'Repo Scout',
+      description: 'use this when looking without implementing',
+      body: 'Stay read-only.',
+    })
+    expect(created.id).toBe('repo-scout')
+    expect(created.origin).toBe('local')
+    expect(readSkillBody('repo-scout', home)).toContain('Stay read-only.')
+    expect(readSkillMarkdown('repo-scout', home)).toContain('use this when looking without implementing')
+    const updated = updateSkill(
+      'repo-scout',
+      { description: 'use this when scouting a tree', body: 'Be brief.' },
+      home,
+    )
+    expect(updated.description).toBe('use this when scouting a tree')
+    expect(readSkillBody('repo-scout', home)).toBe('Be brief.')
+    expect(() => getSkill('missing-skill', home)).toThrow('unknown skill')
+    expect(() => readSkillBody('missing-skill', home)).toThrow('unknown skill')
+    expect(() => updateSkill('missing-skill', { body: 'x' }, home)).toThrow('unknown skill')
+    expect(() => createSkill({ home, name: '', description: 'x', body: 'y' })).toThrow('name required')
+    expect(() => createSkill({ home, name: 'x', description: '', body: 'y' })).toThrow('description required')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('imported skills stay read-only for update; delete clears profile pins', () => {
+    const home = tmpHome()
+    importSkillMarkdown({
+      home,
+      url: 'https://example.com/imported-scout/SKILL.md',
+      markdown: '---\nname: imported-scout\ndescription: Imported looker.\n---\n\nIMPORTED\n',
+    })
+    expect(() => updateSkill('imported-scout', { body: 'nope' }, home)).toThrow('imported skills are read-only')
+    const profile = seedProfile('staff')
+    writeProfile({ ...profile, skillIds: ['imported-scout', 'other'] }, home)
+    deleteSkill('imported-scout', home)
+    expect(existsSync(join(home, 'skills', 'imported-scout'))).toBe(false)
+    const next = JSON.parse(readFileSync(join(home, 'agents', 'staff', 'profile.json'), 'utf8')) as {
+      skillIds: string[]
+    }
+    expect(next.skillIds).toEqual(['other'])
+    expect(() => deleteSkill('imported-scout', home)).toThrow('unknown skill')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('offer-once dismiss persists and pickSkillOffer skips pins / dismissed', () => {
+    const home = tmpHome()
+    createSkill({
+      home,
+      name: 'Scout',
+      description: 'use this when looking without implementing',
+      body: 'Be brief.',
+    })
+    const skills = listSkills(home)
+    expect(pickSkillOffer({ skills, query: 'please run scout here', dismissedIds: [] })?.id).toBe('scout')
+    expect(
+      pickSkillOffer({
+        skills,
+        query: 'please run scout here',
+        pinnedIds: ['scout'],
+        dismissedIds: [],
+      }),
+    ).toBeNull()
+    dismissSkillOffer('scout', home)
+    expect(listDismissedSkillOffers(home)).toEqual(['scout'])
+    expect(
+      pickSkillOffer({
+        skills,
+        query: 'please run scout here',
+        dismissedIds: listDismissedSkillOffers(home),
+      }),
+    ).toBeNull()
+    expect(
+      pickSkillOffer({
+        skills,
+        query: 'use this when looking without implementing on the tree',
+        dismissedIds: [],
+      })?.id,
+    ).toBe('scout')
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('composer send offers one skill widget; dismiss persists', () => {
+    const home = tmpHome()
+    const prev = process.env.AUTOMATON_HOME
+    process.env.AUTOMATON_HOME = home
+    try {
+      writeProfile(seedProfile('staff'), home)
+      createSkill({
+        home,
+        name: 'Scout',
+        description: 'use this when looking without implementing',
+        body: 'Be brief.',
+      })
+      resetIdsForTests()
+      const agents = staffWithSisters()
+      let s: Session = {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      }
+      s = send(s, 'please run scout on this')
+      const open = s.threads.staff?.items.find(
+        (item) => item.kind === 'widget' && item.purpose === 'skill' && item.status === 'open',
+      )
+      expect(open?.kind).toBe('widget')
+      if (!open || open.kind !== 'widget') throw new Error('missing skill offer')
+      expect(open.criterionId).toBe('scout')
+      s = dismissWidget(s, open.id)
+      expect(listDismissedSkillOffers(home)).toContain('scout')
+      s = send(s, 'please run scout again')
+      const again = s.threads.staff?.items.filter(
+        (item) => item.kind === 'widget' && item.purpose === 'skill' && item.status === 'open',
+      )
+      expect(again ?? []).toHaveLength(0)
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+
+  test('pinning from skill offer writes agent skillIds without a filesystem path', () => {
+    const home = tmpHome()
+    const prev = process.env.AUTOMATON_HOME
+    process.env.AUTOMATON_HOME = home
+    try {
+      writeProfile(seedProfile('staff'), home)
+      createSkill({
+        home,
+        name: 'Scout',
+        description: 'use this when looking without implementing',
+        body: 'Be brief.',
+      })
+      resetIdsForTests()
+      const agents = staffWithSisters()
+      let s: Session = {
+        agents,
+        activeAgentId: 'staff',
+        threads: emptyThreads(agents),
+        jobs: [],
+        pendingFanout: null,
+      }
+      s = send(s, 'scout please')
+      const open = s.threads.staff?.items.find(
+        (item) => item.kind === 'widget' && item.purpose === 'skill' && item.status === 'open',
+      )
+      expect(open?.kind).toBe('widget')
+      if (!open || open.kind !== 'widget') throw new Error('missing skill offer')
+      s = answerWidget(s, open.id, { values: ['pin'] })
+      const profile = JSON.parse(readFileSync(join(home, 'agents', 'staff', 'profile.json'), 'utf8')) as {
+        skillIds: string[]
+      }
+      expect(profile.skillIds).toEqual(['scout'])
+      expect(profile.skillIds.join('')).not.toContain('/')
+    } finally {
+      if (prev === undefined) delete process.env.AUTOMATON_HOME
+      else process.env.AUTOMATON_HOME = prev
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('settings skills testIds', () => {
+  test('settings skills library uses settings-skills* ids', async () => {
+    const src = await Bun.file(new URL('../src/settings.tsx', import.meta.url)).text()
+    for (const id of [
+      'settings-skills',
+      'settings-skills-empty',
+      'settings-skills-create',
+      'settings-skill-name',
+      'settings-skill-description',
+      'settings-skill-body',
+      'settings-skill-create',
+      'settings-skills-detail',
+    ]) {
+      expect(src).toContain(`testId="${id}"`)
+    }
+    expect(src).toContain('settings-skill-${row.id}')
+    expect(src).toContain('Section title="Skills"')
   })
 })

@@ -71,6 +71,7 @@ Invariants:
 - MCP catalog (`docs/mcp.md`) — Settings curated plugins; install registry under `~/.automaton/mcp`; auth via secret-request / Connect (never chat-paste); schema hints only until live MCP client; package 0.2.0.
 - Secrets (`docs/secrets.md`) — in-app secret-request card with masked entry; vault via `writeConnectorSecret`; never persist secret values in session JSON / feed / Jobs / Slack / speech; package 0.2.0.
 - Version / releases (`docs/version.md`) — Settings About + optional titlebar chip from `package.json` / Info.plist; GitHub Latest notify-only (never auto-upgrade); git tip/dirty modal stays; doctor WARNs on package≠plist; package stays 0.2.0 until next band cut.
+- Skills library (`docs/skills.md`) — Settings list/author local skills; imported read-only body; pin via agent skillIds; offer-once widget on composer match; mouths stay Send; package 0.2.0.
 
 ## Safety
 

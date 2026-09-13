@@ -72,7 +72,14 @@ import {
   widgetReplyText,
   scrubSecretRequestItem,
 } from './domain'
-import { kitForAgent } from './runtime/profile'
+import { kitForAgent, readProfile, writeProfile } from './runtime/profile'
+import {
+  dismissSkillOffer,
+  listDismissedSkillOffers,
+  listSkills,
+  pickSkillOffer,
+} from './runtime/skills'
+import { runningTests } from './runtime/test-env'
 import { displayForMouth } from './runtime/computer'
 import {
   computerWorkerAllowed,
@@ -552,7 +559,7 @@ export function finishSend(session: Session): Session {
   }
   if (work.book) next = bookComputer(next, work.book.ownerAgentId, work.book.goal)
   if (work.idle && next.threads[work.idle]) next = wakeMouth(next, work.idle, 'idle')
-  return next
+  return maybeOfferSkillMatch(next)
 }
 
 /** Overlay ids handed to paintSend so user/ack update in place. Relays still mint new ids. */
@@ -1808,6 +1815,7 @@ export function answerWidget(session: Session, itemId: string, answer: WidgetAns
   const purpose = item.purpose ?? 'ask'
   if (purpose === 'merge' || purpose === 'ship') return resolveLandWidget(next, item, values)
   if (purpose === 'host') return resolveHostWidget(next, item, values)
+  if (purpose === 'skill') return resolveSkillWidget(next, item, values)
   const reply = widgetReplyText(item.widget, nextAnswer)
   if (!reply) return next
   return send(wakeMouth(next, next.activeAgentId, 'idle'), reply)
@@ -1824,6 +1832,9 @@ export function dismissWidget(session: Session, itemId: string): Session {
   }
   if (item.purpose === 'host' && item.workerId) {
     return failComputer(next, item.workerId, 'Not running that on your Mac.')
+  }
+  if (item.purpose === 'skill' && item.criterionId) {
+    dismissSkillOffer(item.criterionId)
   }
   return next
 }
@@ -2099,3 +2110,67 @@ export function sendToRoom(
   return next
 }
 
+
+function skillOfferWidget(skill: { id: string; name: string; description: string }) {
+  return {
+    prompt: `Pin skill “${skill.name}”?`,
+    helpText: skill.description.trim() || undefined,
+    options: [
+      { label: 'Pin', value: 'pin' },
+      { label: 'Not now', value: 'dismiss' },
+    ],
+  }
+}
+
+/** One chat widget when composer text matches an installed skill (offer-once). */
+export function maybeOfferSkillMatch(session: Session): Session {
+  // Avoid leaking real ~/.automaton skills into suite sends unless a test home is set.
+  if (runningTests() && !process.env.AUTOMATON_HOME?.trim()) return session
+  const active = session.activeAgentId
+  const row = session.threads[active]
+  if (!row) return session
+  if (row.items.some((item) => item.kind === 'widget' && item.purpose === 'skill' && item.status === 'open')) {
+    return session
+  }
+  const last = [...row.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+  if (!last || last.kind !== 'msg' || !last.text.trim()) return session
+  const profile = readProfile(active)
+  const offer = pickSkillOffer({
+    skills: listSkills(),
+    query: last.text,
+    pinnedIds: profile?.skillIds ?? [],
+    dismissedIds: listDismissedSkillOffers(),
+  })
+  if (!offer) return session
+  return emitWidgetItem(session, active, skillOfferWidget(offer), {
+    purpose: 'skill',
+    criterionId: offer.id,
+  })
+}
+
+function resolveSkillWidget(
+  session: Session,
+  item: Extract<FeedItem, { kind: 'widget' }>,
+  values: string[],
+): Session {
+  const skillId = item.criterionId?.trim() ?? ''
+  if (!skillId) return session
+  if (values.includes('dismiss') || values.length === 0) {
+    dismissSkillOffer(skillId)
+    return session
+  }
+  if (!values.includes('pin')) {
+    dismissSkillOffer(skillId)
+    return session
+  }
+  const agentId = item.agentId
+  const profile = readProfile(agentId)
+  if (!profile) {
+    dismissSkillOffer(skillId)
+    return session
+  }
+  if (!profile.skillIds.includes(skillId)) {
+    writeProfile({ ...profile, skillIds: [...profile.skillIds, skillId] })
+  }
+  return session
+}

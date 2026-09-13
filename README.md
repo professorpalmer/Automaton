@@ -16,6 +16,7 @@ Linux is the shared computer; automata are screens, not VMs.
 - [MCP catalog](docs/mcp.md) — curated in-app MCP install / auth / schema hints (Settings)
 - [Secrets](docs/secrets.md) — secret-request card, masked entry, vault (never chat-paste)
 - [Version / releases](docs/version.md) — installed chrome, GitHub Latest notify (no auto-upgrade), doctor plist WARN
+- [Skills](docs/skills.md) — Settings library, local authoring, offer-once pin widget
 - [Contributor contract](AGENTS.md) — invariants for agents and humans
 
 ## Run

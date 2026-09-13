@@ -47,6 +47,16 @@ import {
   type Routine,
 } from './runtime/routines'
 import {
+  createSkill,
+  deleteSkill,
+  listSkills,
+  readSkillBody,
+  setSkillEnabled,
+  updateSkill,
+  type SkillMeta,
+} from './runtime/skills'
+import { readProfile, writeProfile } from './runtime/profile'
+import {
   channelStatusLabel,
   connectSlack,
   disconnectChannel,
@@ -418,6 +428,273 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
             Add routine
           </Chip>
           {note ? <div style={{ fontSize: T.type.xs, color: T.secondary }}>{note}</div> : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+
+function SkillsCard({ agents }: { agents: Agent[] }) {
+  const pinAgentId = agents.find((row) => row.id === 'staff')?.id ?? agents[0]?.id ?? 'staff'
+  const [rows, setRows] = useState<SkillMeta[]>(() => listSkills())
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [name, setName] = useState('')
+  const [description, setDescription] = useState('')
+  const [body, setBody] = useState('')
+  const [editName, setEditName] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editBody, setEditBody] = useState('')
+  const [note, setNote] = useState('')
+  const [profileSkillIds, setProfileSkillIds] = useState<string[]>(() => readProfile(pinAgentId)?.skillIds ?? [])
+  const refresh = () => {
+    setRows(listSkills())
+    setProfileSkillIds(readProfile(pinAgentId)?.skillIds ?? [])
+  }
+  const selected = rows.find((row) => row.id === selectedId) ?? null
+  const openSkill = (id: string) => {
+    try {
+      const skill = rows.find((row) => row.id === id) ?? listSkills().find((row) => row.id === id)
+      if (!skill) {
+        setNote(`Need: unknown skill ${id}.`)
+        setSelectedId(null)
+        return
+      }
+      const markdownBody = readSkillBody(id)
+      setSelectedId(id)
+      setEditName(skill.name)
+      setEditDescription(skill.description)
+      setEditBody(markdownBody)
+      setNote('')
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'unknown skill')
+      setSelectedId(null)
+    }
+  }
+  const create = () => {
+    const n = name.trim()
+    const d = description.trim()
+    const b = body
+    if (!n || !d || !b.trim()) {
+      setNote('Name, description (use this when …), and body required.')
+      return
+    }
+    try {
+      const skill = createSkill({ name: n, description: d, body: b })
+      setName('')
+      setDescription('')
+      setBody('')
+      setNote('')
+      refresh()
+      openSkill(skill.id)
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Could not create skill.')
+    }
+  }
+  const saveEdit = () => {
+    if (!selected || selected.origin !== 'local') return
+    try {
+      updateSkill(selected.id, {
+        name: editName,
+        description: editDescription,
+        body: editBody,
+      })
+      setNote('')
+      refresh()
+      openSkill(selected.id)
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Could not update skill.')
+    }
+  }
+  const togglePin = (id: string) => {
+    const profile = readProfile(pinAgentId)
+    if (!profile) {
+      setNote(`Need: no profile for ${pinAgentId}.`)
+      return
+    }
+    const pinned = profile.skillIds.includes(id)
+    writeProfile({
+      ...profile,
+      skillIds: pinned ? profile.skillIds.filter((row) => row !== id) : [...profile.skillIds, id],
+    })
+    refresh()
+  }
+  const remove = (id: string) => {
+    try {
+      deleteSkill(id)
+      if (selectedId === id) setSelectedId(null)
+      setNote('')
+      refresh()
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : 'Could not delete skill.')
+    }
+  }
+  return (
+    <div testId="settings-skills" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
+      {rows.length === 0 ? (
+        <div testId="settings-skills-empty" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.secondary }}>
+          No skills yet. Author a local skill below, or import a SKILL.md URL from the inspector.
+        </div>
+      ) : (
+        rows.map((row) => {
+          const pinned = profileSkillIds.includes(row.id)
+          const disabled = row.origin === 'imported' && !row.enabled
+          return (
+            <div
+              key={row.id}
+              testId={`settings-skill-${row.id}`}
+              style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+            >
+              <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+                <div style={{ fontSize: T.type.sm, color: T.text }}>
+                  {row.name}
+                  <span style={{ color: T.tertiary }}> · {row.id}</span>
+                </div>
+                <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                  {row.origin}
+                  {disabled ? ' · disabled' : ''}
+                  {pinned ? ' · pinned' : ''}
+                </div>
+              </div>
+              <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                {row.description.trim() || 'No use-when description'}
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
+                <Chip testId={`settings-skill-${row.id}-open`} tone="ghost" onClick={() => openSkill(row.id)}>
+                  Open
+                </Chip>
+                <Chip
+                  testId={`settings-skill-${row.id}-pin`}
+                  tone={pinned ? 'action' : 'ghost'}
+                  onClick={() => togglePin(row.id)}
+                >
+                  {pinned ? 'Unpin' : 'Pin'}
+                </Chip>
+                {row.origin === 'imported' ? (
+                  <Chip
+                    testId={`settings-skill-${row.id}-enable`}
+                    tone="ghost"
+                    onClick={() => {
+                      setSkillEnabled(row.id, !row.enabled)
+                      refresh()
+                    }}
+                  >
+                    {row.enabled ? 'Disable' : 'Enable'}
+                  </Chip>
+                ) : null}
+                <Chip
+                  testId={`settings-skill-${row.id}-delete`}
+                  tone="ghost"
+                  onClick={() => remove(row.id)}
+                >
+                  Delete
+                </Chip>
+              </div>
+            </div>
+          )
+        })
+      )}
+      {selected ? (
+        <div
+          testId="settings-skills-detail"
+          style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+        >
+          <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+            {selected.origin === 'imported'
+              ? 'Imported skill — body / name / description are read-only. Enable, pin, or delete.'
+              : `Editing local skill ${selected.id}`}
+          </div>
+          <textarea
+            testId="settings-skill-detail-name"
+            value={editName}
+            placeholder="Name"
+            minRows={1}
+            maxRows={1}
+            theme={FIELD_THEME}
+            style={FIELD_STYLE}
+            onChange={(event) => {
+              if (selected.origin === 'local') setEditName(event.value ?? '')
+            }}
+          />
+          <textarea
+            testId="settings-skill-detail-description"
+            value={editDescription}
+            placeholder="use this when …"
+            minRows={1}
+            maxRows={2}
+            theme={FIELD_THEME}
+            style={FIELD_STYLE}
+            onChange={(event) => {
+              if (selected.origin === 'local') setEditDescription(event.value ?? '')
+            }}
+          />
+          <textarea
+            testId="settings-skill-detail-body"
+            value={editBody}
+            placeholder="Markdown body"
+            minRows={4}
+            maxRows={12}
+            theme={FIELD_THEME}
+            style={FIELD_STYLE}
+            onChange={(event) => {
+              if (selected.origin === 'local') setEditBody(event.value ?? '')
+            }}
+          />
+          {selected.origin === 'local' ? (
+            <Chip testId="settings-skill-detail-save" tone="action" onClick={saveEdit}>
+              Save
+            </Chip>
+          ) : null}
+        </div>
+      ) : null}
+      <div
+        testId="settings-skills-create"
+        style={{ ...CARD_STYLE, display: 'flex', flexDirection: 'column', gap: T.space.sm }}
+      >
+        <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+          Local skills only. Description is the use-when line (required). Pin attaches by id — never a filesystem path.
+          Coding still goes Jobs → Puppetmaster; mouths stay Send.
+        </div>
+        <textarea
+          testId="settings-skill-name"
+          value={name}
+          placeholder="Name"
+          minRows={1}
+          maxRows={1}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setName(event.value ?? '')}
+        />
+        <textarea
+          testId="settings-skill-description"
+          value={description}
+          placeholder="use this when …"
+          minRows={1}
+          maxRows={2}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setDescription(event.value ?? '')}
+        />
+        <textarea
+          testId="settings-skill-body"
+          value={body}
+          placeholder="Markdown body"
+          minRows={3}
+          maxRows={8}
+          theme={FIELD_THEME}
+          style={FIELD_STYLE}
+          onChange={(event) => setBody(event.value ?? '')}
+        />
+        <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, alignItems: 'center' }}>
+          <Chip testId="settings-skill-create" tone="action" onClick={create}>
+            Add skill
+          </Chip>
+          {note ? (
+            <div testId="settings-skills-note" style={{ fontSize: T.type.xs, color: T.secondary }}>
+              {note}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -1048,6 +1325,9 @@ export function Settings({
         </Section>
         <Section title="Routines">
           <RoutinesCard agents={seats} />
+        </Section>
+        <Section title="Skills">
+          <SkillsCard agents={seats} />
         </Section>
         <Section title="Computer">
           <div testId="settings-computer" style={{ ...CARD_STYLE, fontSize: T.type.sm, color: T.text }}>
