@@ -6,7 +6,7 @@ import { addLiveAgent, idleOrphanMouths, normalizeSession } from '../session'
 import { MARK_BAKE_REV, MARK_FRAMES, writeFrame, type MarkFrame } from '../../scripts/bake-marks'
 import { T } from '../tokens'
 import { deal, markForId, seedOverride } from './deal'
-import { resolveHomePath } from './home'
+import { ensureHomeCheckout, type EnsureHomeSeams } from './home'
 import { teardownBrowserDesktop } from './chrome'
 import { ensureDesktop } from './desktop'
 import { automatonHome } from './keys'
@@ -148,23 +148,33 @@ export function cloneAgent(
 export function applyHomeBinds(
   binds: HomeBind[],
   home = automatonHome(),
-): Agent[] {
+  seams?: EnsureHomeSeams,
+): { agents: Agent[]; notes: string[] } {
   const live: Agent[] = []
+  const notes: string[] = []
   for (const bind of binds) {
     const profile = readProfile(bind.agentId, home)
     if (!profile) continue
-    const path = resolveHomePath(bind.slug) ?? ''
+    const ensured = ensureHomeCheckout(
+      {
+        slug: bind.slug,
+        url: bind.url?.trim() ? bind.url.trim() : undefined,
+      },
+      seams,
+    )
+    if (ensured.spoken) notes.push(ensured.spoken)
+    if (ensured.error) notes.push(ensured.error)
     const next = {
       ...profile,
       homeRepo: bind.slug,
-      homePath: path,
+      homePath: ensured.ok ? (ensured.path ?? '') : '',
       title: bind.slug,
       description: `On ${bind.slug} for product work. Not Automaton.`,
     }
     writeProfile(next, home)
     live.push(liveAgentFromProfile(next))
   }
-  return live
+  return { agents: live, notes }
 }
 
 export function destroyAgent(id: string, home = automatonHome()): void {

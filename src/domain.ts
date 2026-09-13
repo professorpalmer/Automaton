@@ -1300,14 +1300,20 @@ export function bindHomes(text: string, agents: Agent[]): HomeBind[] {
   return out
 }
 
-export function homeAck(agents: Agent[], binds: HomeBind[]): string {
-  if (binds.length === 0) return ''
+export function homeAck(agents: Agent[], binds: HomeBind[], notes: string[] = []): string {
   const clauses = binds.map((bind, index) => {
     const name = agents.find((agent) => agent.id === bind.agentId)?.name ?? bind.agentId
     if (index === 0) return `${name}'s home is ${bind.slug}.`
     return `${name}'s is ${bind.slug}.`
   })
-  return `Bound. ${clauses.join(' ')}`
+  const bound = binds.length > 0 ? `Bound. ${clauses.join(' ')}` : ''
+  const extra = notes.map((row) => row.trim()).filter(Boolean).join(' ')
+  return [bound, extra].filter(Boolean).join(' ')
+}
+
+/** Speak bind result plus Cloning / Need notes from ensureHomeCheckout. */
+export function homeBindAck(agents: Agent[], binds: HomeBind[], notes: string[] = []): string {
+  return homeAck(agents, binds, notes)
 }
 
 export function homeNote(slug: string): string {

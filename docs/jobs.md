@@ -51,8 +51,12 @@ never inherit this Automaton tree. Unbound host land waits before any
 fails closed without one.
 
 Bind a GitHub home from Staff (`Point Kernel at https://github.com/…`).
-`homePath` is a local clone under `~/Projects/<repo>` when that checkout
-exists. The runtime does not clone for you.
+Missing `~/Projects/<repo>` with a GitHub URL clones there once, then binds.
+Staff speaks `Cloning …` briefly; auth or clone failure fails closed with an
+honest Need (no invented cwd). An existing checkout with the right remote is
+reused; a wrong remote or a non-git path that would clobber is a Need. The
+Automaton app checkout is never used as a home. Local-only binds still require
+an existing checkout — no URL means no clone.
 
 ## Composer
 
