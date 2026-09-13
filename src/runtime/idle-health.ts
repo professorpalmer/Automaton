@@ -25,7 +25,7 @@ export function idleParkInventory(): IdlePark[] {
     {
       id: 'spring-lease',
       path: 'src/resting-motion.ts + vendor @gpuix/react motion-spring',
-      summary: `gpuix onFrame / stepSpringLease unsubscribe at rest (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms); px integer + opacity subpixel publish`,
+      summary: `gpuix onFrame / stepSpringLease + 420ms hard park unsubscribe at rest (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms); px integer + opacity subpixel publish`,
     },
     {
       id: 'sister-freeze',

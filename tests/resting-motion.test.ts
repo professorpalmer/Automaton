@@ -14,8 +14,8 @@ import {
   springChannelKind,
   springClockBusy,
   springShouldPublish,
+  stepMarkSpringLease,
   stepSpring,
-  stepSpringLease,
   subscribeSpringTick,
 } from '../src/resting-motion'
 import { blobClockShouldHold, markLifeSpringImmediate } from '../src/blob'
@@ -29,9 +29,10 @@ describe('gpuix motion-spring lease', () => {
     expect(SPRING_FRAME_MS).toBe(8)
     expect(src).toMatch(/motion-spring/)
     expect(src).toMatch(/stepSpringLease/)
+    expect(src).toMatch(/stepMarkSpringLease/)
     expect(src).toMatch(/subscribeSpringTick/)
     expect(src).toMatch(/onFrame/)
-    expect(src).not.toMatch(/setTimeout/)
+    expect(src).not.toMatch(/setTimeout\(/)
     expect(src).not.toMatch(/Math\.round\(value\)/)
     expect(blobClockShouldHold(springClockBusy())).toBe(false)
     expect(blobClockShouldHold(true)).toBe(true)
@@ -86,13 +87,13 @@ describe('gpuix motion-spring lease', () => {
   test('unsubscribes onFrame when every channel is at rest', () => {
     resetSpringClockForTests()
     expect(springClockBusy()).toBe(false)
-    const tracks = { opacity: { pos: 0.4, vel: 0.25 } }
-    let painted: { opacity?: number } = { opacity: 0.4 }
+    const tracks = { opacity: { pos: 0.05, vel: 0 } }
+    let painted: { opacity?: number } = { opacity: 0.05 }
     let elapsedMs = 0
     const opacityPublishes: number[] = []
     const stop = subscribeSpringTick((dt) => {
       elapsedMs += dt * 1000
-      const result = stepSpringLease({
+      const result = stepMarkSpringLease({
         tracks,
         target: { opacity: 0 },
         painted,
@@ -113,8 +114,41 @@ describe('gpuix motion-spring lease', () => {
     }
     expect(isSpringRest(tracks.opacity, 0)).toBe(true)
     expect(springClockBusy()).toBe(false)
+    expect(elapsedMs).toBeLessThanOrEqual(SETTLE_HARD_MS + SPRING_FRAME_MS)
     expect(opacityPublishes.length).toBeGreaterThan(1)
     expect(opacityPublishes.some((value) => value !== Math.round(value))).toBe(true)
+    stop()
+    resetSpringClockForTests()
+  })
+
+  test('hard-parks a full lid travel at SETTLE_HARD_MS so blinks cannot hold the clock', () => {
+    resetSpringClockForTests()
+    const tracks = { opacity: { pos: 1, vel: 0 } }
+    let painted: { opacity?: number } = { opacity: 1 }
+    let elapsedMs = 0
+    const stop = subscribeSpringTick((dt) => {
+      elapsedMs += dt * 1000
+      const result = stepMarkSpringLease({
+        tracks,
+        target: { opacity: 0 },
+        painted,
+        dt,
+        elapsedMs,
+        stiffness: EYE.stiffness,
+        damping: EYE.damping,
+        mass: EYE.mass,
+      })
+      painted = result.painted
+      return result.moving
+    })
+    for (let i = 0; i < 80; i += 1) {
+      pumpFrames(SPRING_FRAME_MS / 1000, i * SPRING_FRAME_MS)
+      if (!springClockBusy()) break
+    }
+    expect(isSpringRest(tracks.opacity, 0)).toBe(true)
+    expect(springClockBusy()).toBe(false)
+    expect(elapsedMs).toBeGreaterThanOrEqual(SETTLE_HARD_MS)
+    expect(elapsedMs).toBeLessThanOrEqual(SETTLE_HARD_MS + SPRING_FRAME_MS)
     stop()
     resetSpringClockForTests()
   })

@@ -1,7 +1,7 @@
 /**
  * Thin hook over vendored `@gpuix/react` motion-spring (Wave 3).
  *
- * Living marks no longer own an 8ms `setTimeout` clock. Ticks run on the
+ * Living marks no longer own a hand-rolled 8ms timer clock. Ticks run on the
  * GPUIX frame loop (`onFrame` / `pumpFrames` from `startFrameLoop`) so
  * PulseClock can park when leases empty.
  *
@@ -76,6 +76,30 @@ export {
 }
 
 /**
+ * gpuix lease step plus Automaton's 420ms hard park.
+ * Opacity 0↔1 (lids / plate) can sit outside gpuix's 0.08 crawl window;
+ * force-snap so a blink cannot hold the PulseClock past SETTLE_HARD_MS.
+ */
+export function stepMarkSpringLease(
+  opts: Parameters<typeof stepSpringLease>[0],
+): ReturnType<typeof stepSpringLease> {
+  const result = stepSpringLease(opts)
+  if (!result.moving || opts.elapsedMs < SETTLE_HARD_MS) return result
+  const painted: Partial<Record<SpringKey, number>> = { ...result.painted }
+  let publish = result.publish
+  for (const key of SPRING_KEYS) {
+    const to = opts.target[key]
+    if (to == null) continue
+    opts.tracks[key] = snapSpring(to)
+    if (painted[key] !== to) {
+      painted[key] = to
+      publish = true
+    }
+  }
+  return { painted, moving: false, publish }
+}
+
+/**
  * Spring-drive numeric style channels on the gpuix lease.
  * `px` keys publish integer pixels; `opacity` keeps subpixel publishes
  * (`springChannelKind` / `stepSpringLease`). Unsubscribes `onFrame` when
@@ -121,7 +145,7 @@ export function useRestingStyle<T extends Partial<Record<SpringKey, number>>>(
     let elapsedMs = 0
     return subscribeSpringTick((dt) => {
       elapsedMs += dt * 1000
-      const result = stepSpringLease({
+      const result = stepMarkSpringLease({
         tracks: tracksRef.current,
         target: targetsRef.current,
         painted: paintedRef.current,

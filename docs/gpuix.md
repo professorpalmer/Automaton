@@ -41,6 +41,8 @@ hand-rolled `setTimeout` clock. Public `@gpuix/react` re-exports `onFrame`,
 `stepSpringLease`, `px` vs `opacity` publish) live in `dist/motion-spring.js`
 and share the MotionDiv / `startFrameLoop` listener set so PulseClock can
 park. Frozen sisters still pass `markLifeSpringImmediate` and never lease.
+Live marks also force-snap at 420ms (`stepMarkSpringLease`) so a 0↔1 lid
+travel cannot sit outside gpuix's 0.08 opacity crawl window and hold the clock.
 
 ## Related
 
