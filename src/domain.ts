@@ -148,7 +148,7 @@ export type QuestionWidget = {
   dismissOnMoveOn?: boolean
 }
 
-export type WidgetPurpose = 'ask' | 'merge' | 'ship' | 'host'
+export type WidgetPurpose = 'ask' | 'merge' | 'ship' | 'host' | 'skill'
 
 export type WidgetAnswer = {
   values: string[]
@@ -1590,7 +1590,7 @@ export function widgetReplyText(_widget: QuestionWidget, answer: WidgetAnswer): 
 }
 
 export function widgetDismissOnMoveOn(purpose: WidgetPurpose | undefined, requested?: boolean): boolean {
-  if (purpose === 'merge' || purpose === 'ship' || purpose === 'host') return false
+  if (purpose === 'merge' || purpose === 'ship' || purpose === 'host' || purpose === 'skill') return false
   return requested === true
 }
 

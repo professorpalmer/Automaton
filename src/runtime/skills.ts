@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve, sep } from 'node:path'
 import { inflateRawSync } from 'node:zlib'
 import { skillsRoot } from './computer'
 import { automatonHome } from './keys'
+import { listProfileIds, readProfile, writeProfile } from './profile'
 
 /** Folder name is the only path under the skills dir. No `..`, slashes, or case. */
 export const SKILL_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/
@@ -215,14 +216,29 @@ function mentionedIn(query: string, skill: SkillMeta): boolean {
   return false
 }
 
-function matchedIn(query: string, skill: SkillMeta): boolean {
+function descriptionMatchedIn(query: string, skill: SkillMeta): boolean {
+  const raw = skill.description.trim().toLowerCase()
+  if (raw.length < 8) return false
+  const q = query.toLowerCase()
+  if (q.includes(raw)) return true
+  const stripped = raw.replace(/^use this when\s+/i, '').trim()
+  return stripped.length >= 8 && q.includes(stripped)
+}
+
+/** Match id / @name / name / description — same gates as body selection. */
+export function skillMatchedIn(query: string, skill: SkillMeta): boolean {
   if (mentionedIn(query, skill)) return true
   if (skill.disableModelInvocation) return false
   const q = query.toLowerCase()
   if (new RegExp(`\\b${skill.id}\\b`, 'i').test(query)) return true
   const name = skill.name.trim()
   if (name.length >= 3 && q.includes(name.toLowerCase())) return true
+  if (descriptionMatchedIn(query, skill)) return true
   return false
+}
+
+function matchedIn(query: string, skill: SkillMeta): boolean {
+  return skillMatchedIn(query, skill)
 }
 
 export function selectSkillBodies(skills: SkillMeta[], pinnedIds: string[], query: string): SkillMeta[] {
@@ -435,4 +451,164 @@ export async function importSkillFromUrl(
     scriptsPresent: false,
     now: options?.now,
   })
+}
+
+
+function renderSkillMarkdown(input: {
+  name: string
+  description: string
+  body: string
+  disableModelInvocation?: boolean
+}): string {
+  const name = input.name.trim()
+  const description = input.description.trim()
+  const body = input.body.replace(/\s+$/u, '')
+  const lines = [`---`, `name: ${name}`, `description: ${description}`]
+  if (input.disableModelInvocation) lines.push('disable-model-invocation: true')
+  lines.push('---', '', body ? `${body}\n` : '')
+  return lines.join('\n')
+}
+
+export function getSkill(id: string, home = automatonHome()): SkillMeta {
+  const meta = metaFromDir(id, home)
+  if (!meta) throw new Error('unknown skill')
+  return meta
+}
+
+export function readSkillMarkdown(id: string, home = automatonHome()): string {
+  const meta = getSkill(id, home)
+  if (!existsSync(meta.path)) throw new Error('unknown skill')
+  return readFileSync(meta.path, 'utf8')
+}
+
+export function readSkillBody(id: string, home = automatonHome()): string {
+  return skillBody(readSkillMarkdown(id, home))
+}
+
+export function createSkill(input: {
+  name: string
+  description: string
+  body: string
+  id?: string
+  home?: string
+  disableModelInvocation?: boolean
+}): SkillMeta {
+  const home = input.home ?? automatonHome()
+  const name = input.name.trim()
+  const description = input.description.trim()
+  const body = input.body
+  if (!name) throw new Error('name required')
+  if (!description) throw new Error('description required')
+  if (!body.trim()) throw new Error('body required')
+  const id = input.id?.trim() ? input.id.trim() : slugSkillId(name)
+  if (!id || !isSkillId(id)) throw new Error('invalid skill id')
+  ensureSkillsRoot(home)
+  const dir = skillDir(id, home)
+  const path = join(dir, 'SKILL.md')
+  if (existsSync(path)) throw new Error(`skill ${id} already exists`)
+  mkdirSync(dir, { recursive: true })
+  const markdown = renderSkillMarkdown({
+    name,
+    description,
+    body,
+    disableModelInvocation: input.disableModelInvocation,
+  })
+  writeFileSync(path, markdown.endsWith('\n') ? markdown : `${markdown}\n`)
+  return getSkill(id, home)
+}
+
+export function updateSkill(
+  id: string,
+  patch: { name?: string; description?: string; body?: string; disableModelInvocation?: boolean },
+  home = automatonHome(),
+): SkillMeta {
+  const meta = getSkill(id, home)
+  if (meta.origin !== 'local') throw new Error('imported skills are read-only')
+  const current = readSkillMarkdown(id, home)
+  const parsed = parseFrontmatter(current)
+  const name = patch.name !== undefined ? patch.name.trim() : parsed.name || meta.name
+  const description = patch.description !== undefined ? patch.description.trim() : parsed.description
+  const body = patch.body !== undefined ? patch.body : skillBody(current)
+  if (!name) throw new Error('name required')
+  if (!description) throw new Error('description required')
+  if (!body.trim()) throw new Error('body required')
+  const disable =
+    patch.disableModelInvocation !== undefined
+      ? patch.disableModelInvocation
+      : parsed.disableModelInvocation
+  const markdown = renderSkillMarkdown({ name, description, body, disableModelInvocation: disable })
+  writeFileSync(meta.path, markdown.endsWith('\n') ? markdown : `${markdown}\n`)
+  return getSkill(id, home)
+}
+
+function clearSkillPins(id: string, home: string): void {
+  for (const agentId of listProfileIds(home)) {
+    const profile = readProfile(agentId, home)
+    if (!profile || !profile.skillIds.includes(id)) continue
+    writeProfile({ ...profile, skillIds: profile.skillIds.filter((row) => row !== id) }, home)
+  }
+}
+
+export function deleteSkill(id: string, home = automatonHome()): void {
+  if (!isSkillId(id)) throw new Error('invalid skill id')
+  const meta = metaFromDir(id, home)
+  if (!meta) throw new Error('unknown skill')
+  clearSkillPins(id, home)
+  rmSync(skillDir(id, home), { recursive: true, force: true })
+}
+
+function skillOffersPath(home = automatonHome()): string {
+  return join(home, 'skill-offers-dismissed.json')
+}
+
+export function listDismissedSkillOffers(home = automatonHome()): string[] {
+  const path = skillOffersPath(home)
+  if (!existsSync(path)) return []
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as unknown
+    if (!Array.isArray(raw)) return []
+    return raw.filter((row): row is string => typeof row === 'string' && isSkillId(row))
+  } catch {
+    return []
+  }
+}
+
+export function dismissSkillOffer(id: string, home = automatonHome()): void {
+  if (!isSkillId(id)) throw new Error('invalid skill id')
+  const prev = listDismissedSkillOffers(home)
+  if (prev.includes(id)) return
+  mkdirSync(home, { recursive: true })
+  writeFileSync(skillOffersPath(home), `${JSON.stringify([...prev, id], null, 2)}\n`)
+}
+
+export function clearDismissedSkillOffers(home = automatonHome()): void {
+  const path = skillOffersPath(home)
+  if (existsSync(path)) writeFileSync(path, '[]\n')
+}
+
+/** Skills whose body would load for this query, minus pins / prior dismissals. */
+export function skillsOfferedByQuery(input: {
+  skills: SkillMeta[]
+  query: string
+  pinnedIds?: string[]
+  dismissedIds?: string[]
+}): SkillMeta[] {
+  const pinned = new Set(input.pinnedIds ?? [])
+  const dismissed = new Set(input.dismissedIds ?? [])
+  const query = input.query.trim()
+  if (!query) return []
+  return input.skills.filter((skill) => {
+    if (!skill.enabled) return false
+    if (pinned.has(skill.id) || dismissed.has(skill.id)) return false
+    return matchedIn(query, skill)
+  })
+}
+
+export function pickSkillOffer(input: {
+  skills: SkillMeta[]
+  query: string
+  pinnedIds?: string[]
+  dismissedIds?: string[]
+}): SkillMeta | null {
+  return skillsOfferedByQuery(input)[0] ?? null
 }
