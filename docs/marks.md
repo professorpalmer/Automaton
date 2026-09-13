@@ -16,6 +16,8 @@ Grok/Hermes assets. Package is **0.7.0** (this pass does not cut v0.8.0).
 Working mouths still squash via `workPose` SVG stamps (`wide` / `tall`). Soft melt
 is for selected rest life — not a second layout physics on the feed.
 
+Wave 3.2.1 feel: slower `BODY_SPRING` (GELATIN×0.64 / +damping / +mass), look/pose hold while native melt settles (~780ms), native hard-park 850ms, soft melt targets at 0.1px.
+
 ## Still stubby (honest)
 
 - No full gelatin body sim; soft-wide / soft-tall are still small pixel melts (±2–4px). Wave 3.2 paints those continuously on the GPU/GPUI frame, not as 0.1px JS publishes.

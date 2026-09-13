@@ -167,6 +167,20 @@ export function stepMarkSpringLease(
  * GPUI can sleep. Mark life must pass `immediate: true` when the sister is
  * frozen so idle rails never lease this clock (see docs/marks.md).
  */
+
+/** Native mark springs do not arm `springClockBusy`. Hold look/pose this long after a kick. */
+export const MARK_SPRING_HOLD_MS = 780
+
+let markSpringHoldUntil = 0
+
+export function noteMarkSpringKick(holdMs = MARK_SPRING_HOLD_MS): void {
+  markSpringHoldUntil = Math.max(markSpringHoldUntil, Date.now() + holdMs)
+}
+
+export function markSpringHoldBusy(): boolean {
+  return Date.now() < markSpringHoldUntil
+}
+
 export function useRestingStyle<T extends Partial<Record<SpringKey, number>>>(
   targets: T,
   spring: SpringParams,
