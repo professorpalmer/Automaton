@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { motion } from '@gpuix/react'
+import { GELATIN, motion } from '@gpuix/react'
 import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
@@ -61,8 +61,6 @@ const SVG_DIR = join(import.meta.dir, 'marks', 'grokbot')
 const SLIT_SHAPES = new Set(['hex', 'crystal', 'tablet', 'gem', 'cylinder'])
 
 const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, body: 0 }
-
-const GELATIN = { stiffness: 28, damping: 8, mass: 1.25 }
 
 const BODY_SPRING = {
   type: 'spring' as const,
@@ -264,7 +262,7 @@ export function livingMelt(id: string, look: number, live: boolean, busyBody: bo
   return restMelt(id, look)
 }
 
-/** Park melt/lid springs when the mark is frozen or mid-drag — same lease as useRestingStyle. */
+/** Park melt/lid springs when the mark is frozen or mid-drag — never lease the spring clock. */
 export function markLifeSpringImmediate(live: boolean, pointerDown = false): boolean {
   return !live || pointerDown
 }
@@ -643,7 +641,7 @@ export function SisterBlob({
     { immediate: pointer.down || !selected },
   )
   const lids = useRestingStyle(
-    { open: live && blink ? 0 : 1 },
+    { opacity: live && blink ? 0 : 1 },
     EYE_SPRING,
     { immediate: lifeImmediate },
   )
@@ -759,7 +757,7 @@ export function SisterBlob({
               { side: 1, eye: rightEye },
             ] as const
           ).map(({ side, eye }) => {
-            const lidOpen = Math.max(0, Math.min(1, lids.open))
+            const lidOpen = Math.max(0, Math.min(1, lids.opacity))
             const eyeHeight = px(Math.max(T.space.xxs, eye.height * lidOpen))
             return (
             <div

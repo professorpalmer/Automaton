@@ -1,7 +1,46 @@
+/**
+ * Thin hook over vendored `@gpuix/react` motion-spring (Wave 3).
+ *
+ * Living marks no longer own a hand-rolled 8ms timer clock. Ticks run on the
+ * GPUIX frame loop (`onFrame` / `pumpFrames` from `startFrameLoop`) so
+ * PulseClock can park when leases empty.
+ *
+ * Public `@gpuix/react` only re-exports `onFrame`, `stepSpring`, and `GELATIN`.
+ * The lease helpers MotionDiv already uses (`subscribeSpringTick`,
+ * `stepSpringLease`, channel kinds) live in `dist/motion-spring.js` but are
+ * not on the package export map. Import that same file — not a second copy —
+ * so marks share the MotionDiv / startFrameLoop listener set.
+ *
+ * TODO: drop this shim if gpuix grows a public `useRestingStyle` / immediate park.
+ */
 import { useEffect, useRef, useState } from 'react'
+import { GELATIN } from '@gpuix/react'
+import {
+  SETTLE_BUDGET_MS,
+  SETTLE_HARD_MS,
+  SPRING_KEYS,
+  allSpringChannelsRest,
+  animateSignature,
+  isSpringRest,
+  pumpFrames,
+  quantizeSpringValue,
+  resetSpringClockForTests,
+  seedSpringTrack,
+  shouldSnapSpring,
+  snapSpring,
+  springChannelKind,
+  springClockBusy,
+  springShouldPublish,
+  stepSpring,
+  stepSpringLease,
+  subscribeSpringTick,
+  type SpringChannelKind,
+  type SpringKey,
+  type SpringTrack,
+} from '../node_modules/@gpuix/react/dist/motion-spring.js'
 import { runningTests } from './runtime/test-env'
 
-/** Same cadence as gpuix `DEFAULT_FRAME_MS`. Do not replace that host loop. */
+/** Documented cadence of gpuix `DEFAULT_FRAME_MS`. Do not replace that host loop. */
 export const SPRING_FRAME_MS = 8
 
 export type SpringParams = {
@@ -9,188 +48,121 @@ export type SpringParams = {
   stiffness: number
   damping: number
   mass: number
+  velocity?: number
 }
 
-export type SpringChannel = {
-  value: number
-  velocity: number
-}
+export type { SpringChannelKind, SpringKey, SpringTrack }
 
-const SNAP_POS = 1.05
-const SNAP_VEL = 0.35
-/** Soft GELATIN / EYE springs crawl; budget forces rest so the window can sleep. */
-export const SETTLE_BUDGET_MS = 280
-export const SETTLE_HARD_MS = 420
-
-type Tick = (dtMs: number) => boolean
-
-const ticks = new Set<Tick>()
-let timer: ReturnType<typeof setTimeout> | null = null
-let lastNow = 0
-
-export function springClockBusy(): boolean {
-  return ticks.size > 0
-}
-
-export function resetSpringClockForTests(): void {
-  ticks.clear()
-  if (timer !== null) clearTimeout(timer)
-  timer = null
-  lastNow = 0
-}
-
-function pump(): void {
-  timer = null
-  const now = performance.now()
-  const dt = Math.min(32, Math.max(1, now - lastNow))
-  lastNow = now
-  for (const tick of [...ticks]) {
-    if (!tick(dt)) ticks.delete(tick)
-  }
-  if (ticks.size === 0) return
-  timer = setTimeout(pump, SPRING_FRAME_MS)
-}
-
-/** Subscribe a spring tick. Unsubscribes itself when the tick returns false (all rest). */
-export function subscribeSpringTick(tick: Tick): () => void {
-  ticks.add(tick)
-  if (timer === null) {
-    lastNow = performance.now()
-    timer = setTimeout(pump, SPRING_FRAME_MS)
-  }
-  return () => {
-    ticks.delete(tick)
-    if (ticks.size === 0 && timer !== null) {
-      clearTimeout(timer)
-      timer = null
-    }
-  }
-}
-
-export function stepSpringChannel(
-  channel: SpringChannel,
-  target: number,
-  spring: SpringParams,
-  dtMs: number,
-): SpringChannel {
-  const dt = Math.min(dtMs, 32) / 1000
-  const mass = spring.mass > 0 ? spring.mass : 1
-  const accel = (-spring.stiffness * (channel.value - target) - spring.damping * channel.velocity) / mass
-  const velocity = channel.velocity + accel * dt
-  const value = channel.value + velocity * dt
-  return { value, velocity }
-}
-
-export function shouldSnapSpring(channel: SpringChannel, target: number, elapsedMs = 0): boolean {
-  const dist = Math.abs(channel.value - target)
-  if (Math.abs(channel.velocity) < SNAP_VEL && dist < SNAP_POS) return true
-  if (elapsedMs >= SETTLE_BUDGET_MS && dist < 2.25) return true
-  return elapsedMs >= SETTLE_HARD_MS
-}
-
-export function snapSpring(target: number): SpringChannel {
-  return { value: target, velocity: 0 }
-}
-
-export function isSpringRest(channel: SpringChannel, target: number): boolean {
-  return channel.velocity === 0 && channel.value === target
-}
-
-export function springShouldPublish(previous: number, next: number): boolean {
-  return Math.round(next) !== Math.round(previous)
-}
-
-export function quantizeSpringValue(value: number): number {
-  return Math.round(value)
-}
-
-function targetSignature(targets: Record<string, number>): string {
-  return Object.keys(targets)
-    .sort()
-    .map((key) => `${key}:${targets[key]}`)
-    .join('|')
-}
-
-function quantizeTargets(targets: Record<string, number>): Record<string, number> {
-  const out: Record<string, number> = {}
-  for (const key of Object.keys(targets)) out[key] = quantizeSpringValue(targets[key] ?? 0)
-  return out
-}
-
-function channelsFrom(targets: Record<string, number>): Record<string, SpringChannel> {
-  const out: Record<string, SpringChannel> = {}
-  for (const key of Object.keys(targets)) out[key] = snapSpring(targets[key] ?? 0)
-  return out
-}
-
-function allChannelsRest(channels: Record<string, SpringChannel>, targets: Record<string, number>): boolean {
-  for (const key of Object.keys(targets)) {
-    const channel = channels[key] ?? snapSpring(targets[key] ?? 0)
-    if (!isSpringRest(channel, targets[key] ?? 0)) return false
-  }
-  return true
+export {
+  GELATIN,
+  SETTLE_BUDGET_MS,
+  SETTLE_HARD_MS,
+  SPRING_KEYS,
+  allSpringChannelsRest,
+  animateSignature,
+  isSpringRest,
+  pumpFrames,
+  quantizeSpringValue,
+  resetSpringClockForTests,
+  seedSpringTrack,
+  shouldSnapSpring,
+  snapSpring,
+  springChannelKind,
+  springClockBusy,
+  springShouldPublish,
+  stepSpring,
+  stepSpringLease,
+  subscribeSpringTick,
 }
 
 /**
- * Spring-drive numeric style channels. Publishes integer pixels only.
- * Unsubscribes the 8ms tick when every channel is at rest so GPUI can sleep.
+ * gpuix lease step plus Automaton's 420ms hard park.
+ * Opacity 0↔1 (lids / plate) can sit outside gpuix's 0.08 crawl window;
+ * force-snap so a blink cannot hold the PulseClock past SETTLE_HARD_MS.
+ */
+export function stepMarkSpringLease(
+  opts: Parameters<typeof stepSpringLease>[0],
+): ReturnType<typeof stepSpringLease> {
+  const result = stepSpringLease(opts)
+  if (!result.moving || opts.elapsedMs < SETTLE_HARD_MS) return result
+  const painted: Partial<Record<SpringKey, number>> = { ...result.painted }
+  let publish = result.publish
+  for (const key of SPRING_KEYS) {
+    const to = opts.target[key]
+    if (to == null) continue
+    opts.tracks[key] = snapSpring(to)
+    if (painted[key] !== to) {
+      painted[key] = to
+      publish = true
+    }
+  }
+  return { painted, moving: false, publish }
+}
+
+/**
+ * Spring-drive numeric style channels on the gpuix lease.
+ * `px` keys publish integer pixels; `opacity` keeps subpixel publishes
+ * (`springChannelKind` / `stepSpringLease`). Unsubscribes `onFrame` when
+ * every channel is at rest so GPUI can sleep.
  * Mark life (melt / lids / plate) must pass `immediate: true` when the sister
  * is frozen so idle rails never lease this clock (see docs/marks.md).
  */
-export function useRestingStyle(
-  targets: Record<string, number>,
+export function useRestingStyle<T extends Partial<Record<SpringKey, number>>>(
+  targets: T,
   spring: SpringParams,
   opts?: { immediate?: boolean },
-): Record<string, number> {
+): T {
   const immediate = opts?.immediate === true || runningTests()
-  const signature = targetSignature(targets)
-  const quantized = quantizeTargets(targets)
-  const [painted, setPainted] = useState(quantized)
-  const channelsRef = useRef<Record<string, SpringChannel>>(channelsFrom(targets))
-  const paintedRef = useRef(quantized)
+  const signature = animateSignature(targets)
+  const [painted, setPainted] = useState<T>(targets)
+  const tracksRef = useRef<Partial<Record<SpringKey, SpringTrack>>>({})
+  const paintedRef = useRef<Partial<Record<SpringKey, number>>>(targets)
   const targetsRef = useRef(targets)
   targetsRef.current = targets
 
   useEffect(() => {
-    const nextTargets = targetsRef.current
-    const nextQuantized = quantizeTargets(nextTargets)
+    const next = targetsRef.current
     if (immediate) {
-      channelsRef.current = channelsFrom(nextTargets)
-      paintedRef.current = nextQuantized
-      setPainted(nextQuantized)
+      const snapped: Partial<Record<SpringKey, number>> = {}
+      const tracks: Partial<Record<SpringKey, SpringTrack>> = {}
+      for (const key of SPRING_KEYS) {
+        const value = next[key]
+        if (value == null) continue
+        snapped[key] = value
+        tracks[key] = snapSpring(value)
+      }
+      tracksRef.current = tracks
+      paintedRef.current = snapped
+      setPainted(snapped as T)
       return
     }
-    const channels = channelsRef.current
-    for (const key of Object.keys(nextTargets)) {
-      if (!channels[key]) channels[key] = snapSpring(nextTargets[key] ?? 0)
+    for (const key of SPRING_KEYS) {
+      const to = next[key]
+      if (to == null) continue
+      seedSpringTrack(tracksRef.current, key, paintedRef.current[key], to, spring.velocity ?? 0)
     }
-    if (allChannelsRest(channels, nextTargets)) return
+    if (allSpringChannelsRest(tracksRef.current, next)) return
     let elapsedMs = 0
-    return subscribeSpringTick((dtMs) => {
-      const live = targetsRef.current
-      elapsedMs += dtMs
-      let moving = false
-      let changed = false
-      const nextPainted = { ...paintedRef.current }
-      for (const key of Object.keys(live)) {
-        const target = live[key] ?? 0
-        let channel = channels[key] ?? snapSpring(target)
-        channel = stepSpringChannel(channel, target, spring, dtMs)
-        if (shouldSnapSpring(channel, target, elapsedMs)) channel = snapSpring(target)
-        channels[key] = channel
-        if (!isSpringRest(channel, target)) moving = true
-        if (springShouldPublish(nextPainted[key] ?? 0, channel.value)) {
-          nextPainted[key] = quantizeSpringValue(channel.value)
-          changed = true
-        }
+    return subscribeSpringTick((dt) => {
+      elapsedMs += dt * 1000
+      const result = stepMarkSpringLease({
+        tracks: tracksRef.current,
+        target: targetsRef.current,
+        painted: paintedRef.current,
+        dt,
+        elapsedMs,
+        stiffness: spring.stiffness,
+        damping: spring.damping,
+        mass: spring.mass,
+        kick: spring.velocity ?? 0,
+      })
+      if (result.publish) {
+        paintedRef.current = result.painted
+        setPainted(result.painted as T)
       }
-      if (changed) {
-        paintedRef.current = nextPainted
-        setPainted(nextPainted)
-      }
-      return moving
+      return result.moving
     })
-  }, [signature, immediate, spring])
+  }, [signature, immediate, spring.stiffness, spring.damping, spring.mass, spring.velocity])
 
-  return immediate ? quantized : painted
+  return immediate ? targets : painted
 }
