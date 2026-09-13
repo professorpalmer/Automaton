@@ -8,7 +8,7 @@ Grok/Hermes assets. Package is **0.7.0** (Wave 2 P2 band cut).
 | Cue | Behavior |
 | --- | --- |
 | Glance | Selected Staff uses `selectedGlance` + lively wander/blink; idle sisters stay frozen (`alive = selected \|\| working`) |
-| Weight / squash | Soft `restMelt` → `poseLayout` on alive-at-rest marks; GELATIN springs park via `useRestingStyle` |
+| Weight / squash | Soft `restMelt` → `poseLayout` on alive-at-rest marks; gpuix `GELATIN` + `stepSpringLease` park via `useRestingStyle` |
 | Lid life | Blink closes lids with height + opacity spring (`EYE_SPRING`), not a hard cut |
 | Selected lift | `T.blob.selectedLift` on the melt box while selected (no pointer drag) |
 | Park | `markLifeSpringImmediate` so frozen sisters never lease the spring clock |
@@ -37,7 +37,7 @@ is for selected rest life — not a second layout physics on the feed.
 
 Mark springs share the same lease-park as MotionDiv / StickSpring:
 
-- `spring-lease` — `src/resting-motion.ts`
+- `spring-lease` — `src/resting-motion.ts` (thin hook) + vendored `@gpuix/react` `motion-spring` (`onFrame` / `stepSpringLease`)
 - `sister-freeze` — `src/blob.tsx` + `alive` from `src/app.tsx`
 
 Inventory: `idleParkInventory()` in `src/runtime/idle-health.ts`. Re-verify CPU with

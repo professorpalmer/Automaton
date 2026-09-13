@@ -32,6 +32,16 @@ contains lease-park, re-verify idle CPU (`bun run sample:idle-cpu` /
 Until then: keep the vendored tarball; prefer Automaton-side or vendored park
 paths; do not publish `@gpuix`.
 
+## Wave 3 consumption
+
+Living marks (`src/blob.tsx` / `src/resting-motion.ts`) drive melt, lids, and
+the selected plate through this vendored `motion-spring` module — not a
+hand-rolled `setTimeout` clock. Public `@gpuix/react` re-exports `onFrame`,
+`stepSpring`, and `GELATIN`. Lease helpers (`subscribeSpringTick`,
+`stepSpringLease`, `px` vs `opacity` publish) live in `dist/motion-spring.js`
+and share the MotionDiv / `startFrameLoop` listener set so PulseClock can
+park. Frozen sisters still pass `markLifeSpringImmediate` and never lease.
+
 ## Related
 
 - Park inventory: [`docs/idle-cpu.md`](./idle-cpu.md)

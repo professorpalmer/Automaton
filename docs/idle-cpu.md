@@ -24,7 +24,7 @@ Honesty: do not claim a forever-0% process. Paced GPUIX baseline is ~**1.5%** (v
 
 | Id | Where | What parks |
 | --- | --- | --- |
-| `spring-lease` | `src/resting-motion.ts` + vendored `@gpuix/react` MotionDiv | Spring / StickSpring ticks unsubscribe at rest (settle ≤420ms); integer-pixel publish |
+| `spring-lease` | `src/resting-motion.ts` + vendored `@gpuix/react` motion-spring | `onFrame` / `stepSpringLease` ticks unsubscribe at rest (settle ≤420ms); px integer + opacity subpixel publish |
 | `sister-freeze` | `src/blob.tsx`, `alive = selected \|\| working` | Idle sisters drop wander/blink/melt; selected Staff may glance + soft `restMelt`; springs immediate when frozen |
 | `stream-commit` | `src/runtime/feed-pin.ts` | 120ms STREAM_COMMIT coalesce + `FEED_TAIL` pin |
 | `row-fingerprint` | `src/runtime/feed-row.ts` | Fingerprints avoid wholesale rebuilds on last-line growth |

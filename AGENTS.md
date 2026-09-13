@@ -49,7 +49,7 @@ or noVNC. Do not bill a hosted computer-use vendor.
 Invariants:
 
 - Idle GPUI sleeps: no idle `MotionDiv` / spring ticks on sisters
-  (`src/resting-motion.ts`). Feed grow ticks coalesce and pin the tail
+ (`src/resting-motion.ts` over vendored `@gpuix/react` motion-spring). Feed grow ticks coalesce and pin the tail
   (`src/runtime/feed-pin.ts`); row fingerprints avoid wholesale rebuilds
   (`src/runtime/feed-row.ts`). Re-verify with `docs/idle-cpu.md` /
   `bun run sample:idle-cpu` (CI soft-skips GUI metrics).

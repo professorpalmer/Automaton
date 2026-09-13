@@ -1,5 +1,12 @@
-import type { SpringParams } from '../resting-motion'
+import { GELATIN } from '@gpuix/react'
 import { DEFAULT_TOKENS } from '../theme/tokens'
+
+export type SpringParams = {
+  type?: 'spring'
+  stiffness: number
+  damping: number
+  mass: number
+}
 
 /** One catalog entry: duration + curve + optional delay. Call sites name the spec. */
 export type MotionCurve = 'easeOut' | 'easeInOut' | 'linear'
@@ -36,7 +43,7 @@ export type SpringName = 'gelatin' | 'eye'
 export type SpringSpec = SpringParams & { type: 'spring' }
 
 export const SPRINGS: Record<SpringName, SpringSpec> = {
-  gelatin: { type: 'spring', stiffness: 28, damping: 8, mass: 1.25 },
+  gelatin: { type: 'spring', stiffness: GELATIN.stiffness, damping: GELATIN.damping, mass: GELATIN.mass },
   eye: { type: 'spring', stiffness: 13, damping: 14, mass: 1 },
 }
 

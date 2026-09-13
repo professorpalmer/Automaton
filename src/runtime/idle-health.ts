@@ -7,10 +7,10 @@ export const IDLE_CPU_WARN_PCT = 40
 /** Documented paced GPUIX frame loop baseline (one core), not a hard gate. */
 export const IDLE_CPU_PACED_BASELINE_PCT = 1.5
 
-/** Settled spring hard budget (ms) — mirrors src/resting-motion.ts. */
+/** Settled spring hard budget (ms) — mirrors gpuix motion-spring SETTLE_HARD_MS. */
 export const IDLE_SPRING_SETTLE_HARD_MS = 420
 
-/** GPUIX / resting-motion frame cadence (ms). */
+/** GPUIX startFrameLoop / motion-spring frame cadence (ms). */
 export const IDLE_FRAME_MS = 8
 
 export type IdlePark = {
@@ -24,8 +24,8 @@ export function idleParkInventory(): IdlePark[] {
   return [
     {
       id: 'spring-lease',
-      path: 'src/resting-motion.ts + vendor @gpuix/react MotionDiv',
-      summary: `Spring ticks unsubscribe at rest (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms); integer-pixel publish only`,
+      path: 'src/resting-motion.ts + vendor @gpuix/react motion-spring',
+      summary: `gpuix onFrame / stepSpringLease unsubscribe at rest (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms); px integer + opacity subpixel publish`,
     },
     {
       id: 'sister-freeze',

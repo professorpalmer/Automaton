@@ -29,6 +29,8 @@ describe('idle park inventory', () => {
     expect(STREAM_COMMIT_MS).toBe(120)
     expect(IDLE_SPRING_SETTLE_HARD_MS).toBe(SETTLE_HARD_MS)
     expect(IDLE_FRAME_MS).toBe(SPRING_FRAME_MS)
+    expect(parks.find((p) => p.id === 'spring-lease')?.path).toContain('motion-spring')
+    expect(parks.find((p) => p.id === 'spring-lease')?.summary).toMatch(/opacity/)
     expect(parks.find((p) => p.id === 'stream-commit')?.summary).toContain('120ms')
     expect(parks.find((p) => p.id === 'frame-pace')?.summary).toContain('8ms')
   })
