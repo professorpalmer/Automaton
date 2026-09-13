@@ -31,7 +31,7 @@ is for selected rest life — not a second layout physics on the feed.
 - Add another animation library.
 - Put Motion `layout` / `layoutScroll` / `popLayout` on virtual feed rows or the live tail.
 - Rip Grok shapes/colors or invent two-lobe / scrotum silhouettes.
-- Publish `@gpuix`; park primitives stay Automaton-side or vendored `file:vendor`.
+- Publish `@gpuix`; park primitives stay Automaton-side or vendored `file:vendor` ([`docs/gpuix.md`](./gpuix.md) — stay vendored until park publishes).
 
 ## Parks
 

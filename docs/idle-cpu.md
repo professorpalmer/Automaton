@@ -45,6 +45,14 @@ Code mirror: `idleParkInventory()` in `src/runtime/idle-health.ts`.
 
 `bun test` covers park/coalesce invariants. GUI CPU sampling **soft-skips** when no live process or under `CI=true` / `AUTOMATON_SKIP_IDLE_CPU=1`. Never fail the suite for missing Mac GUI metrics.
 
+## Vendor pin
+
+Idle parks that depend on MotionDiv lease-park stay on vendored
+`@gpuix/react` 0.6.1. Do **not** drop onto npm `@gpuix/react@0.7.0` (no
+`motion-spring` in dist). Hold until [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34)
+merges **and** a park-bearing release publishes — see [`docs/gpuix.md`](./gpuix.md).
+
 ## Out of scope
 
-Rust rewrite, Loro, Xvfb scroll myths, private Anysphere kits, Discord OS, bumping 0.2.0.
+Rust rewrite, Loro, Xvfb scroll myths, private Anysphere kits, Discord OS,
+bumping the 0.3.0 band, publishing `@gpuix`, asking for `NPM_TOKEN` for that scope.
