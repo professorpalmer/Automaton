@@ -11,6 +11,11 @@ export type Room = {
   archived?: boolean
   createdAt: string
   updatedAt: string
+  /**
+   * Optional hop allowlist for this room (Wave 7 P1b). Missing = all members
+   * addressable. Explicit [] = nobody. Settings UI can wait; data in P1.
+   */
+  mayAddressIds?: AgentId[]
 }
 
 export type PeerProvenance = {
@@ -79,6 +84,9 @@ function normalizeRoom(row: Record<string, unknown>): Room | null {
     typeof row.createdAt === 'string' && row.createdAt.trim() ? row.createdAt.trim() : nowIso()
   const updatedAt =
     typeof row.updatedAt === 'string' && row.updatedAt.trim() ? row.updatedAt.trim() : createdAt
+  const mayAddressIds = Array.isArray(row.mayAddressIds)
+    ? uniqIds(row.mayAddressIds.filter((id): id is string => typeof id === 'string'))
+    : undefined
   return {
     id,
     name,
@@ -86,6 +94,7 @@ function normalizeRoom(row: Record<string, unknown>): Room | null {
     archived: row.archived === true ? true : undefined,
     createdAt,
     updatedAt,
+    ...(mayAddressIds !== undefined ? { mayAddressIds } : {}),
   }
 }
 

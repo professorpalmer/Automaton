@@ -135,6 +135,7 @@ import {
   failComputer,
   failJob,
   failMouth,
+  takePendingLedger,
   noteMouthNeed,
   noteJobStatus,
   patchLiveAgent,
@@ -517,15 +518,19 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       onComplete: (agentId, spoken) => {
         let routing: ChannelReplyRouting | undefined
         const emit = parseMouthEmit(spoken)
+        let hopLedger: ReturnType<typeof takePendingLedger>['events'] = []
         setSession((current) => {
           if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
           const taken = takePendingChannelReply(current, agentId)
           routing = taken.routing
           const next = completeMouth(taken.session, agentId, spoken)
-          bindNewUserAttachments(store, current, next)
-          persistIntroIfUserSpoke(next)
-          return next
+          const drained = takePendingLedger(next)
+          hopLedger = drained.events
+          bindNewUserAttachments(store, current, drained.session)
+          persistIntroIfUserSpoke(drained.session)
+          return drained.session
         })
+        for (const event of hopLedger) store.recordAction(event)
         if (emit?.kind === 'ask_person') {
           store.recordAction(
             buildActionEvent({

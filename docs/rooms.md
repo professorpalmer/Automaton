@@ -79,3 +79,11 @@ user never has to say “and?”. See `docs/peer-chase.md`.
 | Large fan-out (user path) | Confirm via `needsFanoutConfirm` / `pendingRoomPost` |
 | Peer-hop with `originUser` | Attended for Auto (person still watching) |
 | Peer-hop without `originUser` / routine | Unattended — Auto cannot swallow |
+
+## Hop grants (Wave 7 P1b)
+
+Optional `mayAddressIds` on an agent profile (and optionally a room) limits who
+that seat may hop to. Missing = all visible sisters. Explicit `[]` = nobody.
+`offerSisterHop` / `sendToAgent` speak a refuse and queue an action ledger row;
+Settings UI can wait. See `docs/wave7-p1-history-hop-grants.md`.
+
