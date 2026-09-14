@@ -31,7 +31,7 @@ import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import { clampFrostWash, patchSkin, readSkin, type Skin, type WindowMode } from './runtime/skin'
-import { EmptyState, ToggleGroup, pushToast, type ToastLevel } from './chrome'
+import { EmptyState, ListRow, ToggleGroup, pushToast, type ToastLevel } from './chrome'
 import {
   BRAND_ACCENT_SWATCHES,
   BRAND_RADIUS_PRESETS,
@@ -90,6 +90,29 @@ import {
 } from './runtime/mcp-catalog'
 import { CloudOriginPanel } from './cloud-origin-panel'
 import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud-origin'
+
+
+function SettingsAnchor({
+  id,
+  focus,
+  children,
+}: {
+  id: string
+  focus: string | null | undefined
+  children: React.ReactNode
+}) {
+  const chrome = useChrome()
+  const T = chrome.tokens
+  const on = focus === id
+  return (
+    <div
+      testId={`settings-section-${id}`}
+      style={on ? { outlineWidth: 1, outlineColor: T.accent, borderRadius: T.radius.md } : undefined}
+    >
+      {children}
+    </div>
+  )
+}
 
 export function openRouterPresence(): 'present' | 'missing' {
   return listOpenRouterKeys().length > 0 ? 'present' : 'missing'
@@ -397,59 +420,62 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
         />
       ) : (
         rows.map((row) => (
-          <div
-            key={`${row.agentId}:${row.id}`}
-            testId={`settings-routine-${row.id}`}
-            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
-          >
-            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+          <div key={`${row.agentId}:${row.id}`} style={{ ...chrome.card, padding: 0, overflow: 'hidden' }}>
+            <ListRow
+              testId={`settings-routine-${row.id}`}
+              density="compact"
+              endSlot={
+                <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                  {row.enabled ? 'on' : 'paused'}
+                  {row.trigger ? ` · ${row.trigger.type}` : ' · schedule'}
+                </div>
+              }
+              endHoverSlot={
+                <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs }}>
+                  {row.enabled ? (
+                    <Chip
+                      testId={`settings-routine-${row.id}-pause`}
+                      tone="ghost"
+                      onClick={() => {
+                        pauseRoutine(row.agentId, row.id)
+                        refresh()
+                      }}
+                    >
+                      Pause
+                    </Chip>
+                  ) : (
+                    <Chip
+                      testId={`settings-routine-${row.id}-resume`}
+                      tone="ghost"
+                      onClick={() => {
+                        resumeRoutine(row.agentId, row.id)
+                        refresh()
+                      }}
+                    >
+                      Resume
+                    </Chip>
+                  )}
+                  <Chip
+                    testId={`settings-routine-${row.id}-delete`}
+                    tone="ghost"
+                    onClick={() => {
+                      deleteRoutine(row.agentId, row.id)
+                      refresh()
+                    }}
+                  >
+                    Delete
+                  </Chip>
+                </div>
+              }
+            >
               <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
-              <div style={{ fontSize: T.type.xs, color: T.secondary }}>
-                {row.enabled ? 'on' : 'paused'}
-                {row.trigger ? ` · ${row.trigger.type}` : ' · schedule'}
+              <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                {scheduleOrTriggerSummary(row)} · last {formatLastRun(row.lastRunAt)}
               </div>
-            </div>
-            <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
-              {scheduleOrTriggerSummary(row)} · last {formatLastRun(row.lastRunAt)}
-            </div>
-            {row.lastError ? (
-              <div style={{ fontSize: T.type.xs, color: T.secondary }}>{row.lastError}</div>
-            ) : null}
-            <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
-              {row.enabled ? (
-                <Chip
-                  testId={`settings-routine-${row.id}-pause`}
-                  tone="ghost"
-                  onClick={() => {
-                    pauseRoutine(row.agentId, row.id)
-                    refresh()
-                  }}
-                >
-                  Pause
-                </Chip>
-              ) : (
-                <Chip
-                  testId={`settings-routine-${row.id}-resume`}
-                  tone="ghost"
-                  onClick={() => {
-                    resumeRoutine(row.agentId, row.id)
-                    refresh()
-                  }}
-                >
-                  Resume
-                </Chip>
-              )}
-              <Chip
-                testId={`settings-routine-${row.id}-delete`}
-                tone="ghost"
-                onClick={() => {
-                  deleteRoutine(row.agentId, row.id)
-                  refresh()
-                }}
-              >
-                Delete
-              </Chip>
-            </div>
+              {row.lastError ? (
+                <div style={{ fontSize: T.type.xs, color: T.secondary }}>{row.lastError}</div>
+              ) : null}
+            </ListRow>
           </div>
         ))
       )}
@@ -611,56 +637,59 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
           const pinned = profileSkillIds.includes(row.id)
           const disabled = row.origin === 'imported' && !row.enabled
           return (
-            <div
-              key={row.id}
-              testId={`settings-skill-${row.id}`}
-              style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
-            >
-              <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+            <div key={row.id} style={{ ...chrome.card, padding: 0, overflow: 'hidden' }}>
+              <ListRow
+                testId={`settings-skill-${row.id}`}
+                density="compact"
+                endSlot={
+                  <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                    {row.origin}
+                    {disabled ? ' · disabled' : ''}
+                    {pinned ? ' · pinned' : ''}
+                  </div>
+                }
+                endHoverSlot={
+                  <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs, flexWrap: 'wrap' }}>
+                    <Chip testId={`settings-skill-${row.id}-open`} tone="ghost" onClick={() => openSkill(row.id)}>
+                      Open
+                    </Chip>
+                    <Chip
+                      testId={`settings-skill-${row.id}-pin`}
+                      tone={pinned ? 'action' : 'ghost'}
+                      onClick={() => togglePin(row.id)}
+                    >
+                      {pinned ? 'Unpin' : 'Pin'}
+                    </Chip>
+                    {row.origin === 'imported' ? (
+                      <Chip
+                        testId={`settings-skill-${row.id}-enable`}
+                        tone="ghost"
+                        onClick={() => {
+                          setSkillEnabled(row.id, !row.enabled)
+                          refresh()
+                        }}
+                      >
+                        {row.enabled ? 'Disable' : 'Enable'}
+                      </Chip>
+                    ) : null}
+                    <Chip
+                      testId={`settings-skill-${row.id}-delete`}
+                      tone="ghost"
+                      onClick={() => remove(row.id)}
+                    >
+                      Delete
+                    </Chip>
+                  </div>
+                }
+              >
                 <div style={{ fontSize: T.type.sm, color: T.text }}>
                   {row.name}
                   <span style={{ color: T.tertiary }}> · {row.id}</span>
                 </div>
-                <div style={{ fontSize: T.type.xs, color: T.secondary }}>
-                  {row.origin}
-                  {disabled ? ' · disabled' : ''}
-                  {pinned ? ' · pinned' : ''}
+                <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
+                  {row.description.trim() || 'No use-when description'}
                 </div>
-              </div>
-              <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
-                {row.description.trim() || 'No use-when description'}
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
-                <Chip testId={`settings-skill-${row.id}-open`} tone="ghost" onClick={() => openSkill(row.id)}>
-                  Open
-                </Chip>
-                <Chip
-                  testId={`settings-skill-${row.id}-pin`}
-                  tone={pinned ? 'action' : 'ghost'}
-                  onClick={() => togglePin(row.id)}
-                >
-                  {pinned ? 'Unpin' : 'Pin'}
-                </Chip>
-                {row.origin === 'imported' ? (
-                  <Chip
-                    testId={`settings-skill-${row.id}-enable`}
-                    tone="ghost"
-                    onClick={() => {
-                      setSkillEnabled(row.id, !row.enabled)
-                      refresh()
-                    }}
-                  >
-                    {row.enabled ? 'Disable' : 'Enable'}
-                  </Chip>
-                ) : null}
-                <Chip
-                  testId={`settings-skill-${row.id}-delete`}
-                  tone="ghost"
-                  onClick={() => remove(row.id)}
-                >
-                  Delete
-                </Chip>
-              </div>
+              </ListRow>
             </div>
           )
         })
@@ -827,14 +856,44 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
           <div
             key={row.id}
             testId={`settings-room-${row.id}`}
-            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs }}
+            style={{ ...chrome.card, display: 'flex', flexDirection: 'column', gap: T.space.xs, paddingTop: T.space.xs }}
           >
-            <div style={{ display: 'flex', flexDirection: 'row', justifyContent: 'space-between', gap: T.space.md }}>
+            <ListRow
+              density="compact"
+              endSlot={
+                <div style={{ fontSize: T.type.xs, color: T.secondary }}>
+                  {row.archived ? 'archived' : `${row.memberIds.length} members`}
+                </div>
+              }
+              endHoverSlot={
+                <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.xs }}>
+                  {!row.archived ? (
+                    <Chip
+                      testId={`settings-room-${row.id}-archive`}
+                      tone="ghost"
+                      onClick={() => {
+                        archiveRoom(row.id)
+                        refresh()
+                      }}
+                    >
+                      Archive
+                    </Chip>
+                  ) : null}
+                  <Chip
+                    testId={`settings-room-${row.id}-delete`}
+                    tone="ghost"
+                    onClick={() => {
+                      deleteRoom(row.id)
+                      refresh()
+                    }}
+                  >
+                    Delete
+                  </Chip>
+                </div>
+              }
+            >
               <div style={{ fontSize: T.type.sm, color: T.text }}>{row.name}</div>
-              <div style={{ fontSize: T.type.xs, color: T.secondary }}>
-                {row.archived ? 'archived' : `${row.memberIds.length} members`}
-              </div>
-            </div>
+            </ListRow>
             <div style={{ fontSize: T.type.xs, color: T.tertiary }}>
               {row.memberIds
                 .map((id) => seats.find((agent) => agent.id === id)?.name ?? id)
@@ -857,30 +916,6 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
                 })}
               </div>
             ) : null}
-            <div style={{ display: 'flex', flexDirection: 'row', gap: T.space.sm, flexWrap: 'wrap' }}>
-              {!row.archived ? (
-                <Chip
-                  testId={`settings-room-${row.id}-archive`}
-                  tone="ghost"
-                  onClick={() => {
-                    archiveRoom(row.id)
-                    refresh()
-                  }}
-                >
-                  Archive
-                </Chip>
-              ) : null}
-              <Chip
-                testId={`settings-room-${row.id}-delete`}
-                tone="ghost"
-                onClick={() => {
-                  deleteRoom(row.id)
-                  refresh()
-                }}
-              >
-                Delete
-              </Chip>
-            </div>
           </div>
         ))
       )}
@@ -1120,6 +1155,7 @@ function AboutCard() {
 export function Settings({
   metrics,
   agents = [],
+  focusSection = null,
   onClose,
   onToast,
   onPlaneChange,
@@ -1128,6 +1164,8 @@ export function Settings({
 }: {
   metrics: LedgerMetrics
   agents?: Agent[]
+  /** Palette jump — highlight a settings section id. */
+  focusSection?: string | null
   onClose: () => void
   onToast?: (level: ToastLevel, message: string) => void
   onPlaneChange?: () => void
@@ -1295,7 +1333,10 @@ export function Settings({
           </div>
           <PaneHeader title="" onClose={onClose} closeId="settings-close" />
         </div>
-        <WindowCard onSkinChange={onSkinChange} />
+        <SettingsAnchor id="appearance" focus={focusSection}>
+          <WindowCard onSkinChange={onSkinChange} />
+        </SettingsAnchor>
+        <SettingsAnchor id="keys" focus={focusSection}>
         <div testId="settings-keys" style={{ ...chrome.card }}>
           <div
             style={{
@@ -1327,6 +1368,7 @@ export function Settings({
             </div>
           </div>
         </div>
+        </SettingsAnchor>
         {others.length > 0 ? (
           <Chip testId="settings-seats-more" tone="ghost" onClick={() => setMoreOpen((open) => !open)}>
             {moreOpen ? 'Hide other automata' : `Other automata · ${others.length}`}
@@ -1334,11 +1376,14 @@ export function Settings({
         ) : null}
         {chief ? renderSeat(chief, 0) : null}
         {moreOpen ? others.map((agent, index) => renderSeat(agent, index + 1)) : null}
+        <SettingsAnchor id="usage" focus={focusSection}>
         <Section title="Usage">
           <div style={chrome.card}>
             <LedgerList metrics={metrics} testId="settings-usage" />
           </div>
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="mouth" focus={focusSection}>
         <Section title="Mouth context">
           <div testId="settings-compact" style={chrome.card}>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
@@ -1355,6 +1400,8 @@ export function Settings({
             </Chip>
           </div>
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="connectors" focus={focusSection}>
         <Section title="Connectors">
           <div testId="settings-connectors" style={chrome.card}>
             <div
@@ -1377,6 +1424,8 @@ export function Settings({
             </div>
           </div>
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="providers" focus={focusSection}>
         <Section title="Providers">
           <div testId="settings-providers" style={chrome.card}>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
@@ -1409,9 +1458,13 @@ export function Settings({
             ))}
           </div>
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="mcp" focus={focusSection}>
         <Section title="MCP catalog">
           <McpCatalogCard />
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="channels" focus={focusSection}>
         <Section title="Channels">
           <div testId="settings-channels" style={chrome.card}>
             <div
@@ -1465,21 +1518,31 @@ export function Settings({
             </div>
           </div>
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="rooms" focus={focusSection}>
         <Section title="Rooms">
           <RoomsCard agents={seats} />
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="routines" focus={focusSection}>
         <Section title="Routines">
           <RoutinesCard agents={seats} />
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="skills" focus={focusSection}>
         <Section title="Skills">
           <SkillsCard agents={seats} />
         </Section>
+        </SettingsAnchor>
+        <SettingsAnchor id="computer" focus={focusSection}>
         <Section title="Computer">
           <div testId="settings-computer" style={{ ...chrome.card, fontSize: T.type.sm, color: T.text }}>
             {computerLabel(boxStatus())}
           </div>
         </Section>
+        </SettingsAnchor>
 
+        <SettingsAnchor id="cloud" focus={focusSection}>
         <Section title="Cloud / Origin">
           <CloudOriginPanel
             mode="settings"
@@ -1515,10 +1578,13 @@ export function Settings({
             }
           />
         </Section>
+        </SettingsAnchor>
 
+        <SettingsAnchor id="about" focus={focusSection}>
         <Section title="About">
           <AboutCard />
         </Section>
+        </SettingsAnchor>
       </div>
     </div>
   )

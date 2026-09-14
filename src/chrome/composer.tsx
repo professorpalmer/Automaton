@@ -71,8 +71,9 @@ export function Composer({
   const picks = hash ? filterMentions(catalog, hash.query) : []
   const pickerOpen = picks.length > 0
   const ready = (value.trim().length > 0 || pendingPaths.length > 0) && !locked
-  const steer =
-    queued > 0 ? `${queued} queued` : queueing ? 'Send queues until this turn ends' : null
+  // Wave 6 P1: visible SteerQueueCard owns queue chrome; props kept for callers.
+  void queueing
+  void queued
   const pick = (index: number) => {
     const item = picks[index]
     if (!item) return
@@ -325,20 +326,6 @@ export function Composer({
             </div>
           </div>
         </div>
-        {steer ? (
-          <div
-            testId="steer-hint"
-            style={{
-              paddingLeft: T.space.md,
-              paddingRight: T.space.md,
-              paddingTop: T.space.sm,
-              fontSize: T.type.xs,
-              color: T.ghost,
-            }}
-          >
-            {steer}
-          </div>
-        ) : null}
       </div>
     </div>
   )

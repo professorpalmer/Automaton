@@ -11,6 +11,7 @@ const KEY_W = 13
 const KEY_B = 11
 const KEY_L = 37
 const KEY_J = 38
+const KEY_K = 40
 const KEY_COMMA = 43
 const KEY_LCMD = 55
 const KEY_RCMD = 54
@@ -183,6 +184,10 @@ export type JobsHotkeySeams = HidHotkeySeams & {
   cmdJ?: () => boolean
 }
 
+export type PaletteHotkeySeams = HidHotkeySeams & {
+  cmdK?: () => boolean
+}
+
 export function cmdLDown(read = loadHid()): boolean {
   return cmdLetterDown(KEY_L, read)
 }
@@ -197,6 +202,10 @@ export function cmdCommaDown(read = loadHid()): boolean {
 
 export function cmdJDown(read = loadHid()): boolean {
   return cmdLetterDown(KEY_J, read)
+}
+
+export function cmdKDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_K, read)
 }
 
 /** Cmd+L — focus composer (textarea may swallow React key). */
@@ -217,4 +226,9 @@ export function watchSettingsHotkey(onSettings: () => void, seams?: SettingsHotk
 /** Cmd+J — open / close Jobs. */
 export function watchJobsHotkey(onJobs: () => void, seams?: JobsHotkeySeams): () => void {
   return watchChord(seams?.cmdJ ?? cmdJDown, onJobs, seams)
+}
+
+/** Cmd+K — open / close command palette. */
+export function watchPaletteHotkey(onPalette: () => void, seams?: PaletteHotkeySeams): () => void {
+  return watchChord(seams?.cmdK ?? cmdKDown, onPalette, seams)
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { cmdADown, cmdBDown, cmdCDown, cmdJDown, cmdLDown, cmdCommaDown, cmdQuitDown, cmdXDown, watchCopyHotkey, watchFocusComposerHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from '../src/runtime/paste-hotkey'
+import { cmdADown, cmdBDown, cmdCDown, cmdJDown, cmdKDown, cmdLDown, cmdCommaDown, cmdQuitDown, cmdXDown, watchCopyHotkey, watchFocusComposerHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from '../src/runtime/paste-hotkey'
 
 describe('paste hotkey', () => {
   test('fires once on cmd-v edge while frontmost', () => {
@@ -153,7 +153,7 @@ describe('paste hotkey', () => {
 })
 
 describe('focus chords (wave 6 p0)', () => {
-  test('cmdL / cmdB / cmdComma / cmdJ without shift', () => {
+  test('cmdL / cmdB / cmdComma / cmdJ / cmdK without shift', () => {
     const keys = new Set<number>()
     const read = (_state: number, key: number) => keys.has(key)
     keys.add(55)
@@ -171,6 +171,9 @@ describe('focus chords (wave 6 p0)', () => {
     keys.delete(43)
     keys.add(38)
     expect(cmdJDown(read)).toBe(true)
+    keys.delete(38)
+    keys.add(40)
+    expect(cmdKDown(read)).toBe(true)
   })
 
   test('watchFocusComposerHotkey fires once on edge', () => {

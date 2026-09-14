@@ -321,6 +321,41 @@ export function drainSteer(session: Session, agentId: AgentId): Session {
   return next
 }
 
+/** Drop one parked steer line by index. No-op when out of range. */
+export function removeSteerAt(session: Session, agentId: AgentId, index: number): Session {
+  const row = session.threads[agentId]
+  if (!row) return session
+  const queued = [...(row.steerQueue ?? [])]
+  if (index < 0 || index >= queued.length) return session
+  queued.splice(index, 1)
+  return setThread(session, agentId, { steerQueue: queued })
+}
+
+/**
+ * Send-now / steer one queued line.
+ * Idle mouth → send that line alone (leave the rest parked).
+ * Busy / queueing mouth → promote the line to the front of the queue.
+ */
+export function sendSteerNow(session: Session, agentId: AgentId, index: number): Session {
+  const row = session.threads[agentId]
+  if (!row) return session
+  const queued = [...(row.steerQueue ?? [])]
+  if (index < 0 || index >= queued.length) return session
+  const [line] = queued.splice(index, 1)
+  if (!line) return session
+  const busy =
+    shouldQueueSteer(row.mouth, row.computerBusy === true) || row.mouth !== 'idle'
+  if (busy) {
+    return setThread(session, agentId, { steerQueue: [line, ...queued] })
+  }
+  let next = setThread(session, agentId, { steerQueue: queued })
+  const focused = next.activeAgentId
+  if (focused !== agentId) next = { ...next, activeAgentId: agentId }
+  next = send(next, line.text, line.attachmentIds ?? [])
+  if (focused !== agentId && next.threads[focused]) next = { ...next, activeAgentId: focused }
+  return next
+}
+
 function dropJobSteer(session: Session, agentId: AgentId): Session {
   if (!session.threads[agentId]) return session
   return setThread(session, agentId, { jobSteerQueue: [] })

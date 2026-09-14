@@ -3,6 +3,7 @@ import { MARK_PATH, PRODUCT } from '../brand'
 import { runningTests } from '../runtime/test-env'
 import { useTokens } from '../theme'
 import { controlClusterStyle, titlebarHitStyle, titlebarLeadStyle, titlebarRowStyle } from './layout'
+import { Tip } from './tooltip'
 
 const inspectArmed = { current: false }
 
@@ -109,45 +110,49 @@ export function Titlebar({
       </div>
       <div style={{ flexGrow: 1 }} />
       <div style={controlClusterStyle(T)}>
-        <div
-          testId="titlebar-computer"
-          style={titlebarHitStyle(T)}
-          onMouseDown={
-            runningTests()
-              ? undefined
-              : (event) => {
-                  if (event.isRightClick || event.button === 2) return
-                  inspectArmed.current = true
-                  inspect()
-                }
-          }
-          onClick={(event) => {
-            if (event.isRightClick || event.button === 2) return
-            if (inspectArmed.current) {
-              inspectArmed.current = false
-              return
+        <Tip testId="titlebar-computer-tip" label="Inspector — computer & kit" side="bottom">
+          <div
+            testId="titlebar-computer"
+            style={titlebarHitStyle(T)}
+            onMouseDown={
+              runningTests()
+                ? undefined
+                : (event) => {
+                    if (event.isRightClick || event.button === 2) return
+                    inspectArmed.current = true
+                    inspect()
+                  }
             }
-            inspect()
-          }}
-        >
-          <DeskMark />
-        </div>
-        <div
-          testId="titlebar-jobs"
-          style={{
-            ...titlebarHitStyle(T),
-            paddingLeft: T.space.sm,
-            paddingRight: T.space.sm,
-            fontSize: T.type.xs,
-            color: T.secondary,
-          }}
-          onClick={(event) => {
-            if (event.isRightClick || event.button === 2) return
-            onJobs()
-          }}
-        >
-          Jobs
-        </div>
+            onClick={(event) => {
+              if (event.isRightClick || event.button === 2) return
+              if (inspectArmed.current) {
+                inspectArmed.current = false
+                return
+              }
+              inspect()
+            }}
+          >
+            <DeskMark />
+          </div>
+        </Tip>
+        <Tip testId="titlebar-jobs-tip" label="Jobs board (Cmd+J)" side="bottom">
+          <div
+            testId="titlebar-jobs"
+            style={{
+              ...titlebarHitStyle(T),
+              paddingLeft: T.space.sm,
+              paddingRight: T.space.sm,
+              fontSize: T.type.xs,
+              color: T.secondary,
+            }}
+            onClick={(event) => {
+              if (event.isRightClick || event.button === 2) return
+              onJobs()
+            }}
+          >
+            Jobs
+          </div>
+        </Tip>
       </div>
     </div>
   )

@@ -63,3 +63,16 @@ export {
   type SurfaceRole,
 } from './surface'
 export { Titlebar } from './titlebar'
+
+export { CommandPalette } from './command-palette'
+export {
+  buildPaletteItems,
+  filterPaletteItems,
+  groupPaletteItems,
+  SETTINGS_PALETTE,
+  type PaletteItem,
+  type PaletteSection,
+} from './palette'
+export { SteerQueueCard } from './steer-queue'
+export { ListRow, type ListRowDensity } from './list-row'
+export { Tip } from './tooltip'
