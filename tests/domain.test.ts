@@ -4,6 +4,7 @@ import {
   composerEnterBusy,
   shouldQueueSteer,
   createAgentNames,
+  parseNamedRepoHomes,
   DEFAULT_AGENTS,
   dispatchTargets,
   emptyThreads,
@@ -39,6 +40,7 @@ import {
   remainingAsk,
   splitAskSteps,
   parseLocalHomes,
+  parseNamedRepoHomes,
   parseBoxShellIntent,
   jobKindLabel,
   createPendingSendView,
@@ -501,6 +503,12 @@ describe('mouth vs job', () => {
       ),
     ).toEqual(['Dugout'])
     expect(createAgentNames('make a new automaton and name it Scout')).toEqual(['Scout'])
+    expect(
+      createAgentNames('Spin up an automaton and assign it the repo of DiscordOS please'),
+    ).toEqual(['DiscordOS'])
+    expect(parseNamedRepoHomes('assign it the repo of DiscordOS')).toEqual([
+      { slug: 'DiscordOS', url: '' },
+    ])
   })
 
   test('local repo mentions bind a machine checkout home onto the named bot', () => {

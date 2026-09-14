@@ -75,7 +75,7 @@ required checks stay `waiting_external` on the same running job. Generic
 worker, test, or merge failures stay failed. Staff assesses a sister only
 after every criterion is met. Concurrent GoalRuns persist on the session
 snapshot. The blocker panel is Staff chrome, not a chat message.
-While a job flies, the Jobs pane may show `Still running.` A status ask
+While a job flies, keepalive stays on the job handle / Jobs pane (`Still running.`) — not as feed bubbles. A status ask
 restates that line and does not start a new mouth turn. Jobs do not
 pixel-click the shared computer. Take control is the operator on that
 X display.

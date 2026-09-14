@@ -1159,12 +1159,15 @@ export function createAgentNames(text: string): string[] {
     /\b(?:an?\s+)?(?:new\s+)?(?:automaton|bot|agent|mouth)\s+at\s+(?:the\s+)?([A-Za-z][A-Za-z0-9_-]*)/gi,
     /\b(?:name|call)\s+(?:the\s+|this\s+)?(?:new\s+)?(?:automaton|bot|agent|mouth)\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
     /\b(?:name|call)\s+(?:it|him|her)\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\b(?:assign|give)\s+(?:it\s+)?(?:the\s+)?repo\s+of\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\brepo\s+of\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
   ]
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) take(match[1])
   }
   if (names.length === 0) {
     for (const home of parseGithubHomes(text)) take(home.slug.split('/')[1])
+    for (const home of parseNamedRepoHomes(text)) take(home.slug.split('/')[1] ?? home.slug)
   }
   return names
 }
@@ -1235,6 +1238,28 @@ export function parseGithubHomes(text: string): RepoHome[] {
     for (const match of text.matchAll(pattern)) {
       take(match[1], match[2])
     }
+  }
+  return found
+}
+
+/** "repo of DiscordOS" / "assign it the DiscordOS repo" — bare product slug, no clone URL yet. */
+export function parseNamedRepoHomes(text: string): RepoHome[] {
+  const found: RepoHome[] = []
+  const take = (raw: string | undefined) => {
+    if (!raw) return
+    const slug = raw.replace(/\s+/g, '')
+    if (!slug || NAME_STOP.has(slug.toLowerCase())) return
+    if (!found.some((row) => row.slug.toLowerCase() === slug.toLowerCase())) {
+      found.push({ slug, url: '' })
+    }
+  }
+  const patterns = [
+    /\b(?:assign|give)\s+(?:it\s+)?(?:the\s+)?repo\s+of\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\brepo\s+of\s+([A-Za-z][A-Za-z0-9_-]*)/gi,
+    /\b(?:assign|give)\s+(?:it\s+)?(?:the\s+)?([A-Za-z][A-Za-z0-9_-]*)\s+repo\b/gi,
+  ]
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) take(match[1])
   }
   return found
 }
@@ -1353,7 +1378,7 @@ export function issueWorkTargets(text: string, agents: Agent[], focused?: AgentI
 }
 
 export function bindHomes(text: string, agents: Agent[]): HomeBind[] {
-  const homes = [...parseGithubHomes(text), ...parseLocalHomes(text)]
+  const homes = [...parseGithubHomes(text), ...parseLocalHomes(text), ...parseNamedRepoHomes(text)]
   if (homes.length === 0) return []
   const roster = agents.filter((agent) => !agent.hidden)
   const used = new Set<AgentId>()
