@@ -1,4 +1,5 @@
 export { ActivityZone } from './activity-zone'
+export { MouthWaitBubble } from './mouth-wait'
 export {
   activityExpanded,
   activityPaintKey,
