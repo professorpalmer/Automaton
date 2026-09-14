@@ -6,7 +6,7 @@ import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
 import { MOTION, type MotionName } from './motion'
-import { markSpringHoldBusy, noteMarkSpringKick, springClockBusy } from './resting-motion'
+import { springClockBusy } from './resting-motion'
 import { runningTests } from './runtime/test-env'
 import { useTokens } from './theme'
 import { T } from './tokens'
@@ -62,12 +62,11 @@ const SLIT_SHAPES = new Set(['hex', 'crystal', 'tablet', 'gem', 'cylinder'])
 
 const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, body: 0 }
 
-/** Slower than stock GELATIN — Wave 3.2 feel-check wanted less snap. */
 const BODY_SPRING = {
   type: 'spring' as const,
-  stiffness: GELATIN.stiffness * 0.64,
-  damping: GELATIN.damping + 1,
-  mass: GELATIN.mass + 0.25,
+  stiffness: GELATIN.stiffness,
+  damping: GELATIN.damping,
+  mass: GELATIN.mass,
 }
 const EYE_SPRING = { type: 'spring' as const, stiffness: 13, damping: 14, mass: 1 }
 
@@ -125,7 +124,7 @@ export function blobNeedsClock(alive: boolean): boolean {
 
 /** Hold look/pose beats while a spring is still painting. Do not stack retargets. */
 export function blobClockShouldHold(springBusy: boolean): boolean {
-  return springBusy || markSpringHoldBusy()
+  return springBusy
 }
 
 function hold(weight: keyof BlobWeights): BlobWeights {
@@ -134,11 +133,6 @@ function hold(weight: keyof BlobWeights): BlobWeights {
 
 function px(n: number): number {
   return Math.round(n)
-}
-
-/** Melt targets only — keep eye/glyph chrome on integer px. */
-function pxSoft(n: number): number {
-  return Number(n.toFixed(1))
 }
 
 export function presentBlob(view: BlobView): BlobMotion {
@@ -229,9 +223,8 @@ export function workPose(id: string, look: number): BlobPose {
 /** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
 const POSE_EXTENT: Record<BlobMelt, readonly [number, number]> = {
   rest: [T.blob.size, T.blob.size],
-  // Soft melts stay ±1px — ±2px (40×36) read as a size pop on glance beats.
-  'soft-wide': [39, 37],
-  'soft-tall': [37, 39],
+  'soft-wide': [40, 36],
+  'soft-tall': [36, 40],
   wide: [42, 34],
   tall: [34, 42],
 }
@@ -243,11 +236,11 @@ export function poseLayout(
 ): { left: number; top: number; width: number; height: number } {
   const rest = T.blob.size
   const [nw, nh] = POSE_EXTENT[pose]
-  const width = pxSoft(hostW * (nw / rest))
-  const height = pxSoft(hostH * (nh / rest))
+  const width = px(hostW * (nw / rest))
+  const height = px(hostH * (nh / rest))
   return {
-    left: pxSoft((hostW - width) / 2),
-    top: pxSoft((hostH - height) / 2),
+    left: px((hostW - width) / 2),
+    top: px((hostH - height) / 2),
     width,
     height,
   }
@@ -303,13 +296,6 @@ function SpringBox({
   testId?: string
   children?: React.ReactNode
 }) {
-  // Always call hooks. Native springs do not arm the JS lease clock — kick a
-  // look/pose hold so wander does not retarget mid-melt (leftover Wave 3.2 chop).
-  React.useEffect(() => {
-    if (immediate) return
-    noteMarkSpringKick()
-  }, [immediate, animate.left, animate.top, animate.width, animate.height, animate.opacity])
-
   if (immediate) {
     return (
       <div testId={testId} style={{ ...style, ...animate }}>
@@ -317,7 +303,6 @@ function SpringBox({
       </div>
     )
   }
-
   return (
     <motion.div testId={testId} initial={false} animate={animate} transition={transition} style={style}>
       {children}
