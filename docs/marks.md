@@ -1,7 +1,7 @@
 # Living marks (Wave 3.2)
 
 Rail marks are Automaton art (`SisterBlob` + baked `src/marks/` frames), not
-Grok/Hermes assets. Package is **0.8.0** (this pass does not cut v0.8.0).
+Grok/Hermes assets. Package is **0.8.0** (Wave 3 living-mark gel checkpoint).
 
 ## What improved
 
