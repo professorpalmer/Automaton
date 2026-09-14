@@ -26,7 +26,7 @@ export const INTRO_MOUTH_MODEL = 'openai/gpt-4o-mini'
 export const MOUTH_MAX_TOKENS = 2048
 
 export const COMPACT_FAIL_NEED =
-  'Need: mouth compact failed — kept prior working set. Jobs strip unchanged.'
+  'Need: mouth compact failed — kept prior working set. Jobs pane unchanged.'
 
 export type MouthHooks = {
   onComplete: (agentId: AgentId, spoken: string) => void

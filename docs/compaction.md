@@ -2,7 +2,7 @@
 
 Package **0.7.0**. Mouth and Goal threads keep a **compact summary + recent
 turns** in the model window — not an unbounded full transcript. Jobs /
-Puppetmaster artifacts and status stay on the Jobs strip; compaction never
+Puppetmaster artifacts and status stay in the Jobs pane (titlebar Jobs); compaction never
 touches them.
 
 Code: `src/runtime/compact.ts`, `src/runtime/working-set.ts`,
@@ -54,14 +54,14 @@ streamed token. Idle GPUI parks (`docs/idle-cpu.md`) are untouched.
 
 If the compact pass errors, Automaton **keeps the prior working set**, records
 a fail cooldown, and speaks a soft Need (`Need: mouth compact failed — kept
-prior working set. Jobs strip unchanged.`). The mouth turn still proceeds with
+prior working set. Jobs pane unchanged.`). The mouth turn still proceeds with
 the uncompacted set when possible.
 
 ## Compact now
 
 Settings → **Mouth context** → **Compact now** forces a compact pass for the
 focused automaton (`compactMouthNow`). Success persists `thread.compactSummary`
-and speaks a short ack. Jobs strip unchanged. Missing key → Need an OpenRouter
+and speaks a short ack. Jobs pane unchanged. Missing key → Need an OpenRouter
 key.
 
 ## Related

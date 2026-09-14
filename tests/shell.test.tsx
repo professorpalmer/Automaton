@@ -1114,7 +1114,7 @@ native('staff shell (GPUI native)', () => {
     expect(title?.text ?? title?.children?.[0]?.text).toBe('Kernel')
   })
 
-  test('running jobs show composer Stop and jobs-strip index', () => {
+  test('running jobs show composer Stop without jobs-strip above composer', () => {
     mkdirSync('artifacts/shots', { recursive: true })
     const store = testStore()
     const threads = emptyThreads(DEFAULT_AGENTS)
@@ -1150,7 +1150,7 @@ native('staff shell (GPUI native)', () => {
     renderer.captureScreenshot(shot)
     const tree = asTree(JSON.parse(renderer.getAutomationTree()))
     expect(findTestId(tree, 'job-strip')).toBeFalsy()
-    expect(findTestId(tree, 'jobs-strip')).toBeTruthy()
+    expect(findTestId(tree, 'jobs-strip')).toBeFalsy()
     expect(findTestId(tree, 'composer-stop')).toBeTruthy()
     expect(findTestId(tree, 'dock')).toBeTruthy()
     const painted = renderer.getPaintedText().join(' ')

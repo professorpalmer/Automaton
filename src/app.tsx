@@ -85,7 +85,7 @@ import {
   selectAllChord,
 } from './inspector'
 import { DeskStage } from './desk'
-import { JobsPane, JobsStrip } from './jobs-pane'
+import { JobsPane } from './jobs-pane'
 import { ensureBox } from './runtime/box'
 import { browse, ensureBrowser, focusHostChrome, hostDeskSeams, readHostHandle } from './runtime/chrome'
 import { ensureLocalDashboard, isDashboardJobId, openDashboardUrl } from './runtime/pm-dashboard'
@@ -343,14 +343,6 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     setJobsNote('')
   }
 
-  const selectJobsIndex = (job: JobHandle) => {
-    const token = job.pmJobId?.trim() ?? ''
-    if (token && isDashboardJobId(token)) {
-      popOutDashboard(token)
-      return
-    }
-    setPane('jobs')
-  }
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => {
@@ -1055,12 +1047,6 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                   }}
                 />
               ) : null}
-              <JobsStrip
-                jobs={jobs}
-                agents={session.agents}
-                onOpenPane={toggleJobs}
-                onSelect={selectJobsIndex}
-              />
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
                 agents={session.agents}
@@ -1173,7 +1159,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                         noteMouthNeed(
                           current,
                           agentId,
-                          'Compacted mouth context (summary + recent turns). Jobs strip unchanged.',
+                          'Compacted mouth context (summary + recent turns). Jobs pane unchanged.',
                         ),
                       )
                     }
