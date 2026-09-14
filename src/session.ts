@@ -51,6 +51,7 @@ import {
   normalizeWidget,
   parseDeskUrl,
   parseGithubIssue,
+  askPersonWidget,
   parseMouthEmit,
   formatSisterMandate,
   handedHopsSinceLastUser,
@@ -643,6 +644,7 @@ export function paintSend(
   const active = session.activeAgentId
   if (!active || !session.threads[active]) return session
   if (!text && attachmentIds.length === 0) return session
+  session = clearStoppedReason(session, active)
   const row = thread(session, active)
   if (shouldQueueSteer(row.mouth, row.computerBusy === true)) {
     return enqueueSteer(session, text, attachmentIds)
@@ -706,7 +708,9 @@ export function paintSend(
 
 /** Tests and non-Enter callers still book jobs in the same call. */
 export function send(session: Session, raw: string, attachmentIds: string[] = []): Session {
-  return finishSend(paintSend(session, raw, attachmentIds))
+  const focused = session.activeAgentId
+  const cleared = clearStoppedReason(session, focused)
+  return finishSend(paintSend(cleared, raw, attachmentIds))
 }
 
 function paintDirect(
@@ -857,8 +861,11 @@ function appendRelay(
   peerId: AgentId,
   text: string,
   focused: AgentId,
-  extra?: { task?: string; expecting?: string; failed?: boolean },
+  extra?: { task?: string; constraints?: string; expecting?: string; failed?: boolean },
 ): Session {
+  const task = extra?.task?.trim() || (lane === 'sent' ? text.trim() : '') || undefined
+  const constraints = extra?.constraints?.trim() || undefined
+  const expecting = extra?.expecting?.trim() || undefined
   return append(
     session,
     threadId,
@@ -868,8 +875,9 @@ function appendRelay(
       lane,
       peerId,
       text,
-      ...(lane === 'from' && extra?.task ? { task: extra.task } : {}),
-      ...(lane === 'from' && extra?.expecting ? { expecting: extra.expecting } : {}),
+      ...(task ? { task } : {}),
+      ...(constraints ? { constraints } : {}),
+      ...(expecting ? { expecting } : {}),
       ...(lane === 'from' && extra?.failed ? { failed: true } : {}),
     },
     focused,
@@ -1294,6 +1302,11 @@ export function offerSisterHop(session: Session, hop: SisterHop): Session {
   const marker = { to: hop.to, depth: hop.depth }
   const mandate = formatSisterMandate(hop)
   let next = speak(session, hop.from, `Handed to ${name}.`, focused, undefined, marker)
+  next = appendRelay(next, hop.from, 'sent', hop.to, hop.task, focused, {
+    task: hop.task,
+    constraints: hop.constraints,
+    expecting: hop.expecting,
+  })
   next = addPendingHop(next, hop.from, {
     to: hop.to,
     task: hop.task,
@@ -1331,6 +1344,10 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
       fallback = wakeMouth(fallback, agentId, 'idle')
       return finishBatch(fallback, agentId)
     }
+    return finishBatch(next, agentId)
+  }
+  if (emit?.kind === 'ask_person') {
+    let next = emitAskPerson(session, agentId, emit.question, emit.why)
     return finishBatch(next, agentId)
   }
   if (emit?.kind === 'hop') {
@@ -1410,6 +1427,7 @@ function coordinatorReturn(
   const text = isFail ? hopFailureLine(name, envelope?.task) : cleaned
   let next = appendRelay(session, from, 'from', ownerId, text, focused, {
     task: envelope?.task,
+    constraints: envelope?.constraints,
     expecting: envelope?.expecting,
     failed: isFail,
   })
@@ -1441,23 +1459,27 @@ export function stopRun(session: Session, agentId: AgentId): Session {
 export function failMouth(session: Session, agentId: AgentId, spoken: string): Session {
   const row = thread(session, agentId)
   const last = row.items.at(-1)
+  const reason = sanitizeSpeak(spoken).trim()
   if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
     const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
     let next = wakeMouth(session, agentId, 'idle')
     next = speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
+    next = setStoppedReason(next, agentId, reason)
     return finishBatch(next, agentId)
   }
   const from = inboundCoordinatorId(session, agentId)
   if (from && row.mouth !== 'idle') {
     const focused = session.activeAgentId
-    const line = sanitizeSpeak(spoken).trim()
+    const line = reason
     let next = session
     if (line) next = speak(next, agentId, line, focused)
     next = wakeMouth(next, agentId, 'idle')
     next = coordinatorReturn(next, from, agentId, line, focused, true)
+    next = setStoppedReason(next, agentId, reason)
     return finishBatch(next, agentId)
   }
-  return completeMouth(session, agentId, spoken)
+  let next = completeMouth(session, agentId, spoken)
+  return setStoppedReason(next, agentId, reason)
 }
 
 /** Persist mouth compact summary. Does not touch Jobs / PM artifacts. */
@@ -1923,6 +1945,57 @@ function dismissMoveOnWidgets(session: Session, agentId: AgentId): Session {
     return item
   })
   return setThread(session, agentId, { items })
+}
+
+/** First-class judgement exit — parks ask widget + mouth-stream ToolLine arc. */
+export function emitAskPerson(
+  session: Session,
+  agentId: AgentId,
+  question: string,
+  why?: string,
+): Session {
+  if (!session.threads[agentId]) return session
+  const focused = session.activeAgentId
+  const q = question.trim()
+  if (!q) {
+    let next = speak(session, agentId, 'Need a question for you.', focused)
+    next = wakeMouth(next, agentId, 'idle')
+    return next
+  }
+  let next = appendMouthStream(session, agentId, {
+    phase: 'decide',
+    tool: 'ask_person',
+    intent: 'ask',
+    detail: 'person',
+  })
+  next = appendMouthStream(next, agentId, {
+    phase: 'act',
+    tool: 'ask_person',
+    intent: 'ask',
+    detail: 'person',
+  })
+  next = appendMouthStream(next, agentId, {
+    phase: 'done',
+    tool: 'ask_person',
+    intent: 'ask',
+    detail: 'person',
+  })
+  next = speak(next, agentId, 'Put to you.', focused)
+  next = emitWidgetItem(next, agentId, askPersonWidget(q, why), { purpose: 'ask' })
+  return next
+}
+
+export function setStoppedReason(session: Session, agentId: AgentId, reason: string): Session {
+  if (!session.threads[agentId]) return session
+  const text = reason.trim()
+  if (!text) return setThread(session, agentId, { stoppedReason: undefined })
+  return setThread(session, agentId, { stoppedReason: text })
+}
+
+export function clearStoppedReason(session: Session, agentId: AgentId): Session {
+  if (!session.threads[agentId]) return session
+  if (!thread(session, agentId).stoppedReason) return session
+  return setThread(session, agentId, { stoppedReason: undefined })
 }
 
 function emitWidgetItem(

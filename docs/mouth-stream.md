@@ -25,8 +25,10 @@ row lands only on the automaton that ran the tool.
 `detail` or any stream row. Same honesty as the action ledger and
 `docs/secrets.md`.
 
-Paint is a quiet tertiary line in the feed (`decide · box_shell · shell`),
-danger-tinted on `refuse`. No new motion libraries.
+Paint is a ToolLine-class card (Wave 7 P0): one-line label + detail,
+running pulse, refuse/fail tones, expandable phase disclosure. Consecutive
+phases for the same tool+intent collapse at paint. No new motion libraries
+(reuse pulse lease). See [Wave 7 P0](wave7-p0-openbot-parity.md).
 
 ## Action ledger initiator
 

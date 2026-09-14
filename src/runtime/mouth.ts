@@ -12,6 +12,12 @@ import type { StaffStore, TurnReceipt } from './store'
 import { runningTests } from './test-env'
 import { markCompactFail, runCompact, withCacheBreakpoint } from './compact'
 import {
+  isMouthStallError,
+  MOUTH_STALL_SPEAK,
+  mouthStallMs,
+  readResponseTextWithStall,
+} from './mouth-stall'
+import {
   buildWorkingSet,
   formatRecallSpoken,
   honestRecallMiss,
@@ -81,6 +87,7 @@ function isRateLimited(error: unknown): boolean {
 }
 
 export function mouthFailSpeak(error: unknown, authRejected = false): string {
+  if (isMouthStallError(error)) return MOUTH_STALL_SPEAK
   if (isRateLimited(error)) return 'OpenRouter rate limited. Try again.'
   if (error instanceof Error && error.message === 'empty mouth') return 'The model returned no text.'
   const status = openRouterStatus(error)
@@ -458,6 +465,10 @@ async function speakIntro(
 
 export type ChatOpenRouterSeams = Pick<ConnectorFetchSeams, 'fetch' | 'home'> & {
   map?: ProviderMapContext
+  /** Silence watchdog; 0 disables. Default from AUTOMATON_MOUTH_STALL_MS / 45s. */
+  stallMs?: number
+  now?: () => number
+  stallTick?: () => Promise<void>
 }
 
 export async function chatOpenRouter(
@@ -487,7 +498,18 @@ export async function chatOpenRouter(
   if (!response.ok) {
     throw new Error(`openrouter ${response.status}`)
   }
-  const parsed: unknown = await response.json()
+  const stallMs = seams?.stallMs ?? mouthStallMs()
+  const raw = await readResponseTextWithStall(response, {
+    stallMs,
+    now: seams?.now,
+    tick: seams?.stallTick,
+  })
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw) as unknown
+  } catch {
+    throw new Error('empty mouth')
+  }
   const text =
     parsed && typeof parsed === 'object' && 'choices' in parsed
       ? ((parsed as { choices?: { message?: { content?: string } }[] }).choices?.[0]?.message
