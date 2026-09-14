@@ -239,6 +239,8 @@ export type ComputerToolSeams = {
   emitMouthStream?: (step: MouthStreamStep) => void
   /** Fallback initiator when context omits it. */
   initiatorKind?: InitiatorKind
+  /** Optional size probe for write/copy Activity (path → bytes; never contents). */
+  statBytes?: (path: string) => number | null
 }
 
 export type ComputerToolContext = {
@@ -315,6 +317,17 @@ function actionSecretChars(call: ComputerToolCall): number | undefined {
   return text ? text.length : undefined
 }
 
+/** Paths/sizes only for writes — never file contents (Wave 4 P2 Activity). */
+function actionBytes(call: ComputerToolCall, seams: ComputerToolSeams): number | undefined {
+  if (call.name !== 'copy_in' && call.name !== 'copy_out') return undefined
+  const raw = call.args.bytes
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw >= 0) return Math.floor(raw)
+  const path = asString(call.args.from) || asString(call.args.path)
+  if (!path || !seams.statBytes) return undefined
+  const size = seams.statBytes(path)
+  return size != null && Number.isFinite(size) && size >= 0 ? Math.floor(size) : undefined
+}
+
 function recordComputerAction(
   seams: ComputerToolSeams,
   ctx: ComputerToolContext,
@@ -330,6 +343,7 @@ function recordComputerAction(
     reason,
     path: actionPath(call),
     secretChars: actionSecretChars(call),
+    bytes: actionBytes(call, seams),
     initiatorKind: ctx.initiatorKind ?? seams.initiatorKind ?? 'unknown',
   })
 }
@@ -344,6 +358,7 @@ function finishComputerAction(
     tool: call.name,
     intent: actionIntent(call),
     path: actionPath(call),
+    bytes: actionBytes(call, seams),
   })
 }
 

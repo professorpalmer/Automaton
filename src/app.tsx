@@ -1,5 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
-import { existsSync } from 'node:fs'
+import { existsSync, statSync } from 'node:fs'
 import { flushSync, motion, useGpuix } from '@gpuix/react'
 import {
   DEFAULT_AGENTS,
@@ -93,6 +93,7 @@ import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
 import { initiatorFromKickoff, mouthStreamLabel } from './runtime/mouth-stream'
+import { sessionActivityForSister } from './runtime/session-activity'
 import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
 import { ensureScreen } from './runtime/screen'
@@ -587,6 +588,13 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
             hostAllowed: worker.hostAllowed === true ? true : undefined,
             initiatorKind: initiatorFromKickoff(worker.kickoff),
             recordAction: (event) => store.recordAction(event),
+            statBytes: (path) => {
+              try {
+                return statSync(path).size
+              } catch {
+                return null
+              }
+            },
             emitMouthStream: (step) => {
               setSession((current) =>
                 appendMouthStream(current, worker.ownerAgentId, {
@@ -1915,7 +1923,7 @@ const FeedMouthStreamRow = React.memo(function FeedMouthStreamRow({
   item: Extract<FeedItem, { kind: 'mouth-stream' }>
 }) {
   const T = useTokens()
-  const label = mouthStreamLabel(item.phase, item.tool, item.intent, item.detail)
+  const label = mouthStreamLabel(item.phase, item.tool, item.intent, item.detail, item.bytes)
   const tone = item.phase === 'refuse' ? T.danger : T.tertiary
   return (
     <div style={feedLane}>
@@ -2158,7 +2166,12 @@ export const Feed = forwardRef<FeedApi, {
   const { renderer } = useGpuix()
   const streaming = feedThinking(mouth, items)
   const [activityHeld, setActivityHeld] = useState<boolean | null>(null)
-  const thinking = activityVisible({ streaming, held: activityHeld })
+  const sessionActivity = useMemo(() => sessionActivityForSister({ feed: items }), [items])
+  const thinking = activityVisible({
+    streaming,
+    held: activityHeld,
+    hasSessionActivity: sessionActivity.length > 0,
+  })
   const pinIdentity = feedPinIdentity(items, dockPad, thinking)
   const traces = useMemo(() => jobs.flatMap(tracesFromJob), [jobs])
   const growKey = feedGrowKey(items)
@@ -2344,7 +2357,7 @@ export const Feed = forwardRef<FeedApi, {
             kind: 'mouth-stream',
             id: item.id,
             status: item.phase,
-            text: mouthStreamLabel(item.phase, item.tool, item.intent, item.detail),
+            text: mouthStreamLabel(item.phase, item.tool, item.intent, item.detail, item.bytes),
             connectorId: item.tool,
           })
           return <FeedMouthStreamRow key={item.id} fingerprint={fingerprint} item={item} />
@@ -2404,7 +2417,13 @@ export const Feed = forwardRef<FeedApi, {
         )
       })}
       {thinking ? (
-        <ActivityZone streaming={streaming} held={activityHeld} onHeld={setActivityHeld} traces={traces} />
+        <ActivityZone
+          streaming={streaming}
+          held={activityHeld}
+          onHeld={setActivityHeld}
+          traces={traces}
+          sessionActivity={sessionActivity}
+        />
       ) : null}
     </virtual-list>
   )

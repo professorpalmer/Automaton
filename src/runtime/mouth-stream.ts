@@ -28,6 +28,8 @@ export type ActionEvent = {
   reason: string
   path?: string
   secretChars?: number
+  /** Write/copy size in bytes when known — never file contents. */
+  bytes?: number
   initiatorKind: InitiatorKind
   at: number
 }
@@ -42,6 +44,8 @@ export type MouthStreamStep = {
   intent: string
   /** Path / host / MCP id only — never secrets, stdout, or typed text. */
   detail?: string
+  /** Write/copy size in bytes when known — never file contents. */
+  bytes?: number
 }
 
 export const INITIATOR_KINDS: readonly InitiatorKind[] = [
@@ -101,10 +105,29 @@ export function mouthStreamLabel(
   tool: string,
   intent: string,
   detail?: string,
+  bytes?: number,
 ): string {
   const base = `${phase} · ${tool} · ${intent}`
   const path = detail?.trim()
-  return path ? `${base} · ${path}` : base
+  const size =
+    typeof bytes === 'number' && Number.isFinite(bytes) && bytes >= 0
+      ? formatMouthBytes(bytes)
+      : undefined
+  if (path && size) return `${base} · ${path} · ${size}`
+  if (path) return `${base} · ${path}`
+  if (size) return `${base} · ${size}`
+  return base
+}
+
+function formatMouthBytes(n: number): string {
+  const size = Math.max(0, Math.floor(n))
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) {
+    const kb = size / 1024
+    return `${kb < 10 ? kb.toFixed(1) : Math.round(kb)} KB`
+  }
+  const mb = size / (1024 * 1024)
+  return `${mb < 10 ? mb.toFixed(1) : Math.round(mb)} MB`
 }
 
 export function mouthStreamFeedItem(
@@ -119,6 +142,10 @@ export function mouthStreamFeedItem(
     tool: step.tool,
     intent: step.intent,
     detail: step.detail?.trim() || undefined,
+    bytes:
+      typeof step.bytes === 'number' && Number.isFinite(step.bytes) && step.bytes >= 0
+        ? Math.floor(step.bytes)
+        : undefined,
     at,
   }
 }
@@ -133,6 +160,7 @@ export function buildActionEvent(input: {
   reason: string
   path?: string
   secretChars?: number
+  bytes?: number
   initiatorKind?: InitiatorKind
   at?: number
 }): ActionEvent {
@@ -145,6 +173,10 @@ export function buildActionEvent(input: {
     reason: input.reason,
     path: input.path?.trim() || undefined,
     secretChars: input.secretChars,
+    bytes:
+      typeof input.bytes === 'number' && Number.isFinite(input.bytes) && input.bytes >= 0
+        ? Math.floor(input.bytes)
+        : undefined,
     initiatorKind: input.initiatorKind ?? 'unknown',
     at: input.at ?? Date.now(),
   }
@@ -169,6 +201,7 @@ export function recordSideEffect(
     reason: string
     path?: string
     secretChars?: number
+    bytes?: number
     initiatorKind?: InitiatorKind
     at?: number
   },
@@ -179,6 +212,7 @@ export function recordSideEffect(
     tool: input.tool,
     intent: input.intent,
     detail: input.path,
+    bytes: input.bytes,
   }
   seams.emitMouthStream?.({ ...stepBase, phase: 'decide' })
   seams.recordAction?.(event)
@@ -191,7 +225,7 @@ export function recordSideEffect(
 
 export function finishSideEffect(
   seams: SideEffectRecordSeams,
-  input: { ownerAgentId: string; tool: string; intent: string; path?: string },
+  input: { ownerAgentId: string; tool: string; intent: string; path?: string; bytes?: number },
 ): void {
   seams.emitMouthStream?.({
     agentId: input.ownerAgentId,
@@ -199,5 +233,6 @@ export function finishSideEffect(
     tool: input.tool,
     intent: input.intent,
     detail: input.path,
+    bytes: input.bytes,
   })
 }

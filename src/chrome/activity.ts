@@ -1,16 +1,22 @@
 /**
  * Activity / takeover: auto-open while streaming; header press locks open/closed.
- * No clocks — paint only when streaming or the user held the zone.
+ * Wave 4 P2: ephemeral session commands/files keep a collapsed strip after stream.
+ * No clocks — paint only when streaming, held, or session activity is present.
  */
 export type ActivityTakeover = {
   streaming: boolean
   /** null = follow stream; true/false = user took over. */
   held: boolean | null
+  /** Ephemeral per-sister commands/files this session (not a second audit DB). */
+  hasSessionActivity?: boolean
 }
 
 export function activityVisible(state: ActivityTakeover): boolean {
   if (state.held === true) return true
-  return state.streaming
+  if (state.streaming) return true
+  // Collapsed strip after the turn when this sister ran commands/files.
+  if (state.hasSessionActivity && state.held !== false) return true
+  return false
 }
 
 export function activityExpanded(state: ActivityTakeover): boolean {
@@ -24,5 +30,6 @@ export function pressActivityHeader(state: ActivityTakeover): ActivityTakeover {
 
 export function activityPaintKey(state: ActivityTakeover, foldKey = ''): string {
   if (!activityVisible(state)) return 'parked'
-  return `${activityExpanded(state) ? 'open' : 'shut'}:${state.streaming ? 'live' : 'held'}:${foldKey}`
+  const live = state.streaming ? 'live' : state.hasSessionActivity ? 'session' : 'held'
+  return `${activityExpanded(state) ? 'open' : 'shut'}:${live}:${foldKey}`
 }

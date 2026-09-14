@@ -1697,6 +1697,7 @@ export function appendMouthStream(
     tool: step.tool,
     intent: step.intent,
     detail: step.detail,
+    bytes: step.bytes,
   })
   return append(session, agentId, item, session.activeAgentId)
 }
