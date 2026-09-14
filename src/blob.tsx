@@ -229,8 +229,9 @@ export function workPose(id: string, look: number): BlobPose {
 /** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
 const POSE_EXTENT: Record<BlobMelt, readonly [number, number]> = {
   rest: [T.blob.size, T.blob.size],
-  'soft-wide': [40, 36],
-  'soft-tall': [36, 40],
+  // Soft melts stay ±1px — ±2px (40×36) read as a size pop on glance beats.
+  'soft-wide': [39, 37],
+  'soft-tall': [37, 39],
   wide: [42, 34],
   tall: [34, 42],
 }
