@@ -610,7 +610,7 @@ describe('sister blob presentation', () => {
     const app = readFileSync(join(import.meta.dir, '../src/app.tsx'), 'utf8')
     expect(app).not.toMatch(/neighborSelected/)
     expect(app).not.toMatch(/railCount=\{agents\.length\}/)
-    expect(app).toMatch(/mouth === 'working'/)
+    expect(app).toMatch(/isSeatWorking/)
     expect(app).toMatch(/row\?\.computerBusy === true/)
     expect(app).toMatch(/alive=\{alive\}/)
     expect(app).toMatch(/working=\{working\}/)

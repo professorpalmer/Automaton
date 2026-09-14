@@ -19,6 +19,7 @@
 | Mouth stream + initiator ledger | `docs/mouth-stream.md` (P0) |
 | Peer provenance + standing role | `docs/rooms.md` (P1) |
 | Session Activity strip | `docs/activity.md` (P2) |
+| Head chase / hop keep-alive | `docs/peer-chase.md` (Wave 5 P0) |
 
 ## Gap (what OpenBot does better)
 
@@ -44,17 +45,30 @@
 - Docs: `docs/rooms.md`, this file, `AGENTS.md`.
 - **Ship:** merge → cut **v0.10.0** (coordinator; may already be cut).
 
-### P2 — Activity surface (in progress)
+### P2 — Activity surface ✅ done
 - Per-sister Activity strip (commands/files this session) next to feed; not a second audit DB.
 - Paths/sizes only for writes (no secret contents); aligns with secrets policy.
 - Derive from mouth-stream feed + existing action ledger (`src/runtime/session-activity.ts`); optional `bytes` on writes.
 - Docs: `docs/activity.md`, this file, `AGENTS.md`, `docs/mouth-stream.md`.
-- **Ship readiness:** later cut **v0.11.0** (do not tag here).
+- **Ship:** merge → cut **v0.11.0** (coordinator).
+
+### Wave 5 P0 — Head chase / peer-complete keep-alive (in progress)
+- Pending hop on every handoff path (`offerSisterHop`, `sendToAgent`, Enter dispatch); head working while `pendingHops.length > 0`.
+- Persist hop envelope (`task` / `constraints` / `expecting` + target) until drop; stamp onto `from`-relay for assess.
+- Assess chase: inject peer answer **and** original `expecting`; unmet → another hop emit within `HOP_MAX_*`; met/missing → copy. Flip “not the scheduler” on chase turns.
+- Terminal notice: empty / failed sister auto-wakes the head (no user “and?”).
+- Docs: `docs/peer-chase.md`, `docs/rooms.md`. Patterns only — no CopilotKit / `@ag-ui/*`.
+- **Ship readiness:** later cut a version (do not tag here).
 
 ## Parked
 - Adopting CopilotKit Intelligence / AG-UI npm packages
 - OpenBot Docker supervisor / SPIRE
 - Multi-framework agent images
+
+## Success for Wave 5 P0
+- PR open + CI green + tests for unmet chase hop, met copy-once, empty-sister notice, pendingHops set/cleared
+- No CopilotKit deps in `package.json`
+- Sister threads remain separate; hops stay async (not block-until-peer-done)
 
 ## Success for P2
 - PR open + CI green + tests for session Activity derivation (commands/files, write path+size, no contents)

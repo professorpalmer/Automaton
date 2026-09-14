@@ -55,7 +55,11 @@ import {
   formatSisterMandate,
   handedHopsSinceLastUser,
   hopDepthFromItems,
+  hopFailureLine,
+  asPendingHops,
+  normalizePendingHops,
   sisterHopRefusal,
+  type PendingHop,
   type SisterHop,
   type ChannelReplyRouting,
   renameAck,
@@ -179,7 +183,7 @@ export function normalizeSession(session: Session): Session {
     delete leftover.mandate
     leftover.steerQueue = Array.isArray(leftover.steerQueue) ? leftover.steerQueue : []
     leftover.jobSteerQueue = Array.isArray(leftover.jobSteerQueue) ? leftover.jobSteerQueue : []
-    leftover.pendingHops = Array.isArray(leftover.pendingHops) ? leftover.pendingHops : []
+    leftover.pendingHops = normalizePendingHops(leftover.pendingHops)
     leftover.items = Array.isArray(leftover.items)
       ? leftover.items.map((item) =>
           item.kind === 'secret-request' ? scrubSecretRequestItem(item) : item,
@@ -505,15 +509,31 @@ function wakeMouth(session: Session, agentId: AgentId, mouth: MouthState): Sessi
   return setThread(session, agentId, { mouth })
 }
 
-function markPendingHops(session: Session, coordinatorId: AgentId, hops: AgentId[]): Session {
+function markPendingHops(session: Session, coordinatorId: AgentId, hops: Array<AgentId | PendingHop>): Session {
   return setThread(session, coordinatorId, {
-    pendingHops: hops.filter((id) => id !== coordinatorId),
+    pendingHops: asPendingHops(hops).filter((hop) => hop.to !== coordinatorId),
   })
+}
+
+function addPendingHop(session: Session, coordinatorId: AgentId, hop: PendingHop): Session {
+  if (!session.threads[coordinatorId] || hop.to === coordinatorId) return session
+  const existing = normalizePendingHops(thread(session, coordinatorId).pendingHops)
+  const rest = existing.filter((row) => row.to !== hop.to)
+  const next: PendingHop = { to: hop.to }
+  if (hop.task?.trim()) next.task = hop.task.trim()
+  if (hop.constraints?.trim()) next.constraints = hop.constraints.trim()
+  if (hop.expecting?.trim()) next.expecting = hop.expecting.trim()
+  return setThread(session, coordinatorId, { pendingHops: [...rest, next] })
+}
+
+function peekPendingHop(session: Session, coordinatorId: AgentId, ownerId: AgentId): PendingHop | undefined {
+  if (!session.threads[coordinatorId]) return undefined
+  return normalizePendingHops(thread(session, coordinatorId).pendingHops).find((hop) => hop.to === ownerId)
 }
 
 function dropPendingHop(session: Session, coordinatorId: AgentId, ownerId: AgentId): Session {
   if (!session.threads[coordinatorId]) return session
-  const hops = (thread(session, coordinatorId).pendingHops ?? []).filter((id) => id !== ownerId)
+  const hops = normalizePendingHops(thread(session, coordinatorId).pendingHops).filter((hop) => hop.to !== ownerId)
   return setThread(session, coordinatorId, { pendingHops: hops })
 }
 
@@ -802,11 +822,21 @@ function appendRelay(
   peerId: AgentId,
   text: string,
   focused: AgentId,
+  extra?: { task?: string; expecting?: string; failed?: boolean },
 ): Session {
   return append(
     session,
     threadId,
-    { kind: 'relay', id: nextId('item'), lane, peerId, text },
+    {
+      kind: 'relay',
+      id: nextId('item'),
+      lane,
+      peerId,
+      text,
+      ...(lane === 'from' && extra?.task ? { task: extra.task } : {}),
+      ...(lane === 'from' && extra?.expecting ? { expecting: extra.expecting } : {}),
+      ...(lane === 'from' && extra?.failed ? { failed: true } : {}),
+    },
     focused,
   )
 }
@@ -828,7 +858,11 @@ function coordinatorDispatch(
   let next = append(session, focused, item, focused)
   next = setThread(next, focused, { draft: '', pendingPaths: [], mouth: 'idle' })
   next = speak(next, focused, dispatchAck(text, session.agents, targets, focused), focused, present?.ackItemId)
-  next = markPendingHops(next, focused, targets)
+  next = markPendingHops(
+    next,
+    focused,
+    targets.map((to) => ({ to, task: note })),
+  )
   const deliveries: PendingDelivery[] = []
   for (const target of targets) {
     if (target === focused) continue
@@ -862,8 +896,12 @@ function fanout(session: Session, text: string, targets: AgentId[], present?: Pr
   )
   next = setThread(next, focused, { draft: '', mouth: 'idle' })
   next = speak(next, focused, 'Telling the others.', focused, present?.ackItemId)
-  next = markPendingHops(next, focused, targets)
   const note = staffParaphrase(text)
+  next = markPendingHops(
+    next,
+    focused,
+    targets.map((to) => ({ to, task: note })),
+  )
   const deliveries: PendingDelivery[] = []
   for (const target of targets) {
     if (target === focused) continue
@@ -1200,6 +1238,9 @@ export function pendingMouthTurns(
       const rows = (relays.length > 0 ? relays : [last]).map((item) => ({
         name: session.agents.find((agent) => agent.id === item.peerId)?.name ?? 'They',
         spoken: item.text,
+        expecting: item.expecting,
+        task: item.task,
+        failed: item.failed,
       }))
       pending.push({
         agentId: row.agentId,
@@ -1222,6 +1263,18 @@ export function offerSisterHop(session: Session, hop: SisterHop): Session {
   const marker = { to: hop.to, depth: hop.depth }
   const mandate = formatSisterMandate(hop)
   let next = speak(session, hop.from, `Handed to ${name}.`, focused, undefined, marker)
+  next = addPendingHop(next, hop.from, {
+    to: hop.to,
+    task: hop.task,
+    constraints: hop.constraints,
+    expecting: hop.expecting,
+  })
+  next = append(
+    next,
+    hop.to,
+    { kind: 'agent_note', id: nextId('item'), fromId: hop.from, toId: hop.to, text: mandate },
+    focused,
+  )
   return deliverTo(next, hop.to, mandate, focused, [], false, mandate, false, marker)
 }
 
@@ -1273,13 +1326,24 @@ export function completeMouth(session: Session, agentId: AgentId, spoken: string
     return finishBatch(next, agentId)
   }
   const from = inboundCoordinatorId(session, agentId)
-  let next = speak(session, agentId, sanitizeSpeak(spoken), focused)
+  // sanitizeSpeak maps blank to "Done." — a hop with nothing said is a miss, not Done.
+  if (!spoken.trim() && from) {
+    let next = wakeMouth(session, agentId, 'idle')
+    next = coordinatorReturn(next, from, agentId, '', focused, true)
+    return finishBatch(next, agentId)
+  }
+  const cleaned = sanitizeSpeak(spoken).trim()
+  let next = speak(session, agentId, cleaned, focused)
   next = wakeMouth(next, agentId, 'idle')
-  next = coordinatorReturn(next, from, agentId, spoken, focused)
+  next = coordinatorReturn(next, from, agentId, cleaned, focused)
   return finishBatch(next, agentId)
 }
 
 function inboundCoordinatorId(session: Session, agentId: AgentId): AgentId | null {
+  for (const [id, row] of Object.entries(session.threads)) {
+    if (id === agentId || !row) continue
+    if (normalizePendingHops(row.pendingHops).some((hop) => hop.to === agentId)) return id
+  }
   const row = session.threads[agentId]
   if (!row) return null
   const items = row.items
@@ -1305,10 +1369,19 @@ function coordinatorReturn(
   ownerId: AgentId,
   spoken: string,
   focused: AgentId,
+  failed = false,
 ): Session {
   if (!from || from === ownerId || !session.threads[from]) return session
-  const cleaned = sanitizeSpeak(spoken)
-  let next = appendRelay(session, from, 'from', ownerId, cleaned, focused)
+  const envelope = peekPendingHop(session, from, ownerId)
+  const name = session.agents.find((agent) => agent.id === ownerId)?.name ?? 'They'
+  const cleaned = sanitizeSpeak(spoken).trim()
+  const isFail = failed || !cleaned
+  const text = isFail ? hopFailureLine(name, envelope?.task) : cleaned
+  let next = appendRelay(session, from, 'from', ownerId, text, focused, {
+    task: envelope?.task,
+    expecting: envelope?.expecting,
+    failed: isFail,
+  })
   next = dropPendingHop(next, from, ownerId)
   if (thread(next, from).mouth === 'answer') return next
   return maybeWakeAssess(next, from)
@@ -1341,6 +1414,16 @@ export function failMouth(session: Session, agentId: AgentId, spoken: string): S
     const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
     let next = wakeMouth(session, agentId, 'idle')
     next = speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
+    return finishBatch(next, agentId)
+  }
+  const from = inboundCoordinatorId(session, agentId)
+  if (from && row.mouth !== 'idle') {
+    const focused = session.activeAgentId
+    const line = sanitizeSpeak(spoken).trim()
+    let next = session
+    if (line) next = speak(next, agentId, line, focused)
+    next = wakeMouth(next, agentId, 'idle')
+    next = coordinatorReturn(next, from, agentId, line, focused, true)
     return finishBatch(next, agentId)
   }
   return completeMouth(session, agentId, spoken)
@@ -2142,6 +2225,7 @@ export function sendToAgent(
   )
   next = append(next, toId, item, focused)
   next = setThread(next, toId, { mouth: 'answer' })
+  next = addPendingHop(next, fromId, { to: toId, task: note })
   return next
 }
 
@@ -2219,6 +2303,7 @@ export function sendToRoom(
     })
     next = append(next, row.toId, item, focused)
     next = setThread(next, row.toId, { mouth: 'answer' })
+    next = addPendingHop(next, fromId, { to: row.toId, task: row.text })
   }
   return next
 }
