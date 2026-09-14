@@ -164,6 +164,13 @@ export function jobsChord(event: {
   return cmdLetterChord(event, 'j')
 }
 
+export function commandPaletteChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'k')
+}
+
 export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId: string }) {
   const { tokens: T } = useChrome()
   return (

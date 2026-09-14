@@ -33,7 +33,7 @@ import {
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
-import { watchCopyHotkey, watchCutHotkey, watchFocusComposerHotkey, watchJobsHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey, watchSettingsHotkey, watchToggleRailHotkey } from './runtime/paste-hotkey'
+import { watchCopyHotkey, watchCutHotkey, watchFocusComposerHotkey, watchJobsHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey, watchSettingsHotkey, watchToggleRailHotkey, watchPaletteHotkey } from './runtime/paste-hotkey'
 import { runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import {
@@ -88,6 +88,7 @@ import {
   toggleRailChord,
   settingsChord,
   jobsChord,
+  commandPaletteChord,
 } from './inspector'
 import { DeskStage } from './desk'
 import { JobsPane } from './jobs-pane'
@@ -101,6 +102,7 @@ import { initiatorFromKickoff, mouthStreamLabel } from './runtime/mouth-stream'
 import { sessionActivityForSister } from './runtime/session-activity'
 import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
+import { listRooms } from './runtime/rooms'
 import { ensureScreen } from './runtime/screen'
 import {
   addLiveAgent,
@@ -117,6 +119,8 @@ import {
   dismissFanout,
   dropLiveAgent,
   dropPendingPath,
+  removeSteerAt,
+  sendSteerNow,
   failComputer,
   failJob,
   failMouth,
@@ -153,7 +157,7 @@ import {
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, toggleRailWidth, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, Composer, EmptyState, MouthWaitBubble, Sheet, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
+import { ActivityZone, CommandPalette, Composer, EmptyState, ListRow, MouthWaitBubble, Sheet, SteerQueueCard, Tip, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition } from './motion'
@@ -265,6 +269,8 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
   })
   const [pane, setPane] = useState<Pane>('none')
   const [composerFocusNonce, setComposerFocusNonce] = useState(0)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
   const [planeTick, setPlaneTick] = useState(0)
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
@@ -335,6 +341,15 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
 
   const toggleSettings = () => {
     setPane((current) => (current === 'settings' ? 'none' : 'settings'))
+  }
+
+  const togglePalette = () => {
+    setPaletteOpen((open) => !open)
+  }
+
+  const openSettingsSection = (section?: string) => {
+    setSettingsFocus(section ?? null)
+    setPane('settings')
   }
 
   const focusComposer = () => {
@@ -855,6 +870,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     const stopRail = watchToggleRailHotkey(() => toggleRail())
     const stopSettings = watchSettingsHotkey(() => toggleSettings())
     const stopJobs = watchJobsHotkey(() => toggleJobs())
+    const stopPalette = watchPaletteHotkey(() => togglePalette())
     return () => {
       stopPaste()
       stopCopy()
@@ -865,6 +881,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       stopRail()
       stopSettings()
       stopJobs()
+      stopPalette()
     }
   }, [])
 
@@ -922,6 +939,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
         if (toggleRailChord(event)) toggleRail()
         if (settingsChord(event)) toggleSettings()
         if (jobsChord(event)) toggleJobs()
+        if (commandPaletteChord(event)) togglePalette()
         if (pasteChord(event)) enqueueClipboard()
         if (selectAllChord(event)) feedApi.current?.selectAll()
         if (copyChord(event)) copyFeedIfIdle()
@@ -930,6 +948,23 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       }}
     >
       <Titlebar name={active?.name ?? PRODUCT} version={installedVersion} onInspect={toggleInspector} onJobs={toggleJobs} />
+      <CommandPalette
+        open={paletteOpen}
+        agents={visibleAgents(session.agents)}
+        rooms={listRooms()}
+        onClose={() => setPaletteOpen(false)}
+        onSelectSister={(id) => {
+          setSession((current) => (runningTests() ? setActive(current, id) : playIntro(setActive(current, id), id)))
+          setPane('none')
+        }}
+        onSelectRoom={(_roomId) => {
+          openSettingsSection('rooms')
+        }}
+        onOpenSettings={(section) => openSettingsSection(section)}
+        onOpenJobs={() => {
+          setPane('jobs')
+        }}
+      />
       <div
         style={{
           display: 'flex',
@@ -1113,6 +1148,21 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                 />
               ) : null}
               <ToastStack style={{ paddingLeft: T.space.lg, paddingRight: T.space.lg, paddingBottom: T.space.sm }} />
+              <SteerQueueCard
+                lines={overlayBusy ? [] : (thread?.steerQueue ?? [])}
+                queueing={Boolean(
+                  !overlayBusy &&
+                    thread &&
+                    shouldQueueSteer(thread.mouth, thread.computerBusy === true) &&
+                    (thread.steerQueue?.length ?? 0) === 0,
+                )}
+                onRemove={(index) =>
+                  setSession((current) => removeSteerAt(current, current.activeAgentId, index))
+                }
+                onSendNow={(index) =>
+                  setSession((current) => sendSteerNow(current, current.activeAgentId, index))
+                }
+              />
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
                 agents={session.agents}
@@ -1194,7 +1244,11 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               <Settings
                 metrics={store.metrics()}
                 agents={visibleAgents(session.agents)}
-                onClose={() => setPane('none')}
+                focusSection={settingsFocus}
+                onClose={() => {
+                  setSettingsFocus(null)
+                  setPane('none')
+                }}
                 onToast={(level, message) => pushToast({ level, message })}
                 onPlaneChange={() => setPlaneTick((n) => n + 1)}
                 onSkinChange={() => {
@@ -1629,8 +1683,8 @@ function Rail({
         const family = modelFamily(pin)
         const at = row ? lastItemAt(row.items) : null
         return (
+          <Tip key={agent.id} testId={`agent-tip-${agent.id}`} label={compact ? agent.name : `${agent.name} — right-click for menu`} side="right">
           <div
-            key={agent.id}
             testId={`agent-${agent.id}`}
             style={{
               display: 'flex',
@@ -1709,60 +1763,33 @@ function Rail({
             )}
             </div>
           </div>
+          </Tip>
         )
       })}
       <div style={{ flexGrow: 1 }} />
-      <div
-        testId="new-agent"
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: compact ? 'center' : 'flex-start',
-          gap: compact ? 0 : T.space.sm,
-          paddingLeft: rowPad,
-          paddingRight: rowPad,
-          paddingTop: T.space.sm,
-          paddingBottom: T.space.sm,
-          marginLeft: rowMargin,
-          marginRight: rowMargin,
-          marginBottom: T.space.xxs,
-          borderRadius: T.radius.md,
-          minHeight: T.blob.slot,
-          ...HIT,
-          backgroundColor: T.clear,
-          hover: { backgroundColor: T.raised },
-        }}
-        onClick={onCreate}
-      >
-        <PlusMark />
-        {compact ? null : <div style={{ fontSize: T.type.sm, color: T.secondary }}>New automaton</div>}
+      <div style={{ marginLeft: rowMargin, marginRight: rowMargin, marginBottom: T.space.xxs }}>
+        <Tip testId="rail-new-tip" label="New automaton" side="top">
+          <ListRow
+            testId="new-agent"
+            density={compact ? 'compact' : 'default'}
+            startSlot={<PlusMark />}
+            onClick={onCreate}
+          >
+            {compact ? null : <div style={{ fontSize: T.type.sm, color: T.secondary }}>New automaton</div>}
+          </ListRow>
+        </Tip>
       </div>
-      <div
-        testId="settings-open"
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: compact ? 'center' : 'flex-start',
-          gap: compact ? 0 : T.space.sm,
-          paddingLeft: rowPad,
-          paddingRight: rowPad,
-          paddingTop: T.space.sm,
-          paddingBottom: T.space.sm,
-          marginLeft: rowMargin,
-          marginRight: rowMargin,
-          marginBottom: T.space.md,
-          borderRadius: T.radius.md,
-          minHeight: T.blob.slot,
-          ...HIT,
-          backgroundColor: T.clear,
-          hover: { backgroundColor: T.raised },
-        }}
-        onClick={onSettings}
-      >
-        <GearMark />
-        {compact ? null : <div style={{ fontSize: T.type.sm, color: T.secondary }}>Settings</div>}
+      <div style={{ marginLeft: rowMargin, marginRight: rowMargin, marginBottom: T.space.md }}>
+        <Tip testId="rail-settings-tip" label="Settings (Cmd+,)" side="top">
+          <ListRow
+            testId="settings-open"
+            density={compact ? 'compact' : 'default'}
+            startSlot={<GearMark />}
+            onClick={onSettings}
+          >
+            {compact ? null : <div style={{ fontSize: T.type.sm, color: T.secondary }}>Settings</div>}
+          </ListRow>
+        </Tip>
       </div>
     </div>
   )
