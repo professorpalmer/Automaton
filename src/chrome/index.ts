@@ -80,3 +80,5 @@ export { Tip } from './tooltip'
 export { EdgeFadeFrame, edgeFadeBackground, rgbHex, transparentHex } from './edge-fade'
 export { KEYMAP, keymapByGroup, keymapChord, type KeymapEntry } from './keymap'
 export { ShortcutsHelp } from './shortcuts-help'
+
+export { ToolLine, StoppedTurnBanner } from './tool-line'

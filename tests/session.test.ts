@@ -2162,9 +2162,15 @@ describe('typed sister hop', () => {
       'staff',
       '{"type":"hop","to":"kernel","task":"Check the pin.","constraints":"No merge.","expecting":"A one-line status."}',
     )
-    const staffLast = s.threads.staff.items.at(-1)
-    expect(staffLast?.kind === 'msg' && staffLast.text).toBe('Handed to Kernel.')
-    expect(staffLast?.kind === 'msg' && staffLast.sisterHop).toEqual({ to: 'kernel', depth: 0 })
+    const handed = s.threads.staff.items.find(
+      (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Handed to Kernel.',
+    )
+    expect(handed?.kind === 'msg' && handed.text).toBe('Handed to Kernel.')
+    expect(handed?.kind === 'msg' && handed.sisterHop).toEqual({ to: 'kernel', depth: 0 })
+    const sent = s.threads.staff.items.find((item) => item.kind === 'relay' && item.lane === 'sent')
+    expect(sent?.kind === 'relay' && sent.task).toBe('Check the pin.')
+    expect(sent?.kind === 'relay' && sent.constraints).toBe('No merge.')
+    expect(sent?.kind === 'relay' && sent.expecting).toBe('A one-line status.')
     const mandate = s.threads.kernel.items.find((item) => item.kind === 'msg' && item.from === 'user')
     expect(mandate?.kind === 'msg' && mandate.text).toBe(
       'Task: Check the pin.\nConstraints: No merge.\nExpecting: A one-line status.',

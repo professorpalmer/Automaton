@@ -25,6 +25,7 @@ import {
   type Agent,
   type ChannelReplyRouting,
   type FeedItem,
+  parseMouthEmit,
   type GoalRun,
   type JobHandle,
   type MouthState,
@@ -98,7 +99,17 @@ import { ensureLocalDashboard, isDashboardJobId, openDashboardUrl } from './runt
 import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud-origin'
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
-import { initiatorFromKickoff, mouthStreamLabel } from './runtime/mouth-stream'
+import { buildActionEvent, initiatorFromKickoff, mouthStreamLabel } from './runtime/mouth-stream'
+import {
+  hopRelayDetail,
+  hopRelayHasDisclosure,
+  hopRelayLabel,
+  mouthStreamSuperseded,
+  mouthStreamTone,
+  mouthStreamToolLabel,
+  peerDisplayName,
+  shouldPaintHopRelay,
+} from './runtime/mouth-tool-line'
 import { sessionActivityForSister } from './runtime/session-activity'
 import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
@@ -162,7 +173,7 @@ import {
   postOsNotify,
 } from './runtime/os-notify'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, CommandPalette, Composer, EdgeFadeFrame, EmptyState, ListRow, MouthWaitBubble, Sheet, SteerQueueCard, Tip, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
+import { ActivityZone, CommandPalette, Composer, EdgeFadeFrame, EmptyState, ListRow, MouthWaitBubble, Sheet, SteerQueueCard, StoppedTurnBanner, Tip, Titlebar, ToastStack, ToolLine, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition, pulseStrideFor } from './motion'
@@ -505,6 +516,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     void ensureMouth(session, store, {
       onComplete: (agentId, spoken) => {
         let routing: ChannelReplyRouting | undefined
+        const emit = parseMouthEmit(spoken)
         setSession((current) => {
           if (current.threads[agentId]?.mouth === 'intro') markIntroPlayedAt(agentId)
           const taken = takePendingChannelReply(current, agentId)
@@ -514,6 +526,19 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
           persistIntroIfUserSpoke(next)
           return next
         })
+        if (emit?.kind === 'ask_person') {
+          store.recordAction(
+            buildActionEvent({
+              ownerAgentId: agentId,
+              tool: 'ask_person',
+              intent: 'ask',
+              decision: 'permit',
+              reason: 'ask_person',
+              path: 'person',
+              initiatorKind: 'person',
+            }),
+          )
+        }
         try {
           const name = session.agents.find((a) => a.id === agentId)?.name ?? 'Sister'
           if (
@@ -1248,6 +1273,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                   setSession((current) => sendSteerNow(current, current.activeAgentId, index))
                 }
               />
+              {thread?.stoppedReason ? <StoppedTurnBanner reason={thread.stoppedReason} /> : null}
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
                 agents={session.agents}
@@ -2040,9 +2066,27 @@ const FeedRelayRow = React.memo(function FeedRelayRow({
   item: Extract<FeedItem, { kind: 'relay' }>
   agents: Agent[]
 }) {
+  const peerName = peerDisplayName(agents, item.peerId)
+  const label = hopRelayLabel(item.lane, peerName, item.failed)
+  const detail = hopRelayDetail(item)
+  const disclosure = hopRelayHasDisclosure(item)
   return (
     <div style={feedLane}>
-      <RelayMark lane={item.lane} peerId={item.peerId} agents={agents} />
+      <ToolLine
+        testId={`relay-${item.lane}-${item.peerId}`}
+        label={label}
+        detail={detail}
+        failed={item.failed === true}
+      >
+        {disclosure ? (
+          <>
+            {item.task?.trim() ? <div>Task: {item.task.trim()}</div> : null}
+            {item.constraints?.trim() ? <div>Constraints: {item.constraints.trim()}</div> : null}
+            {item.expecting?.trim() ? <div>Expecting: {item.expecting.trim()}</div> : null}
+            {item.lane === 'from' && item.text.trim() ? <div>Outcome: {item.text.trim()}</div> : null}
+          </>
+        ) : null}
+      </ToolLine>
     </div>
   )
 }, sameFeedRowFingerprint)
@@ -2106,25 +2150,29 @@ const FeedMouthStreamRow = React.memo(function FeedMouthStreamRow({
   fingerprint: string
   item: Extract<FeedItem, { kind: 'mouth-stream' }>
 }) {
-  const T = useTokens()
-  const label = mouthStreamLabel(item.phase, item.tool, item.intent, item.detail, item.bytes)
-  const tone = item.phase === 'refuse' ? T.danger : T.tertiary
+  const tone = mouthStreamTone(item.phase)
+  const label = mouthStreamToolLabel(item.tool, item.intent)
+  const size =
+    typeof item.bytes === 'number' && Number.isFinite(item.bytes)
+      ? mouthStreamLabel('done', '_', '_', undefined, item.bytes).split(' · ').pop()
+      : undefined
+  const detailLine = [item.detail?.trim(), size].filter(Boolean).join(' · ') || undefined
   return (
     <div style={feedLane}>
-      <div
+      <ToolLine
         testId={`mouth-stream-${item.id}`}
-        style={{
-          display: 'flex',
-          flexDirection: 'row',
-          alignItems: 'center',
-          alignSelf: 'flex-start',
-          gap: T.space.xs,
-          paddingTop: T.space.xxs,
-          paddingBottom: T.space.xxs,
-        }}
+        label={label}
+        detail={detailLine}
+        running={tone.running}
+        refused={tone.refused}
+        failed={tone.failed}
       >
-        <div style={{ fontSize: T.type.xs, color: tone }}>{label}</div>
-      </div>
+        <div>
+          {item.phase} · {item.tool} · {item.intent}
+          {item.detail?.trim() ? ` · ${item.detail.trim()}` : ''}
+          {size ? ` · ${size}` : ''}
+        </div>
+      </ToolLine>
     </div>
   )
 }, sameFeedRowFingerprint)
@@ -2494,7 +2542,7 @@ export const Feed = forwardRef<FeedApi, {
       ) : null}
       {items.map((item, index) => {
         if (item.kind === 'relay') {
-          if (item.lane === 'from') return null
+          if (!shouldPaintHopRelay(item)) return null
           const peer = agents.find((agent) => agent.id === item.peerId)
           const fingerprint = feedRowFingerprint({
             kind: 'relay',
@@ -2502,6 +2550,9 @@ export const Feed = forwardRef<FeedApi, {
             lane: item.lane,
             peerId: item.peerId,
             peerLabel: peer?.name ?? item.peerId,
+            text: [item.task, item.constraints, item.expecting, item.failed ? '1' : '']
+              .filter(Boolean)
+              .join('|'),
           })
           return <FeedRelayRow key={item.id} fingerprint={fingerprint} item={item} agents={agents} />
         }
@@ -2544,6 +2595,7 @@ export const Feed = forwardRef<FeedApi, {
           )
         }
         if (item.kind === 'mouth-stream') {
+          if (mouthStreamSuperseded(items, index)) return null
           const fingerprint = feedRowFingerprint({
             kind: 'mouth-stream',
             id: item.id,

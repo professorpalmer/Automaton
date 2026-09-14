@@ -168,7 +168,7 @@ function machineFact(projects?: MachineProject[]): string {
 }
 
 export const WIDGET_CUE =
-  'To ask a multiple-choice question, reply with a JSON object {"type":"widget","prompt":"...","options":[{"label":"..."}]} (1-6 options). To collect a key, reply with {"type":"secret-request","connectorId":"openrouter"}. Never ask them to paste a key in chat. A widget or secret-request ends the turn.'
+  'To ask a multiple-choice question, reply with a JSON object {"type":"widget","prompt":"...","options":[{"label":"..."}]} (1-6 options). To collect a key, reply with {"type":"secret-request","connectorId":"openrouter"}. Never ask them to paste a key in chat. When only a person can settle it (judgement, permission, a fact only they know), prefer {"type":"ask_person","question":"...","why":"..."} over hopping to another automaton or guessing — it ends the turn and waits for their reply. A widget, secret-request, or ask_person ends the turn.'
 
 export const INTRO_CUE =
   'The user just opened your chat for the first time. Speak one or two sentences. Name yourself. Say what you do from your title and description. Do not ask how you can help. Do not list tools, jobs, or capabilities. Do not say "how can I help you."'

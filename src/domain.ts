@@ -187,8 +187,10 @@ export type FeedItem =
       lane: 'sent' | 'from'
       peerId: AgentId
       text: string
-      /** Original hop task, stamped on from-relays so assess still sees it after drop. */
+      /** Hop task — stamped on sent + from relays for ToolLine disclosure. */
       task?: string
+      /** Hop constraints — paths/policy only; never secrets. */
+      constraints?: string
       /** Original hop expecting, stamped on from-relays until the head assesses. */
       expecting?: string
       /** Sister failed or returned empty — assess is a notice, not copy. */
@@ -273,6 +275,11 @@ export type Thread = {
    * Not a Jobs/PM artifact. Honest: summarized, not verbatim transcript.
    */
   compactSummary?: string
+  /**
+   * Sticky stopped-turn banner (Wave 7 P0c). Set on stall / failMouth; cleared
+   * on the next Send. Distinct from auth miss vs empty vs silence.
+   */
+  stoppedReason?: string
 }
 
 export const STAFF_AGENT: Agent = {
@@ -1735,6 +1742,18 @@ export function landWidgetForKind(kind: JobKind): QuestionWidget {
   }
 }
 
+/** Mouth-native judgement exit — free-text reply via allowCustom. */
+export function askPersonWidget(question: string, why?: string): QuestionWidget {
+  const widget: QuestionWidget = {
+    prompt: question.trim() || 'Need your judgement.',
+    options: [{ label: 'Reply', value: 'reply', style: 'primary' }],
+    allowCustom: true,
+  }
+  const reason = why?.trim()
+  if (reason) widget.helpText = reason
+  return widget
+}
+
 export function hostApprovalWidget(prompt = 'Run this on your Mac?'): QuestionWidget {
   return {
     prompt,
@@ -1887,6 +1906,7 @@ export type MouthEmit =
   | { kind: 'widget'; widget: QuestionWidget }
   | { kind: 'secret-request'; connectorId: string }
   | { kind: 'hop'; hop: Pick<SisterHop, 'to' | 'task' | 'constraints' | 'expecting'> }
+  | { kind: 'ask_person'; question: string; why?: string }
 
 function stripJsonFence(text: string): string {
   const fenced = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i)
@@ -1918,6 +1938,16 @@ export function parseMouthEmit(spoken: string): MouthEmit | null {
           ...(constraints ? { constraints } : {}),
           ...(expecting ? { expecting } : {}),
         },
+      }
+    }
+    if (type === 'ask_person' || type === 'ask-person' || type === 'askPerson') {
+      const question = typeof parsed.question === 'string' ? parsed.question.trim() : ''
+      if (!question) return null
+      const why = typeof parsed.why === 'string' ? parsed.why.trim() : ''
+      return {
+        kind: 'ask_person',
+        question,
+        ...(why ? { why } : {}),
       }
     }
     if (type === 'widget' || type === 'question') {
