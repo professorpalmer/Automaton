@@ -58,9 +58,9 @@ JSON emit:
 
 ## Out of scope (P1+)
 
-Interrupt history hygiene, hop `mayAddress` grants, hold cancelled-vs-refused,
+Hold cancelled-vs-refused,
 computer activity epoch, proposed-sister consent — see
-`artifacts/automaton-wave7-openbot-parity-audit.md`.
+`artifacts/automaton-wave7-openbot-parity-audit.md`. History hygiene + hop grants: `docs/wave7-p1-history-hop-grants.md`.
 
 ## Tests
 
