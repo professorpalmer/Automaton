@@ -156,11 +156,16 @@ import {
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, toggleRailWidth, writeSkin } from './runtime/skin'
+import {
+  claimNotifyFocusIfFrontmost,
+  peekPendingNotifyFocus,
+  postOsNotify,
+} from './runtime/os-notify'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, CommandPalette, Composer, EmptyState, ListRow, MouthWaitBubble, Sheet, SteerQueueCard, Tip, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
+import { ActivityZone, CommandPalette, Composer, EdgeFadeFrame, EmptyState, ListRow, MouthWaitBubble, Sheet, SteerQueueCard, Tip, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
-import { motionTransition } from './motion'
+import { motionTransition, pulseStrideFor } from './motion'
 import { TokenProvider, toChatTheme, useTokenEnv, useTokens } from './theme'
 import { T } from './tokens'
 import { PRODUCT } from './brand'
@@ -283,6 +288,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
   const [updateNote, setUpdateNote] = useState('')
   const [installedVersion] = useState(() => readInstalledVersion())
   const [pendingSend, setPendingSend] = useState<PendingSendView | null>(null)
+  const [notifyFocusEpoch, setNotifyFocusEpoch] = useState(0)
   const { renderer } = useGpuix()
   const railDrag = useRef<{ startX: number; startWidth: number } | null>(null)
   const railPoint = useRef<number | null>(null)
@@ -508,6 +514,23 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
           persistIntroIfUserSpoke(next)
           return next
         })
+        try {
+          const name = session.agents.find((a) => a.id === agentId)?.name ?? 'Sister'
+          if (
+            postOsNotify(
+              {
+                title: name,
+                body: spoken.trim() ? spoken.trim().slice(0, 180) : 'Done.',
+                agentId,
+              },
+              { enabled: readSkin().osNotifyBackground },
+            )
+          ) {
+            setNotifyFocusEpoch((n) => n + 1)
+          }
+        } catch {
+          /* swallow */
+        }
         if (routing?.expectReply && routing.platform === 'slack' && spoken.trim()) {
           const dest = routing.slackChannel
           const threadTs = routing.threadTs
@@ -562,6 +585,66 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       },
     })
   }, [store, mouthEpoch])
+
+  // Wave 6 P2 — OS notify when host approval parks while unfocused.
+  const pendingApprovalCount = session.pendingApprovals?.length ?? 0
+  const pendingApprovalRef = useRef(pendingApprovalCount)
+  useEffect(() => {
+    const prev = pendingApprovalRef.current
+    pendingApprovalRef.current = pendingApprovalCount
+    if (runningTests()) return
+    if (pendingApprovalCount <= prev) return
+    try {
+      const row = session.pendingApprovals?.[pendingApprovalCount - 1]
+      const worker = (session.computerWorkers ?? []).find((w) => w.id === row?.workerId)
+      const agentId = worker?.ownerAgentId ?? session.activeAgentId
+      const name = session.agents.find((a) => a.id === agentId)?.name ?? 'Sister'
+      if (
+        postOsNotify(
+          {
+            title: name,
+            body: row?.action?.trim() ? `Needs approval: ${row.action.trim().slice(0, 140)}` : 'Needs approval.',
+            agentId,
+          },
+          { enabled: readSkin().osNotifyBackground },
+        )
+      ) {
+        setNotifyFocusEpoch((n) => n + 1)
+      }
+    } catch {
+      /* swallow */
+    }
+  }, [pendingApprovalCount, session.pendingApprovals, session.computerWorkers, session.agents, session.activeAgentId])
+
+  // Apply parked notify focus when we become frontmost — interval only after a banner parks a sister.
+  useEffect(() => {
+    if (runningTests() || notifyFocusEpoch <= 0) return
+    let timer: ReturnType<typeof setInterval> | null = null
+    const tick = () => {
+      const id = claimNotifyFocusIfFrontmost()
+      if (id) {
+        setSession((current) => ({ ...current, activeAgentId: id }))
+        if (timer) {
+          clearInterval(timer)
+          timer = null
+        }
+      }
+    }
+    timer = setInterval(() => {
+      if (!peekPendingNotifyFocus()) {
+        if (timer) {
+          clearInterval(timer)
+          timer = null
+        }
+        return
+      }
+      tick()
+    }, 2000)
+    tick()
+    return () => {
+      if (timer) clearInterval(timer)
+    }
+  }, [notifyFocusEpoch])
 
   useEffect(() => {
     if (runningTests()) return
@@ -1048,6 +1131,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               minWidth: 0,
             }}
           >
+            <EdgeFadeFrame show={feedItems.length > 0} testId="feed-edge-fade">
             <Feed
               ref={feedApi}
               key={session.activeAgentId}
@@ -1083,6 +1167,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               onDismissSecret={(id) => setSession((current) => dismissSecretRequest(current, id))}
               onEmptyWrite={focusComposer}
             />
+            </EdgeFadeFrame>
             <div
               testId="dock"
               style={{
@@ -2504,7 +2589,9 @@ export const Feed = forwardRef<FeedApi, {
           />
         )
       })}
-      {streaming ? <MouthWaitBubble /> : null}
+      {streaming ? (
+        <MouthWaitBubble stride={pulseStrideFor({ feedLen: items.length, activityOpen })} />
+      ) : null}
       {activityOpen ? (
         <ActivityZone
           streaming={streaming}
@@ -2512,6 +2599,7 @@ export const Feed = forwardRef<FeedApi, {
           onHeld={setActivityHeld}
           traces={traces}
           sessionActivity={sessionActivity}
+          pulseStride={pulseStrideFor({ feedLen: items.length, activityOpen: true })}
         />
       ) : null}
     </virtual-list>

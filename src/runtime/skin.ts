@@ -21,6 +21,8 @@ export type Skin = {
   frostWash: number
   appearance: Appearance
   brand: Brand
+  /** Wave 6 P2 — OS notify when background mouth completes / needs approval. Off = Quiet. */
+  osNotifyBackground: boolean
 }
 
 export const DEFAULT_FROST_WASH = 12
@@ -31,6 +33,7 @@ const DEFAULT_SKIN: Skin = {
   frostWash: DEFAULT_FROST_WASH,
   appearance: 'dark',
   brand: { ...DEFAULT_BRAND },
+  osNotifyBackground: false,
 }
 
 export function skinPath(home = automatonHome()): string {
@@ -81,6 +84,7 @@ export function parseSkin(raw: unknown): Skin {
     frostWash: clampFrostWash(typeof row.frostWash === 'number' ? row.frostWash : DEFAULT_FROST_WASH),
     appearance: parseAppearance(row.appearance),
     brand: parseBrand(row.brand),
+    osNotifyBackground: row.osNotifyBackground === true,
   }
 }
 

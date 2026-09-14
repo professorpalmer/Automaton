@@ -10,3 +10,13 @@ export {
   type SpringSpec,
 } from './specs'
 export { motionTransition, type NamedTransition } from './transition'
+
+export {
+  PULSE_CURVE,
+  PULSE_STRIDE_S,
+  PULSE_STRIDE_SLOW_S,
+  expensivePulseSurface,
+  pulseDuration,
+  pulseStrideFor,
+  type PulseStride,
+} from './pulse'

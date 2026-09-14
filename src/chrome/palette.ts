@@ -14,7 +14,8 @@ export type PaletteItem = {
 }
 
 export const SETTINGS_PALETTE: { id: string; label: string; hint?: string }[] = [
-  { id: 'appearance', label: 'Appearance', hint: 'Window · wash · brand' },
+  { id: 'appearance', label: 'Appearance', hint: 'Window · wash · brand · notify' },
+  { id: 'shortcuts', label: 'Shortcuts', hint: 'Live keymap chords' },
   { id: 'keys', label: 'OpenRouter key', hint: 'Secret stays off chat' },
   { id: 'usage', label: 'Usage', hint: 'Ledger' },
   { id: 'mouth', label: 'Mouth context', hint: 'Compact working set' },
