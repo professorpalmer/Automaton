@@ -3,7 +3,7 @@
 Automaton stays on **vendored** `@gpuix/react` **0.6.2**
 (`file:vendor/gpuix-react-0.6.2.tgz`) plus a matched
 `@gpuix/native` **0.6.2** (`file:vendor/gpuix-native-0.6.2.tgz`).
-Package / Info.plist stay **0.7.0** (this pass does not cut v0.8.0).
+Package / Info.plist are **0.8.0** (Wave 3 living-mark gel checkpoint).
 
 Do **not** drop onto npm `@gpuix/react@0.7.0` or `@gpuix/react@0.8.0`
 (registry dist has no motion-spring / no native spring passthrough).
