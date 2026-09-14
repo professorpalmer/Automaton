@@ -19,7 +19,7 @@
 | Mouth stream + initiator ledger | `docs/mouth-stream.md` (P0) |
 | Peer provenance + standing role | `docs/rooms.md` (P1) |
 | Session Activity strip | `docs/activity.md` (P2) |
-| Head chase / hop keep-alive | `docs/peer-chase.md` (Wave 5 P0) |
+| Head chase / hop keep-alive | `docs/peer-chase.md` (Wave 5 P0 (shipped v0.12.0)) |
 
 ## Gap (what OpenBot does better)
 
@@ -52,7 +52,7 @@
 - Docs: `docs/activity.md`, this file, `AGENTS.md`, `docs/mouth-stream.md`.
 - **Ship:** merge → cut **v0.11.0** (coordinator).
 
-### Wave 5 P0 — Head chase / peer-complete keep-alive (in progress)
+### Wave 5 P0 (shipped v0.12.0) — Head chase / peer-complete keep-alive (in progress)
 - Pending hop on every handoff path (`offerSisterHop`, `sendToAgent`, Enter dispatch); head working while `pendingHops.length > 0`.
 - Persist hop envelope (`task` / `constraints` / `expecting` + target) until drop; stamp onto `from`-relay for assess.
 - Assess chase: inject peer answer **and** original `expecting`; unmet → another hop emit within `HOP_MAX_*`; met/missing → copy. Flip “not the scheduler” on chase turns.
@@ -65,7 +65,7 @@
 - OpenBot Docker supervisor / SPIRE
 - Multi-framework agent images
 
-## Success for Wave 5 P0
+## Success for Wave 5 P0 (shipped v0.12.0)
 - PR open + CI green + tests for unmet chase hop, met copy-once, empty-sister notice, pendingHops set/cleared
 - No CopilotKit deps in `package.json`
 - Sister threads remain separate; hops stay async (not block-until-peer-done)
