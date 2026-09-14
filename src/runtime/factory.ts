@@ -75,6 +75,7 @@ export function liveAgentFromProfile(profile: AgentProfile): Agent {
     description: profile.description,
     color: catalogHex(profile.avatarColor || 'gray'),
     hidden: profile.hiddenFromRail,
+    ...(profile.mayAddressIds !== undefined ? { mayAddressIds: [...profile.mayAddressIds] } : {}),
   }
 }
 
@@ -138,6 +139,7 @@ export function cloneAgent(
     homeRepo: source.homeRepo,
     homePath: source.homePath,
     introPlayedAt: null,
+    ...(source.mayAddressIds !== undefined ? { mayAddressIds: [...source.mayAddressIds] } : {}),
   }
   writeProfile(profile, home)
   ensureMarkFrames(profile.avatarShape, profile.avatarColor, home)

@@ -20,6 +20,11 @@ export type Agent = {
   description: string
   color: string
   hidden: boolean
+  /**
+   * Optional hop allowlist (Wave 7 P1b). Missing = all visible sisters.
+   * Explicit [] = nobody. Mirrored from AgentProfile.mayAddressIds.
+   */
+  mayAddressIds?: string[]
 }
 
 export type JobStatus = 'running' | 'waiting' | 'complete' | 'failed'
@@ -1846,7 +1851,12 @@ export function formatSisterMandate(hop: Pick<SisterHop, 'task' | 'constraints' 
   return lines.join('\n')
 }
 
-export function sisterHopRefusal(hop: SisterHop, visible: Agent[], handedThisTurn: number): string | null {
+export function sisterHopRefusal(
+  hop: SisterHop,
+  visible: Agent[],
+  handedThisTurn: number,
+  mayAddressIds?: readonly string[] | null,
+): string | null {
   if (!hop.task.trim()) return 'Need a task to hand off.'
   if (hop.to === hop.from) return 'Cannot hand that to myself.'
   if (hop.to === 'staff') return 'Staff is not a hop target.'
@@ -1854,6 +1864,10 @@ export function sisterHopRefusal(hop: SisterHop, visible: Agent[], handedThisTur
   if (!target) return 'That automaton is not on the rail.'
   if (hop.depth >= HOP_MAX_DEPTH) return 'That hop is too deep.'
   if (handedThisTurn >= HOP_MAX_PER_TURN) return 'Already handed off enough this turn.'
+  // Missing grant list = open (current UX). Explicit list (incl. empty) enforces.
+  if (mayAddressIds !== undefined && mayAddressIds !== null && !mayAddressIds.includes(hop.to)) {
+    return `Not allowed to hand that to ${target.name}.`
+  }
   return null
 }
 

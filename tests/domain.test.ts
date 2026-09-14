@@ -847,6 +847,12 @@ describe('typed sister hop', () => {
       'Already handed off enough this turn.',
     )
     expect(sisterHopRefusal(kernel, visible, 0)).toBeNull()
+    expect(sisterHopRefusal(kernel, visible, 0, undefined)).toBeNull()
+    expect(sisterHopRefusal(kernel, visible, 0, ['kernel'])).toBeNull()
+    expect(sisterHopRefusal(kernel, visible, 0, ['research'])).toBe(
+      'Not allowed to hand that to Kernel.',
+    )
+    expect(sisterHopRefusal(kernel, visible, 0, [])).toBe('Not allowed to hand that to Kernel.')
   })
 
   test('depth and per-turn counts read hop markers on the thread', () => {

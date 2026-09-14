@@ -94,6 +94,7 @@ Invariants:
 - GPUI polish P1 (Wave 6) — Cmd+K command palette lite (sisters / rooms / settings sections / Jobs); visible steer-queue card (remove / send-now); shared `ListRow` density + hover end-slot; `Tip` microcopy on titlebar / rail / Jobs; opaque menuFill overlays; idle parks intact; package 0.15.0.
 - GPUI polish P2 (Wave 6) — optional Mac OS notify (background mouth complete / needs approval; Quiet + `AUTOMATON_DISABLE_NOTIFICATIONS`); pulse lease strides (MouthWait / Activity slow cadence on expensive surfaces); feed edge-fade spike; Shortcuts help from live `KEYMAP`; `docs/wave6-gpui-polish.md` + idle-cpu honesty; no CopilotKit / gpui-kit; no version cut in P2.
 - Wave 7 P0 OpenBot parity — ToolLine mouth/hop feed cards; `ask_person` judgement exit; mouth silence watchdog + sticky stopped banner (`docs/wave7-p0-openbot-parity.md`); patterns only — no CopilotKit / `@ag-ui/*` / generative UI; package 0.15.0 (no tag in P0 PR).
+- Wave 7 P1 — Stop/interrupt history hygiene (`history-sanitize` terminalize + scrub incomplete tool pairs); hop `mayAddressIds` grants on profile/room with spoken refuse + ledger (`docs/wave7-p1-history-hop-grants.md`); patterns only — no CopilotKit / SPIRE; package 0.15.0 (no tag in P1 PR).
 - Bezel light appearance (Wave 2 P2) — designed light (Settings → Window → Appearance; not invert of graphite); Brand-complete Settings (remaining CARD/FIELD via useChrome; update modal scrim); ToggleGroup, EmptyState, Sheet extracted. Still vendored `@gpuix/react` (Wave 3.2 is 0.6.2 + matched native). Package 0.8.0.
 
 ## Safety
