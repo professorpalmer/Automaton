@@ -140,8 +140,6 @@ export function Titlebar({
             testId="titlebar-jobs"
             style={{
               ...titlebarHitStyle(T),
-              paddingLeft: T.space.sm,
-              paddingRight: T.space.sm,
               fontSize: T.type.xs,
               color: T.secondary,
             }}

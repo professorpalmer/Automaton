@@ -1852,8 +1852,17 @@ function Rail({
         )
       })}
       <div style={{ flexGrow: 1 }} />
-      <div style={{ marginLeft: rowMargin, marginRight: rowMargin, marginBottom: T.space.xxs }}>
-        <Tip testId="rail-new-tip" label="New automaton" side="top">
+      <div
+        style={{
+          marginLeft: rowMargin,
+          marginRight: rowMargin,
+          marginBottom: T.space.xxs,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: compact ? 'center' : 'stretch',
+        }}
+      >
+        <Tip testId="rail-new-tip" label="New automaton" side="top" fullWidth>
           <ListRow
             testId="new-agent"
             density={compact ? 'compact' : 'default'}
@@ -1864,8 +1873,17 @@ function Rail({
           </ListRow>
         </Tip>
       </div>
-      <div style={{ marginLeft: rowMargin, marginRight: rowMargin, marginBottom: T.space.md }}>
-        <Tip testId="rail-settings-tip" label="Settings (Cmd+,)" side="top">
+      <div
+        style={{
+          marginLeft: rowMargin,
+          marginRight: rowMargin,
+          marginBottom: T.space.md,
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: compact ? 'center' : 'stretch',
+        }}
+      >
+        <Tip testId="rail-settings-tip" label="Settings (Cmd+,)" side="top" fullWidth>
           <ListRow
             testId="settings-open"
             density={compact ? 'compact' : 'default'}

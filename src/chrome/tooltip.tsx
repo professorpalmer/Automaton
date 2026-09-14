@@ -10,18 +10,26 @@ export function Tip({
   children,
   testId,
   side = 'bottom',
+  fullWidth = false,
 }: {
   label: string
   children: React.ReactNode
   testId?: string
   side?: 'top' | 'bottom' | 'right'
+  fullWidth?: boolean
 }) {
   const T = useTokens()
   const [open, setOpen] = useState(false)
   return (
     <div
       testId={testId}
-      style={{ position: 'relative', display: 'flex', flexDirection: 'row', alignItems: 'center' }}
+      style={{
+        position: 'relative',
+        display: 'flex',
+        flexDirection: 'row',
+        alignItems: 'center',
+        width: fullWidth ? '100%' : undefined,
+      }}
       onMouseEnter={() => setOpen(true)}
       onMouseLeave={() => setOpen(false)}
     >
