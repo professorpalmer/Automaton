@@ -115,7 +115,7 @@ describe('wave 6 p2 edge fade spike', () => {
     const top = edgeFadeBackground('#101010', 'top')
     expect(top.type).toBe('linear-gradient')
     expect(top.angle).toBe(180)
-    expect(top.stops[0].color).toBe('#101010')
+    expect(top.stops[0].color).toBe('#10101048')
     expect(top.stops[1].color).toBe('#10101000')
     const app = readFileSync(join(root, 'src/app.tsx'), 'utf8')
     expect(app).toContain('EdgeFadeFrame')

@@ -47,6 +47,7 @@ export function ListRow({
         display: 'flex',
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: children ? 'flex-start' : 'center',
         gap: T.space.sm,
         paddingLeft: padX,
         paddingRight: padX,
@@ -55,6 +56,7 @@ export function ListRow({
         borderRadius: T.radius.md,
         backgroundColor: selected ? T.selected : T.clear,
         minWidth: 0,
+        width: '100%',
         ...HIT,
         hover: { backgroundColor: selected ? T.selected : T.raised },
       }}
@@ -68,10 +70,25 @@ export function ListRow({
         if (event.isRightClick || event.button === 2) onContextMenu?.(event)
       }}
     >
-      {startSlot ? <div style={{ flexShrink: 0 }}>{startSlot}</div> : null}
-      <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0, gap: T.space.xxs }}>
-        {children}
-      </div>
+      {startSlot ? (
+        <div
+          style={{
+            flexShrink: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            width: compact ? T.blob.enterSize : undefined,
+            height: compact ? T.blob.enterSize : undefined,
+          }}
+        >
+          {startSlot}
+        </div>
+      ) : null}
+      {children ? (
+        <div style={{ display: 'flex', flexDirection: 'column', flexGrow: 1, minWidth: 0, gap: T.space.xxs }}>
+          {children}
+        </div>
+      ) : null}
       {endSlot ? <div style={{ flexShrink: 0, display: 'flex', flexDirection: 'row', gap: T.space.xs }}>{endSlot}</div> : null}
       {endHoverSlot && hovered ? (
         <div

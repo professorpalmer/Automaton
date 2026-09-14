@@ -54,11 +54,12 @@ export function controlClusterStyle(tokens: Tokens = DEFAULT_TOKENS) {
 }
 
 export function titlebarHitStyle(tokens: Tokens = DEFAULT_TOKENS) {
+  // Larger padding = easier click without changing layout flex of the titlebar cluster.
   return {
-    paddingLeft: tokens.space.xs,
-    paddingRight: tokens.space.xs,
-    paddingTop: tokens.space.xs,
-    paddingBottom: tokens.space.xs,
+    paddingLeft: tokens.space.md,
+    paddingRight: tokens.space.md,
+    paddingTop: tokens.space.sm,
+    paddingBottom: tokens.space.sm,
     borderRadius: tokens.radius.sm,
     cursor: 'pointer' as const,
     pointerEvents: 'auto' as const,

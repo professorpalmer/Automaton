@@ -13,15 +13,20 @@ export function transparentHex(color: string): string {
   return `${rgbHex(color)}00`
 }
 
+/** Soft opaque stop (~28% alpha) so the band is a whisper, not a slab. */
+export function softFadeHex(color: string): string {
+  return `${rgbHex(color)}48`
+}
+
 export function edgeFadeBackground(color: string, edge: 'top' | 'bottom') {
-  const solid = rgbHex(color)
+  const soft = softFadeHex(color)
   const clear = transparentHex(color)
   // CSS angle: 0 = up, 180 = down. Top band fades downward; bottom upward.
   return {
     type: 'linear-gradient' as const,
     angle: edge === 'top' ? 180 : 0,
     stops: [
-      { color: solid, position: 0 },
+      { color: soft, position: 0 },
       { color: clear, position: 1 },
     ] as [{ color: string; position: number }, { color: string; position: number }],
   }
@@ -29,13 +34,12 @@ export function edgeFadeBackground(color: string, edge: 'top' | 'bottom') {
 
 /**
  * Feed / rail edge-fade spike (Wave 6 P2).
- * Simple opacity ramp via gpuix two-stop linear-gradient — no EdgeFade crate.
- * Does not touch menu/toast fills (frost punch-through stays owned by opaque overlays).
+ * Soft opacity ramp — keep band thin; opaque overlays stay opaque elsewhere.
  */
 export function EdgeFadeFrame({
   children,
-  band = 28,
-  top = true,
+  band = 14,
+  top = false,
   bottom = true,
   color,
   testId = 'edge-fade',
