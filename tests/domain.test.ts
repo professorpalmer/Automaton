@@ -74,6 +74,10 @@ import {
   formatSisterMandate,
   handedHopsSinceLastUser,
   hopDepthFromItems,
+  hopFailureLine,
+  expectingMet,
+  isSeatWorking,
+  normalizePendingHops,
   HOP_MAX_DEPTH,
   HOP_MAX_PER_TURN,
   parseMouthEmit,
@@ -89,6 +93,10 @@ describe('mouth vs job', () => {
     expect(composerEnterBusy('answer')).toBe(false)
     expect(composerEnterBusy('answer', true)).toBe(false)
     expect(isMouthBusy('intro')).toBe(true)
+    expect(isSeatWorking('idle')).toBe(false)
+    expect(isSeatWorking('idle', false, [{ to: 'kernel' }])).toBe(true)
+    expect(isSeatWorking('working')).toBe(true)
+    expect(isSeatWorking('idle', true)).toBe(true)
     expect(composerEnterBusy('intro')).toBe(false)
     expect(composerEnterBusy('ack')).toBe(false)
     expect(shouldQueueSteer('must_first')).toBe(true)
@@ -540,6 +548,18 @@ describe('mouth vs job', () => {
     expect(ask).toContain('Do not repeat Research')
     expect(ask).toContain('re-ask')
     expect(ask).not.toContain('one next step')
+    expect(ask).toContain('You are copy, not the scheduler.')
+    const chase = assessAsk('Dugout', 'Connected via SSH to the instance.', 'CPU, memory, and disk numbers')
+    expect(chase).toContain('You asked for: CPU, memory, and disk numbers')
+    expect(chase).toContain('scheduler for this chase')
+    expect(chase).not.toContain('You are copy, not the scheduler.')
+    const met = assessAsk('Kernel', 'The pin is green.', 'A one-line status.')
+    expect(met).toContain('You asked for: A one-line status.')
+    expect(met).toContain('You are copy, not the scheduler.')
+    expect(met).not.toContain('scheduler for this chase')
+    const notice = assessAsk('Kernel', '')
+    expect(notice).toContain('Kernel did not come back.')
+    expect(notice).toContain('Tell the person plainly that it did not come back')
   })
 
   test('clone URLs (https .git, git@, ssh) bind like page URLs', () => {
@@ -834,5 +854,17 @@ describe('typed sister hop', () => {
       { kind: 'msg', id: 'a2', from: 'agent', agentId: 'staff', text: 'Handed to Kernel.', sisterHop: { to: 'kernel', depth: 0 } },
       { kind: 'msg', id: 'a3', from: 'agent', agentId: 'staff', text: 'Handed to Research.', sisterHop: { to: 'research', depth: 0 } },
     ])).toBe(2)
+  })
+
+  test('expectingMet and hop envelopes hydrate from old id lists', () => {
+    expect(expectingMet('The pin is green.', 'A one-line status.')).toBe(true)
+    expect(expectingMet('Connected via SSH to the instance.', 'CPU, memory, and disk numbers')).toBe(false)
+    expect(expectingMet('', 'A one-line status.')).toBe(false)
+    expect(expectingMet('anything')).toBe(true)
+    expect(normalizePendingHops(['kernel', { to: 'research', task: 'Look up.', expecting: 'A cite.' }])).toEqual([
+      { to: 'kernel' },
+      { to: 'research', task: 'Look up.', expecting: 'A cite.' },
+    ])
+    expect(hopFailureLine('Kernel', 'SSH EC2 stats')).toBe('Kernel did not come back (SSH EC2 stats).')
   })
 })

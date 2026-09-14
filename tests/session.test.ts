@@ -2172,6 +2172,14 @@ describe('typed sister hop', () => {
     )
     expect(mandate?.kind === 'msg' && mandate.sisterHop).toEqual({ to: 'kernel', depth: 0 })
     expect(s.threads.staff.mouth).toBe('idle')
+    expect(s.threads.staff.pendingHops).toEqual([
+      {
+        to: 'kernel',
+        task: 'Check the pin.',
+        constraints: 'No merge.',
+        expecting: 'A one-line status.',
+      },
+    ])
   })
 
   test('staff is not a hop target; hidden sister is refused; blank task does not parse', () => {

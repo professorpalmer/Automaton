@@ -181,7 +181,19 @@ export type FeedItem =
       hopDepth?: number
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
-  | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }
+  | {
+      kind: 'relay'
+      id: string
+      lane: 'sent' | 'from'
+      peerId: AgentId
+      text: string
+      /** Original hop task, stamped on from-relays so assess still sees it after drop. */
+      task?: string
+      /** Original hop expecting, stamped on from-relays until the head assesses. */
+      expecting?: string
+      /** Sister failed or returned empty — assess is a notice, not copy. */
+      failed?: boolean
+    }
   | {
       kind: 'widget'
       id: string
@@ -252,8 +264,8 @@ export type Thread = {
   jobSteerQueue: SteerLine[]
   /** Wave 3 computer-use sets this so Send queues instead of locking. */
   computerBusy?: boolean
-  /** Sister hops still out for this coordinator turn. Assess waits until empty. */
-  pendingHops: AgentId[]
+  /** Sister hops still out for this coordinator turn. Assess waits until empty. Envelopes persist until drop. */
+  pendingHops: PendingHop[]
   /** Slack (etc.) reply address for the active channel-origin turn. */
   pendingChannelReply?: ChannelReplyRouting
   /**
@@ -312,6 +324,15 @@ export function isMouthBusy(mouth: MouthState): boolean {
     mouth === 'must_deliver' ||
     mouth === 'intro'
   )
+}
+
+/** Rail working: live mouth, job, computer-use, or hops still out (head keep-alive). */
+export function isSeatWorking(
+  mouth: MouthState,
+  computerBusy = false,
+  pendingHops: readonly (PendingHop | AgentId)[] = [],
+): boolean {
+  return isMouthBusy(mouth) || mouth === 'working' || computerBusy === true || pendingHops.length > 0
 }
 
 /** Mid-turn Send parks on the steer queue. Mouth and computer-use keep Send live. */
@@ -1495,19 +1516,49 @@ export function returnBeat(name: string, spoken: string): string {
   return `${name} finished.`
 }
 
-export function assessAsk(name: string, spoken: string): string {
-  return assessAsks([{ name, spoken }])
+export function assessAsk(name: string, spoken: string, expecting?: string): string {
+  return assessAsks([{ name, spoken, expecting }])
 }
 
+export type AssessReturn = {
+  name: string
+  spoken: string
+  expecting?: string
+  task?: string
+  failed?: boolean
+}
+
+const ASSESS_COPY =
+  'Deliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue.'
+
+const ASSESS_CHASE =
+  'If that answer does not meet what you asked for, hop again with a JSON hop emit ({"type":"hop","to":"...","task":"...","expecting":"..."}) within hop limits. Do not wait for the operator to re-ask. You are the scheduler for this chase, not copy. If it does meet what you asked for, deliver the outcome in your own words and do not hop again.'
+
+const ASSESS_NOTICE =
+  'Tell the person plainly that it did not come back, say what you had asked it for, and offer what you can do yourself. Do not wait for the operator to re-ask.'
+
 /** One Chief assess of every sister return since the last spoken line. */
-export function assessAsks(rows: { name: string; spoken: string }[]): string {
+export function assessAsks(rows: AssessReturn[]): string {
   if (rows.length === 0) return ''
-  if (rows.length === 1) {
-    const { name, spoken } = rows[0]
-    return `${name} answered: ${spoken}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat ${name}'s sentences. You are copy, not the scheduler.`
+  const allFailed = rows.every((row) => row.failed === true || !row.spoken.trim())
+  if (allFailed) {
+    const lines = rows.map((row) => hopFailureLine(row.name, row.task))
+    return `${lines.join('\n')}\n${ASSESS_NOTICE}`
   }
-  const answered = rows.map((row) => `${row.name} answered: ${row.spoken}`).join('\n')
-  return `${answered}\nDeliver what that means in your own words. Do not offer a next step for the operator to re-ask. Do not ask permission to continue. Do not repeat their sentences. You are copy, not the scheduler.`
+  const answered = rows
+    .map((row) => {
+      if (row.failed === true || !row.spoken.trim()) return hopFailureLine(row.name, row.task)
+      const expecting = row.expecting?.trim()
+      const line = `${row.name} answered: ${row.spoken}`
+      return expecting ? `${line}\nYou asked for: ${expecting}` : line
+    })
+    .join('\n')
+  const unmet = rows.some(
+    (row) => row.failed !== true && Boolean(row.expecting?.trim()) && !expectingMet(row.spoken, row.expecting),
+  )
+  if (unmet) return `${answered}\n${ASSESS_CHASE}`
+  const names = rows.length === 1 ? `${rows[0].name}'s sentences` : 'their sentences'
+  return `${answered}\n${ASSESS_COPY} Do not repeat ${names}. You are copy, not the scheduler.`
 }
 
 export function needsFanoutConfirm(mentioned: AgentId[]): boolean {
@@ -1672,6 +1723,14 @@ export function hostApprovalWidget(prompt = 'Run this on your Mac?'): QuestionWi
 export const HOP_MAX_DEPTH = 2
 export const HOP_MAX_PER_TURN = 2
 
+/** Envelope parked on the coordinator thread while a sister hop is still out. */
+export type PendingHop = {
+  to: AgentId
+  task?: string
+  constraints?: string
+  expecting?: string
+}
+
 export type SisterHop = {
   from: AgentId
   to: AgentId
@@ -1679,6 +1738,61 @@ export type SisterHop = {
   constraints?: string
   expecting?: string
   depth: number
+}
+
+export function pendingHopTo(hop: PendingHop | AgentId): AgentId {
+  return typeof hop === 'string' ? hop : hop.to
+}
+
+export function normalizePendingHops(raw: unknown): PendingHop[] {
+  if (!Array.isArray(raw)) return []
+  const out: PendingHop[] = []
+  for (const item of raw) {
+    let hop: PendingHop | null = null
+    if (typeof item === 'string') {
+      const to = item.trim()
+      if (to) hop = { to }
+    } else if (item && typeof item === 'object') {
+      const row = item as Record<string, unknown>
+      const to = typeof row.to === 'string' ? row.to.trim() : ''
+      if (!to) continue
+      hop = { to }
+      if (typeof row.task === 'string' && row.task.trim()) hop.task = row.task.trim()
+      if (typeof row.constraints === 'string' && row.constraints.trim()) hop.constraints = row.constraints.trim()
+      if (typeof row.expecting === 'string' && row.expecting.trim()) hop.expecting = row.expecting.trim()
+    }
+    if (!hop) continue
+    const idx = out.findIndex((row) => row.to === hop.to)
+    if (idx >= 0) out[idx] = hop
+    else out.push(hop)
+  }
+  return out
+}
+
+export function asPendingHops(hops: readonly (AgentId | PendingHop)[]): PendingHop[] {
+  return normalizePendingHops([...hops])
+}
+
+/**
+ * Whether a sister answer meets the hop's expecting.
+ * Missing expecting is treated as met (copy). Empty spoken is unmet.
+ * Expecting that asks for numbers/stats without a digit in the answer is unmet
+ * (the Staff→Dugout "connected via SSH" with no figures case).
+ */
+export function expectingMet(spoken: string, expecting?: string): boolean {
+  const want = expecting?.trim() ?? ''
+  if (!want) return true
+  const answer = spoken.trim()
+  if (!answer) return false
+  const wantLower = want.toLowerCase()
+  const wantsNumbers = /\b(numbers?|stats?|cpu|memory|disk|percent|%|count|usage|load)\b/.test(wantLower)
+  if (wantsNumbers && !/\d/.test(answer)) return false
+  return true
+}
+
+export function hopFailureLine(name: string, task?: string): string {
+  const asked = task?.trim()
+  return asked ? `${name} did not come back (${asked}).` : `${name} did not come back.`
 }
 
 export function formatSisterMandate(hop: Pick<SisterHop, 'task' | 'constraints' | 'expecting'>): string {

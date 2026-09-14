@@ -15,7 +15,8 @@ This is **not** Slack / external channels (`docs/channels.md`). Rooms live under
 3. Wakes the target mouth with a user turn `kickoff=peer-hop`, carrying peer provenance:
    - `originUser` — interactive person started this chain (from sender turn / prior hop)
    - `hopDepth` — increments from the sender's last user turn (first hop = 1)
-4. Returns immediately — **no live RPC**; the reply arrives later as a normal mouth turn.
+4. Parks a `pendingHops` envelope on the sender (head stays working until the sister returns).
+5. Returns immediately — **no live RPC**; the reply arrives later as a normal mouth turn.
 
 Empty text is a no-op (do not auto-ack empty). Peer/room traffic is **mouth** only;
 Jobs / Puppetmaster stay untouched.
@@ -56,6 +57,17 @@ multi-select visible automata. MVP create lives here (chat phrases can wait).
 | 1:1 peer message / room post | Mouth (`kickoff=peer-hop`) |
 | Coding work | Jobs / Puppetmaster |
 | Slack mention/DM | Channels (`docs/channels.md`) — separate P0.6 |
+
+
+## Peer chase (Wave 5 P0)
+
+Hops are async (ack now, answer later) — not a blocking RPC. The asking
+seat parks a `pendingHops` envelope (`task` / `constraints` / `expecting` +
+target) and stays working until drop. When the sister finishes, the head
+auto-wakes (`maybeWakeAssess`) with the peer answer **and** original
+`expecting`. Unmet expecting may hop again within `HOP_MAX_*`; met or missing
+expecting is copy. Empty / failed sister auto-wakes a failure notice so the
+user never has to say “and?”. See `docs/peer-chase.md`.
 
 ## Honesty
 

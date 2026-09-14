@@ -9,6 +9,7 @@ import {
   createAgentNames,
   emptyThreads,
   isMouthBusy,
+  isSeatWorking,
   lastSpoken,
   createPendingSendView,
   mergePendingFeed,
@@ -1555,7 +1556,7 @@ function Rail({
         const selected = agent.id === session.activeAgentId
         const mouth = row?.mouth ?? 'idle'
         const mouthBusy = isMouthBusy(mouth)
-        const working = mouthBusy || mouth === 'working' || row?.computerBusy === true
+        const working = isSeatWorking(mouth, row?.computerBusy === true, row?.pendingHops)
         const alive = selected || working
         const pin = mouthModelFor(agent.id)
         const family = modelFamily(pin)
