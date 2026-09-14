@@ -2073,7 +2073,7 @@ const FeedRelayRow = React.memo(function FeedRelayRow({
   return (
     <div style={feedLane}>
       <ToolLine
-        testId={`hop-card-${item.id}`}
+        testId={`relay-${item.lane}-${item.peerId}`}
         label={label}
         detail={detail}
         failed={item.failed === true}
