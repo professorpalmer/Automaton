@@ -36,6 +36,7 @@ export function Composer({
   onDropPending,
   onSend,
   onStop,
+  focusNonce = 0,
 }: {
   value: string
   pendingPaths: string[]
@@ -52,6 +53,8 @@ export function Composer({
   onDropPending: (path: string) => void
   onSend: () => void
   onStop?: () => void
+  /** Bump to remount the textarea with autoFocus (Cmd+L / empty CTA). */
+  focusNonce?: number
 }) {
   const T = useTokens()
   const [highlight, setHighlight] = useState(0)
@@ -197,6 +200,7 @@ export function Composer({
           </div>
         ) : null}
         <textarea
+          key={`composer-focus-${focusNonce}`}
           testId="composer"
           value={value}
           placeholder=""

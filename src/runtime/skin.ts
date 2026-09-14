@@ -55,6 +55,13 @@ export function railIsCompact(width: number): boolean {
   return clampRailWidth(width) <= DEFAULT_TOKENS.layout.sidebarCompact
 }
 
+/** Compact ↔ default width. Drag still owns fine control. */
+export function toggleRailWidth(width: number): number {
+  const current = clampRailWidth(width)
+  if (railIsCompact(current)) return DEFAULT_TOKENS.layout.sidebarWidth
+  return DEFAULT_TOKENS.layout.sidebarMin
+}
+
 export function railDragOrigin(width: number): number {
   return clampRailWidth(width) + DEFAULT_TOKENS.layout.railHandle / 2
 }

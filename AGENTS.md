@@ -90,6 +90,7 @@ Invariants:
 - Peer provenance + standing role (Wave 4 P1) — `sendToAgent` / `postToRoom` stamp `originUser` + `hopDepth` on peer-hop wakes; `standingRoleBlock` (name/title/rules) on every mouth system preamble; unattended = routine | peer-hop without interactive person; no CopilotKit; sisters stay separate; package 0.12.0.
 - Session Activity strip (Wave 4 P2) — per-sister ephemeral commands/files next to feed from mouth-stream / action ledger (no second audit DB); writes show path·size only; `docs/activity.md`; no CopilotKit; package 0.12.0.
 - Peer chase / head keep-alive (Wave 5 P0) — `offerSisterHop` / `sendToAgent` park `pendingHops` envelopes; head working while hops are out; assess injects `expecting` and may hop again if unmet; empty/fail sister auto-wakes a notice; `docs/peer-chase.md`; no CopilotKit / `@ag-ui/*`; sisters stay separate; package 0.12.0.
+- GPUI polish P0 (Wave 6) — toast stack + level policy (`src/chrome/toast*.tsx` / toast-store); EmptyState icon/CTA; focus chords Cmd+L / Cmd+B / Cmd+, / Cmd+J (HID + gpuix); `docs/wave6-gpui-polish.md`; no CopilotKit / gpui-kit; idle parks intact; package 0.12.0.
 - Bezel light appearance (Wave 2 P2) — designed light (Settings → Window → Appearance; not invert of graphite); Brand-complete Settings (remaining CARD/FIELD via useChrome; update modal scrim); ToggleGroup, EmptyState, Sheet extracted. Still vendored `@gpuix/react` (Wave 3.2 is 0.6.2 + matched native). Package 0.8.0.
 
 ## Safety

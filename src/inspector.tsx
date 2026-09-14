@@ -136,6 +136,34 @@ export function cutChord(event: {
   return cmdLetterChord(event, 'x')
 }
 
+export function focusComposerChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'l')
+}
+
+export function toggleRailChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'b')
+}
+
+export function settingsChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return event.key === ',' && Boolean(event.modifiers?.cmd) && !event.modifiers?.shift && !event.modifiers?.alt
+}
+
+export function jobsChord(event: {
+  key?: string
+  modifiers?: { cmd?: boolean; shift?: boolean; alt?: boolean }
+}): boolean {
+  return cmdLetterChord(event, 'j')
+}
+
 export function LedgerList({ metrics, testId }: { metrics: LedgerMetrics; testId: string }) {
   const { tokens: T } = useChrome()
   return (

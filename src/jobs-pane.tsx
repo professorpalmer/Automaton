@@ -84,7 +84,9 @@ export function JobsPane({
           <EmptyState
             testId="jobs-empty"
             title="No running jobs."
-            style={{ fontSize: T.type.sm, color: T.tertiary, gap: 0 }}
+            actionLabel="Expand board"
+            onAction={onOpenBoard}
+            style={{ fontSize: T.type.sm, color: T.tertiary, gap: T.space.sm }}
           />
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
