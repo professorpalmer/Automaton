@@ -13,15 +13,18 @@ export type ActivityTakeover = {
 
 export function activityVisible(state: ActivityTakeover): boolean {
   if (state.held === true) return true
-  if (state.streaming) return true
+  if (state.held === false) return false
+  // Mouth wait is MouthWaitBubble — Activity bar only for real steps/session rows.
+  if (state.streaming && state.hasSessionActivity) return true
   // Collapsed strip after the turn when this sister ran commands/files.
-  if (state.hasSessionActivity && state.held !== false) return true
+  if (state.hasSessionActivity) return true
   return false
 }
 
 export function activityExpanded(state: ActivityTakeover): boolean {
   if (state.held != null) return state.held
-  return state.streaming
+  // Auto-open only when there is session activity to disclose while streaming.
+  return state.streaming && Boolean(state.hasSessionActivity)
 }
 
 export function pressActivityHeader(state: ActivityTakeover): ActivityTakeover {

@@ -8,8 +8,9 @@ import { foldStepsByVerb, stepRow, type StepTrace } from './step-row'
 import { groupBoxStyle } from './surface'
 
 /**
- * Thinking / tool disclosure + Wave 4 P2 session Activity strip.
- * Auto-opens while streaming; header press takes over. Session commands/files
+ * Tool disclosure + Wave 4 P2 session Activity strip.
+ * Mouth wait is MouthWaitBubble (bubble slot), not this bar.
+ * Auto-opens while streaming with steps; header press takes over. Session commands/files
  * (paths/sizes only for writes) stay as a collapsed strip after the turn —
  * derived from mouth-stream / ledger, not a second audit DB. No MotionDiv.
  */
@@ -39,7 +40,7 @@ export function ActivityZone({
   const activitySummary = activityHeaderSummary(sessionActivity)
   const jobHeader =
     folded.length > 0 ? folded.map((row) => (row.count > 1 ? `${row.verb} ×${row.count}` : row.verb)).join(' · ') : ''
-  const header = activitySummary || jobHeader || (streaming ? 'Thinking' : 'Activity')
+  const header = activitySummary || jobHeader || 'Activity'
   return (
     <div
       testId="activity"
@@ -65,11 +66,6 @@ export function ActivityZone({
           onClick={() => onHeld(pressActivityHeader(state).held)}
         >
           <div style={{ fontSize: T.type.sm, color: T.secondary, flexGrow: 1 }}>{header}</div>
-          {streaming ? (
-            <div testId="thinking" style={{ fontSize: T.type.sm, color: T.ghost }}>
-              {thinkingDots(3)}
-            </div>
-          ) : null}
         </div>
         {open ? (
           <div testId="activity-body" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>

@@ -149,7 +149,7 @@ import {
 import { SisterBlob, framePath, markFor } from './blob'
 import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, Composer, EmptyState, Sheet, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
+import { ActivityZone, Composer, EmptyState, MouthWaitBubble, Sheet, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition } from './motion'
@@ -2154,11 +2154,14 @@ export const Feed = forwardRef<FeedApi, {
   const streaming = feedThinking(mouth, items)
   const [activityHeld, setActivityHeld] = useState<boolean | null>(null)
   const sessionActivity = useMemo(() => sessionActivityForSister({ feed: items }), [items])
-  const thinking = activityVisible({
+  const hasSessionActivity = sessionActivity.length > 0
+  const activityOpen = activityVisible({
     streaming,
     held: activityHeld,
-    hasSessionActivity: sessionActivity.length > 0,
+    hasSessionActivity,
   })
+  // Pin while mouth waits or Activity strip is up.
+  const thinking = streaming || activityOpen
   const pinIdentity = feedPinIdentity(items, dockPad, thinking)
   const traces = useMemo(() => jobs.flatMap(tracesFromJob), [jobs])
   const growKey = feedGrowKey(items)
@@ -2403,7 +2406,8 @@ export const Feed = forwardRef<FeedApi, {
           />
         )
       })}
-      {thinking ? (
+      {streaming ? <MouthWaitBubble /> : null}
+      {activityOpen ? (
         <ActivityZone
           streaming={streaming}
           held={activityHeld}
