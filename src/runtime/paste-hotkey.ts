@@ -8,6 +8,10 @@ const KEY_C = 8
 const KEY_V = 9
 const KEY_Q = 12
 const KEY_W = 13
+const KEY_B = 11
+const KEY_L = 37
+const KEY_J = 38
+const KEY_COMMA = 43
 const KEY_LCMD = 55
 const KEY_RCMD = 54
 const KEY_SHIFT = 56
@@ -161,4 +165,56 @@ export function watchCutHotkey(onCut: () => void, seams?: CutHotkeySeams): () =>
 /** Cmd+Q / Cmd+W. Same swallow as paste; desk focus also ate the React chord. */
 export function watchQuitHotkey(onQuit: () => void, seams?: QuitHotkeySeams): () => void {
   return watchChord(seams?.cmdQuit ?? cmdQuitDown, onQuit, seams)
+}
+
+export type FocusComposerHotkeySeams = HidHotkeySeams & {
+  cmdL?: () => boolean
+}
+
+export type ToggleRailHotkeySeams = HidHotkeySeams & {
+  cmdB?: () => boolean
+}
+
+export type SettingsHotkeySeams = HidHotkeySeams & {
+  cmdComma?: () => boolean
+}
+
+export type JobsHotkeySeams = HidHotkeySeams & {
+  cmdJ?: () => boolean
+}
+
+export function cmdLDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_L, read)
+}
+
+export function cmdBDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_B, read)
+}
+
+export function cmdCommaDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_COMMA, read)
+}
+
+export function cmdJDown(read = loadHid()): boolean {
+  return cmdLetterDown(KEY_J, read)
+}
+
+/** Cmd+L — focus composer (textarea may swallow React key). */
+export function watchFocusComposerHotkey(onFocus: () => void, seams?: FocusComposerHotkeySeams): () => void {
+  return watchChord(seams?.cmdL ?? cmdLDown, onFocus, seams)
+}
+
+/** Cmd+B — toggle rail compact / expanded. */
+export function watchToggleRailHotkey(onToggle: () => void, seams?: ToggleRailHotkeySeams): () => void {
+  return watchChord(seams?.cmdB ?? cmdBDown, onToggle, seams)
+}
+
+/** Cmd+, — open / close Settings. */
+export function watchSettingsHotkey(onSettings: () => void, seams?: SettingsHotkeySeams): () => void {
+  return watchChord(seams?.cmdComma ?? cmdCommaDown, onSettings, seams)
+}
+
+/** Cmd+J — open / close Jobs. */
+export function watchJobsHotkey(onJobs: () => void, seams?: JobsHotkeySeams): () => void {
+  return watchChord(seams?.cmdJ ?? cmdJDown, onJobs, seams)
 }

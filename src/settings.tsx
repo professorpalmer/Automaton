@@ -31,7 +31,7 @@ import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import { clampFrostWash, patchSkin, readSkin, type Skin, type WindowMode } from './runtime/skin'
-import { EmptyState, ToggleGroup } from './chrome'
+import { EmptyState, ToggleGroup, pushToast, type ToastLevel } from './chrome'
 import {
   BRAND_ACCENT_SWATCHES,
   BRAND_RADIUS_PRESETS,
@@ -388,6 +388,12 @@ function RoutinesCard({ agents }: { agents: Agent[] }) {
         <EmptyState
           variant="card"
           title="No routines yet. Schedule wakes a mouth with a saved prompt while Staff is open."
+          detail="Use the form below to add one."
+          actionLabel="Scroll to create"
+          onAction={() => {
+            /* Create fields sit below — toast nudges the verb. */
+            pushToast({ level: 'info', message: 'Name, prompt, and schedule below.' })
+          }}
         />
       ) : (
         rows.map((row) => (
@@ -597,6 +603,8 @@ function SkillsCard({ agents }: { agents: Agent[] }) {
           testId="settings-skills-empty"
           variant="card"
           title="No skills yet. Author a local skill below, or import a SKILL.md URL from the inspector."
+          actionLabel="Author below"
+          onAction={() => pushToast({ level: 'info', message: 'Fill the author form below to add a skill.' })}
         />
       ) : (
         rows.map((row) => {
@@ -811,6 +819,8 @@ function RoomsCard({ agents }: { agents: Agent[] }) {
         <EmptyState
           variant="card"
           title="No rooms yet. Create a named room and seat automata — posts land as notes on each member thread."
+          actionLabel="Create below"
+          onAction={() => pushToast({ level: 'info', message: 'Name the room below, then create.' })}
         />
       ) : (
         rows.map((row) => (
@@ -953,6 +963,7 @@ function McpCatalogCard() {
     }
     if (!writeConnectorSecret(id, value)) {
       setNote(`Need: could not save auth for ${id}.`)
+      pushToast({ level: 'error', message: `Need: could not save auth for ${id}.` })
       return
     }
     setSecretDraft((cur) => {
@@ -985,6 +996,8 @@ function McpCatalogCard() {
           testId="settings-mcp-empty"
           variant="card"
           title="Need: no catalog entries match. (Curated list only — never invent plugins.)"
+          actionLabel={query.trim() ? 'Clear search' : undefined}
+          onAction={query.trim() ? () => setQuery('') : undefined}
         />
       ) : (
         rows.map((row) => (
@@ -1108,6 +1121,7 @@ export function Settings({
   metrics,
   agents = [],
   onClose,
+  onToast,
   onPlaneChange,
   onSkinChange,
   onCompactNow,
@@ -1115,6 +1129,7 @@ export function Settings({
   metrics: LedgerMetrics
   agents?: Agent[]
   onClose: () => void
+  onToast?: (level: ToastLevel, message: string) => void
   onPlaneChange?: () => void
   onSkinChange?: () => void
   /** Mouth-only compact for the focused automaton. Jobs pane untouched. */
@@ -1192,7 +1207,10 @@ export function Settings({
     const key = draft.trim()
     if (!key) return
     // Same vault path as mouth secret-request / fulfillSecretRequest.
-    if (!writeConnectorSecret(OPENROUTER_ID, key)) return
+    if (!writeConnectorSecret(OPENROUTER_ID, key)) {
+      onToast?.('error', 'Need: could not save OpenRouter key.')
+      return
+    }
     setDraft('')
     setPresence('present')
     if (!shouldLiveProbe()) return

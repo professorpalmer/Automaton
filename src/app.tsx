@@ -33,7 +33,7 @@ import {
   visibleAgents,
 } from './domain'
 import { ingestPath, insertClipboardText, pickLocalFiles, readClipboardPaths, readClipboardText } from './runtime/attachments'
-import { watchCopyHotkey, watchCutHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey } from './runtime/paste-hotkey'
+import { watchCopyHotkey, watchCutHotkey, watchFocusComposerHotkey, watchJobsHotkey, watchPasteHotkey, watchQuitHotkey, watchSelectAllHotkey, watchSettingsHotkey, watchToggleRailHotkey } from './runtime/paste-hotkey'
 import { runningTests } from './runtime/test-env'
 import { applyUpdate, checkForUpdate, dismissUpdate, readDismissedSha, shouldOfferUpdate, relaunchAutomaton, type UpdateOffer } from './runtime/updates'
 import {
@@ -84,6 +84,10 @@ import {
   pasteChord,
   quitChord,
   selectAllChord,
+  focusComposerChord,
+  toggleRailChord,
+  settingsChord,
+  jobsChord,
 } from './inspector'
 import { DeskStage } from './desk'
 import { JobsPane } from './jobs-pane'
@@ -147,9 +151,9 @@ import {
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
-import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, writeSkin } from './runtime/skin'
+import { railDragOrigin, railIsCompact, railWidthFromDrag, readSkin, toggleRailWidth, writeSkin } from './runtime/skin'
 import { ConfirmCard, QuestionCard, SecretRequestCard } from './cards'
-import { ActivityZone, Composer, EmptyState, MouthWaitBubble, Sheet, Titlebar, activityVisible, groupBoxStyle, tracesFromJob } from './chrome'
+import { ActivityZone, Composer, EmptyState, MouthWaitBubble, Sheet, Titlebar, ToastStack, activityVisible, groupBoxStyle, pushToast, tracesFromJob } from './chrome'
 import { connectorDisplayName } from './runtime/connectors'
 import { Settings } from './settings'
 import { motionTransition } from './motion'
@@ -260,6 +264,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     return runningTests() ? seeded : playIntro(seeded, seeded.activeAgentId)
   })
   const [pane, setPane] = useState<Pane>('none')
+  const [composerFocusNonce, setComposerFocusNonce] = useState(0)
   const [planeTick, setPlaneTick] = useState(0)
   const [railWidth, setRailWidth] = useState(() => readSkin().railWidth)
   const [railDragging, setRailDragging] = useState(false)
@@ -328,6 +333,22 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     setPane((current) => (current === 'jobs' ? 'none' : 'jobs'))
   }
 
+  const toggleSettings = () => {
+    setPane((current) => (current === 'settings' ? 'none' : 'settings'))
+  }
+
+  const focusComposer = () => {
+    setComposerFocusNonce((n) => n + 1)
+  }
+
+  const toggleRail = () => {
+    setRailWidth((current) => {
+      const next = toggleRailWidth(current)
+      writeSkin({ ...readSkin(), railWidth: next })
+      return next
+    })
+  }
+
   const popOutDashboard = (jobId?: string | null) => {
     const located = ensureLocalDashboard(jobId)
     if (!located.ok) {
@@ -385,6 +406,11 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       const offer = checkForUpdate()
       if (gone || !shouldOfferUpdate(offer, readDismissedSha())) return
       setUpdate(offer)
+      pushToast({
+        id: `update-${offer?.latest ?? 'ready'}`,
+        level: 'info',
+        message: 'Updates available — review the update dialog.',
+      })
     }
     const start = setTimeout(look, 800)
     const pulse = setInterval(look, 4 * 60 * 60 * 1000)
@@ -503,6 +529,14 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
           bindNewUserAttachments(store, current, next)
           persistIntroIfUserSpoke(next)
           return next
+        })
+        pushToast({
+          level: 'error',
+          message: spoken || "Couldn't speak.",
+          action: {
+            label: 'Show sister',
+            onAction: () => setSession((current) => ({ ...current, activeAgentId: agentId })),
+          },
         })
       },
       onCompact: (agentId, summary) => {
@@ -817,12 +851,20 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
     const stopSelectAll = watchSelectAllHotkey(() => feedApi.current?.selectAll())
     const stopCut = watchCutHotkey(() => cutComposerIfFocused())
     const stopQuit = watchQuitHotkey(() => quitAutomaton())
+    const stopFocus = watchFocusComposerHotkey(() => focusComposer())
+    const stopRail = watchToggleRailHotkey(() => toggleRail())
+    const stopSettings = watchSettingsHotkey(() => toggleSettings())
+    const stopJobs = watchJobsHotkey(() => toggleJobs())
     return () => {
       stopPaste()
       stopCopy()
       stopSelectAll()
       stopCut()
       stopQuit()
+      stopFocus()
+      stopRail()
+      stopSettings()
+      stopJobs()
     }
   }, [])
 
@@ -876,6 +918,10 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
       }}
       onKeyDown={(event) => {
         if (inspectorChord(event)) toggleInspector()
+        if (focusComposerChord(event)) focusComposer()
+        if (toggleRailChord(event)) toggleRail()
+        if (settingsChord(event)) toggleSettings()
+        if (jobsChord(event)) toggleJobs()
         if (pasteChord(event)) enqueueClipboard()
         if (selectAllChord(event)) feedApi.current?.selectAll()
         if (copyChord(event)) copyFeedIfIdle()
@@ -981,8 +1027,26 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
               }
               onAnswerWidget={(id, answer) => setSession((current) => answerWidget(current, id, answer))}
               onDismissWidget={(id) => setSession((current) => dismissWidget(current, id))}
-              onSaveSecret={(id, value) => setSession((current) => fulfillSecretRequest(current, id, value))}
+              onSaveSecret={(id, value) => {
+                let failed = false
+                setSession((current) => {
+                  const next = fulfillSecretRequest(current, id, value)
+                  const before = current.threads[current.activeAgentId]?.items.find((row) => row.id === id)
+                  const after = next.threads[next.activeAgentId]?.items.find((row) => row.id === id)
+                  const saved =
+                    before?.kind === 'secret-request' &&
+                    after?.kind === 'secret-request' &&
+                    before.status === 'open' &&
+                    after.status === 'saved'
+                  if (value.trim() && before?.kind === 'secret-request' && before.status === 'open' && !saved) {
+                    failed = true
+                  }
+                  return next
+                })
+                if (failed) pushToast({ level: 'error', message: 'Need: could not save secret.' })
+              }}
               onDismissSecret={(id) => setSession((current) => dismissSecretRequest(current, id))}
+              onEmptyWrite={focusComposer}
             />
             <div
               testId="dock"
@@ -1048,6 +1112,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                   }}
                 />
               ) : null}
+              <ToastStack style={{ paddingLeft: T.space.lg, paddingRight: T.space.lg, paddingBottom: T.space.sm }} />
               <Composer
                 value={overlayBusy ? '' : (thread?.draft ?? '')}
                 agents={session.agents}
@@ -1062,6 +1127,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                         thread.computerBusy === true ||
                         jobs.length > 0)),
                 )}
+                focusNonce={composerFocusNonce}
                 onChange={(value) => setSession((current) => setDraft(current, value))}
                 onAttach={onAttach}
                 onPaste={enqueueClipboard}
@@ -1129,6 +1195,7 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
                 metrics={store.metrics()}
                 agents={visibleAgents(session.agents)}
                 onClose={() => setPane('none')}
+                onToast={(level, message) => pushToast({ level, message })}
                 onPlaneChange={() => setPlaneTick((n) => n + 1)}
                 onSkinChange={() => {
                   refreshTokens()
@@ -2133,6 +2200,7 @@ export const Feed = forwardRef<FeedApi, {
   onDismissWidget?: (id: string) => void
   onSaveSecret?: (id: string, value: string) => void
   onDismissSecret?: (id: string) => void
+  onEmptyWrite?: () => void
 }>(function Feed(
   {
     items,
@@ -2146,6 +2214,7 @@ export const Feed = forwardRef<FeedApi, {
     onDismissWidget,
     onSaveSecret,
     onDismissSecret,
+    onEmptyWrite,
   },
   api,
 ) {
@@ -2284,6 +2353,8 @@ export const Feed = forwardRef<FeedApi, {
           testId="feed-empty"
           title="Start shipping. No strings attached."
           detail="Pick a mouth on the rail. Words go here."
+          actionLabel={onEmptyWrite ? 'Write something' : undefined}
+          onAction={onEmptyWrite}
           style={{
             ...feedLane,
             paddingTop: T.space.hero,
