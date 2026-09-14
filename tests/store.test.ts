@@ -660,6 +660,7 @@ describe('staff sqlite store', () => {
       decision: 'permit',
       reason: 'type',
       secretChars: secret.length,
+      initiatorKind: 'person',
       at: 10,
     })
     store.recordAction({
@@ -670,6 +671,7 @@ describe('staff sqlite store', () => {
       decision: 'permit',
       reason: 'read',
       path: '/tmp/secret-file.txt',
+      initiatorKind: 'routine',
       at: 11,
     })
     store.recordAction({
@@ -680,6 +682,7 @@ describe('staff sqlite store', () => {
       decision: 'permit',
       reason: 'read',
       path: '/tmp/secret-file.txt',
+      initiatorKind: 'routine',
       at: 11,
     })
     store.recordAction({
@@ -689,6 +692,7 @@ describe('staff sqlite store', () => {
       intent: 'click',
       decision: 'refuse',
       reason: 'staff_pixel',
+      initiatorKind: 'peer-hop',
       at: 12,
     })
     expect(store.listActions('kernel')).toHaveLength(2)
@@ -697,10 +701,28 @@ describe('staff sqlite store', () => {
     const rows = reopened.listActions()
     expect(rows).toHaveLength(3)
     expect(rows.map((row) => row.id)).toEqual(['action_1', 'action_2', 'action_3'])
+    expect(rows.map((row) => row.initiatorKind)).toEqual(['person', 'routine', 'peer-hop'])
     expect(JSON.stringify(rows)).not.toContain(secret)
     expect(JSON.stringify(rows)).not.toContain('file bytes')
     expect(rows[0]?.secretChars).toBe(secret.length)
     expect(rows[1]?.path).toBe('/tmp/secret-file.txt')
+  })
+
+  test('action events default missing initiatorKind to unknown on migrate', () => {
+    resetIdsForTests()
+    const path = join(tmpdir(), `automaton-store-actions-init-${Date.now()}.sqlite`)
+    const store = openStaffStore(path)
+    store.recordAction({
+      id: 'action_4',
+      ownerAgentId: 'staff',
+      tool: 'host_shell',
+      intent: 'host_shell',
+      decision: 'refuse',
+      reason: 'host_card',
+      initiatorKind: 'webhook',
+      at: 20,
+    })
+    expect(store.listActions()[0]?.initiatorKind).toBe('webhook')
   })
 
 })

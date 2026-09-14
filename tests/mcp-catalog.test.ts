@@ -121,6 +121,52 @@ describe('mcp catalog', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
+
+  test('MCP permit path records initiator and paints decide→act→done', () => {
+    const home = tmpHome()
+    installMcp('github', home)
+    writeMcpSecret('github', 'ghp_test_not_logged', home)
+    const events: { decision: string; initiatorKind: string; tool: string }[] = []
+    const phases: string[] = []
+    const stub = callMcpTool('github', 'create_issue', {}, home, {
+      ownerAgentId: 'staff',
+      initiatorKind: 'person',
+      recordAction: (event) =>
+        events.push({
+          decision: event.decision,
+          initiatorKind: event.initiatorKind,
+          tool: event.tool,
+        }),
+      emitMouthStream: (step) => phases.push(step.phase),
+    })
+    expect(stub.ok).toBe(true)
+    expect(events).toEqual([{ decision: 'permit', initiatorKind: 'person', tool: 'mcp:github' }])
+    expect(phases).toEqual(['decide', 'act', 'done'])
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  test('MCP auth refuse records refuse initiator webhook', () => {
+    const home = tmpHome()
+    installMcp('github', home)
+    const events: { decision: string; reason: string; initiatorKind: string }[] = []
+    const phases: string[] = []
+    const stub = callMcpTool('github', 'create_issue', {}, home, {
+      ownerAgentId: 'staff',
+      initiatorKind: 'webhook',
+      recordAction: (event) =>
+        events.push({
+          decision: event.decision,
+          reason: event.reason,
+          initiatorKind: event.initiatorKind,
+        }),
+      emitMouthStream: (step) => phases.push(step.phase),
+    })
+    expect(stub.ok).toBe(false)
+    expect(events[0]).toEqual({ decision: 'refuse', reason: 'mcp_auth', initiatorKind: 'webhook' })
+    expect(phases).toEqual(['decide', 'refuse'])
+    rmSync(home, { recursive: true, force: true })
+  })
+
   test('needsAuth Connect reuses writeConnectorSecret / knownConnectorId', () => {
     const home = tmpHome()
     expect(knownConnectorId('github', home)).toBe(false)

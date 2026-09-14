@@ -111,6 +111,7 @@ import {
   postToRoom,
   sanitizePeerRelay,
 } from './runtime/rooms'
+import { mouthStreamFeedItem, type MouthStreamStep } from './runtime/mouth-stream'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -1626,6 +1627,23 @@ export function bookComputer(session: Session, ownerAgentId: AgentId, goal: stri
   let next = putComputer(session, worker)
   next = setComputerBusy(next, ownerAgentId, true)
   return wakeMouth(next, ownerAgentId, 'working')
+}
+
+/** Paint a mouth-stream side-effect step on one sister thread (never cross-thread). */
+export function appendMouthStream(
+  session: Session,
+  agentId: AgentId,
+  step: Omit<MouthStreamStep, 'agentId'> & { agentId?: string },
+): Session {
+  if (!session.threads[agentId]) return session
+  const item = mouthStreamFeedItem({
+    agentId,
+    phase: step.phase,
+    tool: step.tool,
+    intent: step.intent,
+    detail: step.detail,
+  })
+  return append(session, agentId, item, session.activeAgentId)
 }
 
 function finishComputer(

@@ -12,6 +12,7 @@ import {
   type ComputerToolName,
   type ComputerToolResult,
   type ComputerToolSeams,
+  type InitiatorKind,
 } from './computer-tools'
 import { OPENROUTER_CHAT_PATH, connectorFetch } from './connector-client'
 import { setWorkerDriving } from './driving'
@@ -50,6 +51,8 @@ export type ComputerWorkerInput = {
   chat: ComputerChatFn
   seams?: ComputerToolSeams
   maxRounds?: number
+  /** Stamped on every action ledger row for this worker. */
+  initiatorKind?: InitiatorKind
 }
 
 export type ComputerWorkerOutcome = {
@@ -90,6 +93,7 @@ export async function runComputerWorker(input: ComputerWorkerInput): Promise<Com
     holderId,
     role: input.role,
     kit: input.kit,
+    initiatorKind: input.initiatorKind ?? input.seams?.initiatorKind ?? 'unknown',
   }
 
   if (input.kit === 'blank') {

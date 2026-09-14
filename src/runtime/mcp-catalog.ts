@@ -1,6 +1,12 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { automatonHome } from './keys'
+import {
+  finishSideEffect,
+  recordSideEffect,
+  type InitiatorKind,
+  type SideEffectRecordSeams,
+} from './mouth-stream'
 
 /** Curated installable MCP connector (honest rows only — never invent marketplace IDs). */
 export type CatalogEntry = {
@@ -400,29 +406,58 @@ export function discoverTools(id: string, home = automatonHome()): DiscoverTools
   return { ok: true, tools: [...hints], source: 'schema-hint' }
 }
 
+export type McpCallSeams = SideEffectRecordSeams & {
+  ownerAgentId?: string
+  initiatorKind?: InitiatorKind
+}
+
 /**
  * Live MCP call stub — registry + schema hints only in MVP.
  * Never scrapes cookies or invents a transport.
+ * Permit/refuse paths share the action-ledger helper with computer/host.
  */
 export function callMcpTool(
   id: string,
   toolName: string,
   _args?: Record<string, unknown>,
   home = automatonHome(),
+  seams: McpCallSeams = {},
 ): McpOpResult<{ stub: true; message: string }> {
   const trimmed = id.trim()
   const tool = toolName.trim()
+  const ownerAgentId = seams.ownerAgentId?.trim() || 'staff'
+  const initiatorKind = seams.initiatorKind ?? 'unknown'
+  const ledger = {
+    ownerAgentId,
+    tool: `mcp:${trimmed || 'unknown'}`,
+    intent: tool || 'call',
+    path: trimmed || undefined,
+    initiatorKind,
+  }
   if (!trimmed || !tool) {
+    recordSideEffect(seams, { ...ledger, decision: 'refuse', reason: 'missing_mcp' })
     return { ok: false, error: 'Need MCP id and tool name.' }
   }
   const discovered = discoverTools(trimmed, home)
-  if (!discovered.ok) return { ok: false, error: discovered.error }
+  if (!discovered.ok) {
+    recordSideEffect(seams, { ...ledger, decision: 'refuse', reason: 'mcp_discover' })
+    return { ok: false, error: discovered.error }
+  }
   if (!discovered.tools.some((row) => row.name === tool)) {
+    recordSideEffect(seams, { ...ledger, decision: 'refuse', reason: 'mcp_unknown_tool' })
     return { ok: false, error: `Need: tool ${tool} not in schema hint for ${trimmed}.` }
   }
   if (catalogEntry(trimmed)?.needsAuth && !hasMcpGrant(trimmed, home)) {
+    recordSideEffect(seams, { ...ledger, decision: 'refuse', reason: 'mcp_auth' })
     return { ok: false, error: `Need auth for ${trimmed}.` }
   }
+  recordSideEffect(seams, { ...ledger, decision: 'permit', reason: 'mcp_stub' })
+  finishSideEffect(seams, {
+    ownerAgentId,
+    tool: ledger.tool,
+    intent: ledger.intent,
+    path: ledger.path,
+  })
   return {
     ok: true,
     value: {

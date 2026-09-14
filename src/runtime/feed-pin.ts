@@ -38,7 +38,13 @@ export function paintedFeedCount(items: FeedItem[], thinking = false): number {
   for (const item of items) {
     if (item.kind === 'relay' && item.lane === 'from') continue
     if (item.kind === 'agent_note') continue
-    if (item.kind === 'relay' || item.kind === 'msg' || item.kind === 'widget' || item.kind === 'secret-request') {
+    if (
+      item.kind === 'relay' ||
+      item.kind === 'msg' ||
+      item.kind === 'widget' ||
+      item.kind === 'secret-request' ||
+      item.kind === 'mouth-stream'
+    ) {
       count += 1
     }
   }

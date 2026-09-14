@@ -92,6 +92,7 @@ import { ensureLocalDashboard, isDashboardJobId, openDashboardUrl } from './runt
 import { githubUrlFromHomeRepo, readExplicitOriginRemote } from './runtime/cloud-origin'
 import { displayForMouth } from './runtime/computer'
 import { chatComputerOpenRouter, ensureComputerWorker, liveComputerSeams } from './runtime/computer-worker'
+import { initiatorFromKickoff, mouthStreamLabel } from './runtime/mouth-stream'
 import { setHumanDriving } from './runtime/driving'
 import { quitAutomaton } from './runtime/quit'
 import { ensureScreen } from './runtime/screen'
@@ -140,6 +141,7 @@ import {
   dismissWidget,
   fulfillSecretRequest,
   dismissSecretRequest,
+  appendMouthStream,
   type Session,
 } from './session'
 import { SisterBlob, framePath, markFor } from './blob'
@@ -579,10 +581,22 @@ function StaffApp({ store: providedStore }: { store?: StaffStore } = {}) {
             if (keys.length === 0) return { text: 'Need an OpenRouter key.' }
             return chatComputerOpenRouter(messages, keys[0]!.key, undefined, worker.ownerAgentId)
           },
+          initiatorKind: initiatorFromKickoff(worker.kickoff),
           seams: {
             ...liveComputerSeams(),
             hostAllowed: worker.hostAllowed === true ? true : undefined,
+            initiatorKind: initiatorFromKickoff(worker.kickoff),
             recordAction: (event) => store.recordAction(event),
+            emitMouthStream: (step) => {
+              setSession((current) =>
+                appendMouthStream(current, worker.ownerAgentId, {
+                  phase: step.phase,
+                  tool: step.tool,
+                  intent: step.intent,
+                  detail: step.detail,
+                }),
+              )
+            },
           },
         },
         {
@@ -1894,6 +1908,35 @@ const FeedSecretRow = React.memo(function FeedSecretRow({
   )
 }, sameFeedRowFingerprint)
 
+const FeedMouthStreamRow = React.memo(function FeedMouthStreamRow({
+  item,
+}: {
+  fingerprint: string
+  item: Extract<FeedItem, { kind: 'mouth-stream' }>
+}) {
+  const T = useTokens()
+  const label = mouthStreamLabel(item.phase, item.tool, item.intent, item.detail)
+  const tone = item.phase === 'refuse' ? T.danger : T.tertiary
+  return (
+    <div style={feedLane}>
+      <div
+        testId={`mouth-stream-${item.id}`}
+        style={{
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          alignSelf: 'flex-start',
+          gap: T.space.xs,
+          paddingTop: T.space.xxs,
+          paddingBottom: T.space.xxs,
+        }}
+      >
+        <div style={{ fontSize: T.type.xs, color: tone }}>{label}</div>
+      </div>
+    </div>
+  )
+}, sameFeedRowFingerprint)
+
 const FeedMsgRow = React.memo(function FeedMsgRow({
   item,
   mine,
@@ -2295,6 +2338,16 @@ export const Feed = forwardRef<FeedApi, {
               onDismiss={onDismissSecret}
             />
           )
+        }
+        if (item.kind === 'mouth-stream') {
+          const fingerprint = feedRowFingerprint({
+            kind: 'mouth-stream',
+            id: item.id,
+            status: item.phase,
+            text: mouthStreamLabel(item.phase, item.tool, item.intent, item.detail),
+            connectorId: item.tool,
+          })
+          return <FeedMouthStreamRow key={item.id} fingerprint={fingerprint} item={item} />
         }
         if (item.kind !== 'msg') return null
         const inbound = items[index - 1]
