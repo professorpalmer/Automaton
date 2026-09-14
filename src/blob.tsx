@@ -6,7 +6,7 @@ import { allFrameNames } from '../scripts/bake-marks'
 import type { Agent } from './domain'
 import { catalogHex, markForAgent, resolveFramePath } from './runtime/factory'
 import { MOTION, type MotionName } from './motion'
-import { springClockBusy, useRestingStyle } from './resting-motion'
+import { markSpringHoldBusy, noteMarkSpringKick, springClockBusy } from './resting-motion'
 import { runningTests } from './runtime/test-env'
 import { useTokens } from './theme'
 import { T } from './tokens'
@@ -62,11 +62,12 @@ const SLIT_SHAPES = new Set(['hex', 'crystal', 'tablet', 'gem', 'cylinder'])
 
 const ZERO: BlobWeights = { rest: 0, breathe: 0, selected: 0, body: 0 }
 
+/** Slower than stock GELATIN — Wave 3.2 feel-check wanted less snap. */
 const BODY_SPRING = {
   type: 'spring' as const,
-  stiffness: GELATIN.stiffness,
-  damping: GELATIN.damping,
-  mass: GELATIN.mass,
+  stiffness: GELATIN.stiffness * 0.64,
+  damping: GELATIN.damping + 1,
+  mass: GELATIN.mass + 0.25,
 }
 const EYE_SPRING = { type: 'spring' as const, stiffness: 13, damping: 14, mass: 1 }
 
@@ -124,7 +125,7 @@ export function blobNeedsClock(alive: boolean): boolean {
 
 /** Hold look/pose beats while a spring is still painting. Do not stack retargets. */
 export function blobClockShouldHold(springBusy: boolean): boolean {
-  return springBusy
+  return springBusy || markSpringHoldBusy()
 }
 
 function hold(weight: keyof BlobWeights): BlobWeights {
@@ -133,6 +134,11 @@ function hold(weight: keyof BlobWeights): BlobWeights {
 
 function px(n: number): number {
   return Math.round(n)
+}
+
+/** Melt targets only — keep eye/glyph chrome on integer px. */
+function pxSoft(n: number): number {
+  return Number(n.toFixed(1))
 }
 
 export function presentBlob(view: BlobView): BlobMotion {
@@ -223,8 +229,9 @@ export function workPose(id: string, look: number): BlobPose {
 /** Inner melt box inside FrozenMark. Rest fills the host; wide/tall stay centered. */
 const POSE_EXTENT: Record<BlobMelt, readonly [number, number]> = {
   rest: [T.blob.size, T.blob.size],
-  'soft-wide': [40, 36],
-  'soft-tall': [36, 40],
+  // Soft melts stay ±1px — ±2px (40×36) read as a size pop on glance beats.
+  'soft-wide': [39, 37],
+  'soft-tall': [37, 39],
   wide: [42, 34],
   tall: [34, 42],
 }
@@ -236,11 +243,11 @@ export function poseLayout(
 ): { left: number; top: number; width: number; height: number } {
   const rest = T.blob.size
   const [nw, nh] = POSE_EXTENT[pose]
-  const width = px(hostW * (nw / rest))
-  const height = px(hostH * (nh / rest))
+  const width = pxSoft(hostW * (nw / rest))
+  const height = pxSoft(hostH * (nh / rest))
   return {
-    left: px((hostW - width) / 2),
-    top: px((hostH - height) / 2),
+    left: pxSoft((hostW - width) / 2),
+    top: pxSoft((hostH - height) / 2),
     width,
     height,
   }
@@ -265,6 +272,57 @@ export function livingMelt(id: string, look: number, live: boolean, busyBody: bo
 /** Park melt/lid springs when the mark is frozen or mid-drag — never lease the spring clock. */
 export function markLifeSpringImmediate(live: boolean, pointerDown = false): boolean {
   return !live || pointerDown
+}
+
+type SpringAnimate = {
+  left?: number
+  top?: number
+  width?: number
+  height?: number
+  opacity?: number
+}
+
+type SpringSpec = { type: 'spring'; stiffness: number; damping: number; mass: number }
+
+/**
+ * Wave 3.2: living channels go through host `motion` → native `motion.rs`.
+ * Frozen / mid-drag sisters stay a static div — no native track, no JS lease.
+ */
+function SpringBox({
+  immediate,
+  animate,
+  transition,
+  style,
+  testId,
+  children,
+}: {
+  immediate: boolean
+  animate: SpringAnimate
+  transition: SpringSpec
+  style?: Record<string, unknown>
+  testId?: string
+  children?: React.ReactNode
+}) {
+  // Always call hooks. Native springs do not arm the JS lease clock — kick a
+  // look/pose hold so wander does not retarget mid-melt (leftover Wave 3.2 chop).
+  React.useEffect(() => {
+    if (immediate) return
+    noteMarkSpringKick()
+  }, [immediate, animate.left, animate.top, animate.width, animate.height, animate.opacity])
+
+  if (immediate) {
+    return (
+      <div testId={testId} style={{ ...style, ...animate }}>
+        {children}
+      </div>
+    )
+  }
+
+  return (
+    <motion.div testId={testId} initial={false} animate={animate} transition={transition} style={style}>
+      {children}
+    </motion.div>
+  )
 }
 
 /** Face anchors in the 38px stamp. Default T.blob.eyeX/eyeY is blob-ish mass. */
@@ -408,7 +466,7 @@ export function blobClock(id: string, opts?: { livelyEyes?: boolean }): BlobCloc
   return {
     phaseOffset: phase * Math.PI * 2,
     breathePeriod: T.blob.breatheMs * (0.75 + breathe * 0.55),
-    wanderMs: T.blob.wanderMs * (lively ? 0.55 + wander * 0.35 : 2.4 + wander * 1.4),
+    wanderMs: T.blob.wanderMs * (lively ? 1.15 + wander * 0.55 : 2.4 + wander * 1.4),
     blinkEveryMs: lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs * (0.5 + blink * 1.0),
     blinkDelayMs: blink0 * (lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs),
     lookStart: blobHash(id, 'look') % BUSY_LOOKS.length,
@@ -635,26 +693,15 @@ export function SisterBlob({
   const eyes = entered ? busyEyeLayout(look, blink, eyeKind, glance, mark.shape) : []
   const leftEye = eyes[0]
   const rightEye = eyes[1]
-  const plate = useRestingStyle(
-    { opacity: selected ? 1 : 0 },
-    BODY_SPRING,
-    { immediate: pointer.down || !selected },
-  )
-  const lids = useRestingStyle(
-    { opacity: live && blink ? 0 : 1 },
-    EYE_SPRING,
-    { immediate: lifeImmediate },
-  )
-  const markPaint = useRestingStyle(
-    {
-      left: glyphLeft + meltBox.left,
-      top: glyphTop + meltBox.top + lift,
-      width: meltBox.width,
-      height: meltBox.height,
-    },
-    BODY_SPRING,
-    { immediate: lifeImmediate },
-  )
+  const plateImmediate = pointer.down || !selected
+  const plateOpacity = selected ? 1 : 0
+  const markBox = {
+    left: glyphLeft + meltBox.left,
+    top: glyphTop + meltBox.top + lift,
+    width: meltBox.width,
+    height: meltBox.height,
+  }
+  const lidOpen = live && blink ? 0 : 1
   const svg = useMemo(() => shapeSvgSource(mark.shape, fill, T.blob.size), [mark.shape, fill])
   const speed = Math.hypot(pointer.vx, pointer.vy)
   if (pointer.down && speed > 0.35) {
@@ -708,8 +755,11 @@ export function SisterBlob({
         opacity: 1,
       }}
     >
-      <div
+      <SpringBox
         testId={`blob-plate-${agent.id}`}
+        immediate={plateImmediate}
+        animate={{ opacity: plateOpacity }}
+        transition={BODY_SPRING}
         style={{
           position: 'absolute',
           left: PLATE_INSET,
@@ -719,7 +769,6 @@ export function SisterBlob({
           borderRadius: PLATE_RADIUS,
           backgroundColor: T.selected,
           pointerEvents: 'none',
-          opacity: plate.opacity,
         }}
       />
       {smears.current.map((smear, i) => (
@@ -739,16 +788,27 @@ export function SisterBlob({
           <svg source={svg} style={svgStampStyle(fill)} />
         </div>
       ))}
-      <FrozenMark
-        shape={mark.shape}
-        fill={fill}
-        left={markPaint.left}
-        top={markPaint.top}
-        width={markPaint.width}
-        height={markPaint.height}
-        unread={unread}
-        pose={pose}
-      />
+      <SpringBox
+        immediate={lifeImmediate}
+        animate={markBox}
+        transition={BODY_SPRING}
+        style={{
+          position: 'absolute',
+          overflow: 'visible',
+          pointerEvents: 'none',
+        }}
+      >
+        <FrozenMark
+          shape={mark.shape}
+          fill={fill}
+          left={0}
+          top={0}
+          width={markBox.width}
+          height={markBox.height}
+          unread={unread}
+          pose={pose}
+        />
+      </SpringBox>
       {leftEye && rightEye ? (
         <>
           {(
@@ -757,28 +817,34 @@ export function SisterBlob({
               { side: 1, eye: rightEye },
             ] as const
           ).map(({ side, eye }) => {
-            const lidOpen = Math.max(0, Math.min(1, lids.opacity))
-            const eyeHeight = px(Math.max(T.space.xxs, eye.height * lidOpen))
+            const closed = live && blink
+            const eyeHeight = px(Math.max(T.space.xxs, closed ? T.space.xxs : eye.height))
+            const eyeTop = px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0) + (eye.height - eyeHeight) / 2)
+            const eyeLeft = px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0))
             return (
-            <div
+            <SpringBox
               key={side}
               testId={side === 0 ? `blob-eye-${agent.id}-left` : `blob-eye-${agent.id}-right`}
+              immediate={lifeImmediate}
+              animate={{
+                opacity: lidOpen,
+                height: eyeHeight,
+                top: eyeTop,
+                left: eyeLeft,
+                width: eye.width,
+              }}
+              transition={EYE_SPRING}
               style={{
                 position: 'absolute',
-                left: px(glyphLeft + eye.left + (pointer.down ? pointer.vx * 4 : 0)),
-                top: px(glyphTop + eye.top + (pointer.down ? pointer.vy * 4 : 0) + (eye.height - eyeHeight) / 2),
-                width: eye.width,
-                height: eyeHeight,
                 overflow: 'hidden',
                 pointerEvents: 'none',
-                opacity: lidOpen,
               }}
             >
               <svg
                 source={eyeSvg}
                 style={svgStampStyle(T.catalog.black)}
               />
-            </div>
+            </SpringBox>
             )
           })}
         </>

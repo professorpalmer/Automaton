@@ -11,6 +11,7 @@ import {
   pumpFrames,
   quantizeMarkPx,
   quantizeSpringValue,
+  resetMarkSpringHoldForTests,
   resetSpringClockForTests,
   shouldSnapMarkSpring,
   shouldSnapSpring,
@@ -43,8 +44,18 @@ describe('gpuix motion-spring lease', () => {
     expect(src).not.toMatch(/setTimeout\(/)
     expect(src).not.toMatch(/Math\.round\(value\)/)
     expect(MARK_PX_PUBLISH_EPS).toBe(0.1)
+    resetMarkSpringHoldForTests()
     expect(blobClockShouldHold(springClockBusy())).toBe(false)
     expect(blobClockShouldHold(true)).toBe(true)
+  })
+
+  test('vendored MotionDiv forwards type:spring to the host motion prop', () => {
+    const src = readFileSync(join(import.meta.dir, '../node_modules/@gpuix/react/dist/components/index.js'), 'utf8')
+    expect(src).toMatch(/motion:\s*\{/)
+    expect(src).toContain('transition')
+    expect(src).not.toMatch(/stepSpringLease/)
+    expect(src).not.toMatch(/subscribeSpringTick/)
+    expect(src).not.toMatch(/setCurrent/)
   })
 
   test('mark life springs park immediately when the sister is frozen', () => {

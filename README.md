@@ -57,11 +57,12 @@ uses a sandbox.
 Layout:
 
 - `@gpuix/react` on Zed GPUI (`src/main.tsx`), pinned to
-  `file:vendor/gpuix-react-0.6.1.tgz` (parked spring MotionDiv leases).
+  `file:vendor/gpuix-react-0.6.2.tgz` plus matched
+  `file:vendor/gpuix-native-0.6.2.tgz` (native spring passthrough).
   Stay vendored until park publishes — `docs/gpuix.md` /
   [remorses/gpuix#34](https://github.com/remorses/gpuix/pull/34). Automaton
   consumes `@gpuix`; it does not publish that npm scope.
-- Idle parks: `src/resting-motion.ts` (blob springs),
+- Idle parks: native `motion.rs` 420ms hard park on living marks,
   `src/runtime/feed-pin.ts` / `feed-row.ts` (tail pin + row fingerprints);
   proof checklist `docs/idle-cpu.md` / `bun run sample:idle-cpu`
 - Domain and session: `src/domain.ts`, `src/session.ts`

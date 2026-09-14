@@ -24,8 +24,8 @@ export function idleParkInventory(): IdlePark[] {
   return [
     {
       id: 'spring-lease',
-      path: 'src/resting-motion.ts + vendor @gpuix/react motion-spring',
-      summary: `gpuix onFrame + mark-local 0.1px melt publish (not gpuix integer px) + opacity subpixel; 420ms hard park unsubscribe at rest (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms)`,
+      path: 'src/blob.tsx SpringBox + vendor @gpuix/react MotionDiv → native motion.rs',
+      summary: `native spring (GELATIN / EYE_SPRING) via host motion prop; 420ms hard park so GPUI sleeps (settle ≤${IDLE_SPRING_SETTLE_HARD_MS}ms); JS motion-spring lease remains for leftover useRestingStyle`,
     },
     {
       id: 'sister-freeze',

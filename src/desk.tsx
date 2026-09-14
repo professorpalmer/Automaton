@@ -103,6 +103,7 @@ export function DeskStage({
   const { renderer } = useGpuix()
   const viewRef = useRef<{ id: number } | null>(null)
   const armed = useRef(false)
+  const lastSentClick = useRef(0)
   const { frames, recapture } = useDeskFrame(agentId, true)
   useEffect(() => {
     if (runningTests()) return
@@ -131,6 +132,11 @@ export function DeskStage({
     if (event.isRightClick || event.button === 2) return
     const hit = hitView(event)
     if (!hit) return
+    const now = Date.now()
+    // Native simulateClick can synthesize down+click (or remount clears `armed`);
+    // collapse duplicates within one frame so desk does not double-fire.
+    if (now - lastSentClick.current < 32) return
+    lastSentClick.current = now
     if (readDeskSurface(agentId) === 'host') clickAgentDesk(agentId, hit, event.button)
     else clickDesk(agentId, hit, event.button)
     recapture()
