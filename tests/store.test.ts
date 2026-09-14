@@ -688,10 +688,12 @@ describe('staff sqlite store', () => {
     store.recordAction({
       id: 'action_3',
       ownerAgentId: 'staff',
-      tool: 'box_computer',
-      intent: 'click',
-      decision: 'refuse',
-      reason: 'staff_pixel',
+      tool: 'copy_out',
+      intent: 'copy_out',
+      decision: 'permit',
+      reason: 'copy_out',
+      path: '/home/box/out.bin',
+      bytes: 2048,
       initiatorKind: 'peer-hop',
       at: 12,
     })
@@ -706,6 +708,8 @@ describe('staff sqlite store', () => {
     expect(JSON.stringify(rows)).not.toContain('file bytes')
     expect(rows[0]?.secretChars).toBe(secret.length)
     expect(rows[1]?.path).toBe('/tmp/secret-file.txt')
+    expect(rows[2]?.bytes).toBe(2048)
+    expect(rows[2]?.path).toBe('/home/box/out.bin')
   })
 
   test('action events default missing initiatorKind to unknown on migrate', () => {

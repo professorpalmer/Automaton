@@ -107,9 +107,11 @@ in `action_events` carries:
 | `tool` / `intent` | Tool name + short verb — never argv or typed text |
 | `path` | Path or URL host only |
 | `secretChars` | Length of typed text when present — never the text |
+| `bytes` | Write/copy size when known — never file contents (P2 Activity) |
 | `decision` | `permit` \| `refuse` |
 | `initiatorKind` | `person` \| `routine` \| `peer-hop` \| `channel` \| `webhook` \| `deployment` \| `unknown` |
 
 MCP stub calls (`callMcpTool`) use the same helper. Mouth feed paints matching
-`mouth-stream` phases (`docs/mouth-stream.md`). Jobs remain out of chat.
+`mouth-stream` phases (`docs/mouth-stream.md`). Session Activity strip folds those
+rows into commands/files chrome (`docs/activity.md`). Jobs remain out of chat.
 

@@ -88,6 +88,7 @@ Invariants:
 - Bezel surface lift (Wave 2 P1) — TypeScript recipes only (`src/chrome/surface.ts`, step-row, activity takeover, composer `#` picker, titlebar clearance). No bezel crate, no `@gpuix/react@0.8.0`, no liquid glass. Settings/inspector read live tokens. Package 0.8.0.
 - Mouth stream + initiator ledger (Wave 4 P0) — feed `mouth-stream` phases decide→act→done/refuse for side effects; action ledger `initiatorKind` from kickoff (`person`←user, routine/peer-hop/channel/webhook/deployment/unknown); computer/host/MCP share `recordSideEffect`; no `@ag-ui/*` / CopilotKit; sisters stay separate; no secrets in feed; package 0.10.0.
 - Peer provenance + standing role (Wave 4 P1) — `sendToAgent` / `postToRoom` stamp `originUser` + `hopDepth` on peer-hop wakes; `standingRoleBlock` (name/title/rules) on every mouth system preamble; unattended = routine | peer-hop without interactive person; no CopilotKit; sisters stay separate; package 0.10.0.
+- Session Activity strip (Wave 4 P2) — per-sister ephemeral commands/files next to feed from mouth-stream / action ledger (no second audit DB); writes show path·size only; `docs/activity.md`; no CopilotKit; package 0.10.0 (v0.11.0 cut later).
 - Bezel light appearance (Wave 2 P2) — designed light (Settings → Window → Appearance; not invert of graphite); Brand-complete Settings (remaining CARD/FIELD via useChrome; update modal scrim); ToggleGroup, EmptyState, Sheet extracted. Still vendored `@gpuix/react` (Wave 3.2 is 0.6.2 + matched native). Package 0.8.0.
 
 ## Safety

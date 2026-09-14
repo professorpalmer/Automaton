@@ -1,32 +1,45 @@
 import React from 'react'
 import { thinkingDots } from '../domain'
+import type { SessionActivityRow } from '../runtime/session-activity'
+import { activityHeaderSummary } from '../runtime/session-activity'
 import { useTokens } from '../theme'
 import { activityExpanded, activityVisible, pressActivityHeader, type ActivityTakeover } from './activity'
 import { foldStepsByVerb, stepRow, type StepTrace } from './step-row'
 import { groupBoxStyle } from './surface'
 
 /**
- * Thinking / tool disclosure. Auto-opens while streaming; header press takes
- * over. No MotionDiv — idle parks when the zone is hidden.
+ * Thinking / tool disclosure + Wave 4 P2 session Activity strip.
+ * Auto-opens while streaming; header press takes over. Session commands/files
+ * (paths/sizes only for writes) stay as a collapsed strip after the turn —
+ * derived from mouth-stream / ledger, not a second audit DB. No MotionDiv.
  */
 export function ActivityZone({
   streaming,
   held,
   onHeld,
   traces = [],
+  sessionActivity = [],
 }: {
   streaming: boolean
   held: boolean | null
   onHeld: (held: boolean | null) => void
   traces?: readonly StepTrace[]
+  /** Ephemeral commands/files this sister session (Wave 4 P2). */
+  sessionActivity?: readonly SessionActivityRow[]
 }) {
   const T = useTokens()
-  const state: ActivityTakeover = { streaming, held }
+  const state: ActivityTakeover = {
+    streaming,
+    held,
+    hasSessionActivity: sessionActivity.length > 0,
+  }
   if (!activityVisible(state)) return null
   const open = activityExpanded(state)
   const folded = foldStepsByVerb(traces)
-  const header =
-    folded.length > 0 ? folded.map((row) => (row.count > 1 ? `${row.verb} ×${row.count}` : row.verb)).join(' · ') : 'Thinking'
+  const activitySummary = activityHeaderSummary(sessionActivity)
+  const jobHeader =
+    folded.length > 0 ? folded.map((row) => (row.count > 1 ? `${row.verb} ×${row.count}` : row.verb)).join(' · ') : ''
+  const header = activitySummary || jobHeader || (streaming ? 'Thinking' : 'Activity')
   return (
     <div
       testId="activity"
@@ -60,7 +73,23 @@ export function ActivityZone({
         </div>
         {open ? (
           <div testId="activity-body" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>
-            {folded.length === 0 ? (
+            {sessionActivity.length > 0 ? (
+              <div testId="session-activity" style={{ display: 'flex', flexDirection: 'column', gap: T.space.xxs }}>
+                {sessionActivity.map((row) => (
+                  <div
+                    key={row.id}
+                    testId={`session-activity-${row.kind}-${row.id}`}
+                    style={{
+                      fontSize: T.type.sm,
+                      color: row.decision === 'refuse' ? T.danger : T.tertiary,
+                    }}
+                  >
+                    {row.label}
+                  </div>
+                ))}
+              </div>
+            ) : null}
+            {folded.length === 0 && sessionActivity.length === 0 ? (
               <div style={{ fontSize: T.type.sm, color: T.ghost }}>{streaming ? thinkingDots(3) : 'Parked'}</div>
             ) : (
               folded.flatMap((group) =>

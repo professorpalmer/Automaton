@@ -220,6 +220,8 @@ export type FeedItem =
       intent: string
       /** Path / host / MCP id only — never secrets or stdout. */
       detail?: string
+      /** Write/copy size in bytes when known — never file contents. */
+      bytes?: number
       at?: number
     }
 

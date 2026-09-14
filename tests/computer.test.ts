@@ -462,7 +462,7 @@ describe('action ledger', () => {
       },
     )
     await executeComputerTool(
-      { name: 'copy_out', args: { from: '/home/box/out.bin', to: '/tmp/out.bin' } },
+      { name: 'copy_out', args: { from: '/home/box/out.bin', to: '/tmp/out.bin', bytes: 2048 } },
       worker,
       {
         copyOut: () => true,
@@ -470,7 +470,28 @@ describe('action ledger', () => {
       },
     )
     expect(events.map((row) => row.path)).toEqual(['/tmp/secret-file.txt', '/home/box/out.bin'])
+    expect(events[1]?.bytes).toBe(2048)
     expect(JSON.stringify(events)).not.toContain(body)
+  })
+
+  test('copy_in records path + size via statBytes, never contents', async () => {
+    const events: ActionEvent[] = []
+    const steps: { phase: string; bytes?: number; detail?: string }[] = []
+    await executeComputerTool(
+      { name: 'copy_in', args: { from: '/Users/cary/note.txt', to: '/home/box/host/inbox' } },
+      worker,
+      {
+        copyIn: () => true,
+        statBytes: (path) => (path === '/Users/cary/note.txt' ? 12 : null),
+        recordAction: (event) => events.push(event),
+        emitMouthStream: (step) =>
+          steps.push({ phase: step.phase, bytes: step.bytes, detail: step.detail }),
+      },
+    )
+    expect(events[0]?.path).toBe('/Users/cary/note.txt')
+    expect(events[0]?.bytes).toBe(12)
+    expect(steps.some((row) => row.bytes === 12)).toBe(true)
+    expect(JSON.stringify(events)).not.toContain('note body')
   })
 test('initiatorKind stamps person on permit ledger rows', async () => {
     const events: ActionEvent[] = []

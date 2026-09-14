@@ -48,11 +48,17 @@ Computer, host, and MCP permit/refuse paths share one helper
 The ledger is audit; the feed stream is ephemeral paint of the same
 decide→act→done/refuse arc.
 
+## Session Activity (P2)
+
+Ephemeral per-sister commands/files strip next to the feed is derived from
+these mouth-stream rows (and optionally `listActions`) — see
+[Activity](activity.md). Write steps may carry `bytes` (size only).
+
 ## Out of scope here
 
-- P1 peer provenance / standing role — see `docs/rooms.md`, `docs/wave4-openbot-lift.md` (in progress)
-- P2 per-sister Activity strip (ephemeral session activity ≠ ledger)
+- Cutting **v0.11.0** (coordinator)
 - Adopting `@ag-ui/*` or CopilotKit packages
 - Collapsing sister transcripts
 
-See also [Computer](computer.md), [Jobs](jobs.md), [Wave 4 lift](wave4-openbot-lift.md).
+See also [Activity](activity.md), [Computer](computer.md), [Jobs](jobs.md),
+[Wave 4 lift](wave4-openbot-lift.md).
