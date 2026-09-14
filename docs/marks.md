@@ -16,7 +16,7 @@ Grok/Hermes assets. Package is **0.8.0** (Wave 3 living-mark gel checkpoint).
 Working mouths still squash via `workPose` SVG stamps (`wide` / `tall`). Soft melt
 is for selected rest life — not a second layout physics on the feed.
 
-Wave 3.2.3: selected eye wander ~1.15–1.7× base (was 0.55–0.9×) so glance angles do not race.
+Wave 3.2.3 lively eye wander (~1.15–1.7×) reverted — felt choppy; back to 0.55–0.9×.
 
 Wave 3.2.2: soft-wide/tall melt ±1px (was ±2px) so glance does not pop size.
 
