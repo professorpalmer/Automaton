@@ -181,6 +181,10 @@ export function markSpringHoldBusy(): boolean {
   return Date.now() < markSpringHoldUntil
 }
 
+export function resetMarkSpringHoldForTests(): void {
+  markSpringHoldUntil = 0
+}
+
 export function useRestingStyle<T extends Partial<Record<SpringKey, number>>>(
   targets: T,
   spring: SpringParams,

@@ -19,7 +19,8 @@
     "replay:repeated": "bun scripts/replay-repeated-work.ts",
     "replay:tough": "bun scripts/replay-tough-eval.ts",
     "replay:workday": "bun scripts/replay-workday-eval.ts",
-    "sample:idle-cpu": "bun scripts/sample-idle-cpu.ts"
+    "sample:idle-cpu": "bun scripts/sample-idle-cpu.ts",
+    "postinstall": "bun scripts/vendor-native-bind.ts"
   },
   "dependencies": {
     "@gpuix/react": "file:vendor/gpuix-react-0.6.2.tgz",

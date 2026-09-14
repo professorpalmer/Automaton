@@ -55,9 +55,9 @@ fi
 STAGE="$(mktemp -d)"
 mkdir -p "$STAGE/package"
 tar -xzf "$ROOT/vendor/gpuix-native-0.6.2.tgz" -C "$STAGE"
-cp "$NODE" "$STAGE/package/$NODE"
-tar -czf "$ROOT/vendor/gpuix-native-0.6.2.tgz" -C "$STAGE" package
-echo "wrote $ROOT/vendor/gpuix-native-0.6.2.tgz with $NODE ($(wc -c < "$STAGE/package/$NODE") bytes)"
+cp "$NODE" "$ROOT/vendor/gpuix-native.darwin-arm64.node"
+echo "wrote $ROOT/vendor/gpuix-native.darwin-arm64.node ($(wc -c < "$NODE") bytes)"
+echo "(JS loader tarball stays file:vendor/gpuix-native-0.6.2.tgz; postinstall overlays the .node)"
 cd "$ROOT"
 bun install
 echo "next: bun test && bun run app"
