@@ -356,7 +356,7 @@ describe('teammate session', () => {
       s.threads.staff.items.some(
         (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'On it.',
       ),
-    ).toBe(true)
+    ).toBe(false)
     expect(
       s.threads.staff.items.some(
         (item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Telling them.',
@@ -1093,20 +1093,19 @@ describe('teammate session', () => {
     expect(pendingMouthTurns(s)[0]?.userText).toBe('how did it go?')
   })
 
-  test('noteJobStatus speaks once, then only refreshes the handle', () => {
+  test('noteJobStatus updates the handle only — never a feed bubble', () => {
     let s = setActive(fresh(), 'kernel')
     s = send(s, 'Kernel, the ledger replay breaks on the composer path.')
     const jobId = s.jobs[0].id
+    const before = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'agent').length
     s = noteJobStatus(s, jobId, 'Still running.')
     expect(s.jobs[0]?.lastNote).toBe('Still running.')
     expect(typeof s.jobs[0]?.updatedAt).toBe('number')
     expect(s.threads.kernel.mouth).toBe('working')
     const spoken = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
-    expect(spoken.some((item) => item.kind === 'msg' && item.text === 'Still running.')).toBe(true)
-    const afterFirst = spoken.length
+    expect(spoken.some((item) => item.kind === 'msg' && item.text === 'Still running.')).toBe(false)
+    expect(spoken).toHaveLength(before)
     s = noteJobStatus(s, jobId, 'Still running.')
-    const spokenAgain = s.threads.kernel.items.filter((item) => item.kind === 'msg' && item.from === 'agent')
-    expect(spokenAgain).toHaveLength(afterFirst)
     expect(s.jobs[0]?.status).toBe('running')
     s = noteJobStatus(s, jobId, 'Done.')
     expect(s.jobs[0]?.lastNote).toBe('Still running.')

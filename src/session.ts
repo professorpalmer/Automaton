@@ -962,8 +962,8 @@ function deliverTo(
   const step = drafts[0]?.work ?? firstAskStep(text)
   const kind = ping ? null : (drafts[0]?.kind ?? jobKindForKit(kit, step, prior, products))
   if (kind) {
-    next = speak(next, agentId, ackLine(agent?.name ?? 'Agent'), focused)
-    next = wakeMouth(next, agentId, 'ack')
+    // Keepalive lives in MouthWaitBubble / Jobs pane — not feed bubbles.
+    next = wakeMouth(next, agentId, 'working')
     const rows = drafts.length > 0 ? drafts : [{ label: kind, kind, work: step }]
     return openGoalRun(next, agentId, focused, mandateText, rows, prior)
   }
@@ -1034,10 +1034,6 @@ function criterionJob(goal: GoalRun, criterion: GoalCriterion, prior: string): J
   }
 }
 
-function ackLine(name: string): string {
-  if (name === 'Research') return 'Looking.'
-  return 'On it.'
-}
 
 export function hasUserMessage(session: Session, agentId: AgentId): boolean {
   const row = session.threads[agentId]
@@ -2168,24 +2164,17 @@ export function ownerRunningJob(session: Session, agentId: AgentId): JobHandle |
   return running.at(-1)
 }
 
-/** Persist keepalive. First note may speak; later ticks stay off the feed. */
+/** Persist keepalive on the job handle only — never a feed bubble (MouthWaitBubble covers wait). */
 export function noteJobStatus(session: Session, jobId: string, spoken: string): Session {
   const job = session.jobs.find((item) => item.id === jobId)
   if (!job || job.status !== 'running') return session
   const note = isWhitelistedRunningStatus(spoken) ? spoken.trim() : keepAliveStatus(job)
-  const first = !job.lastNote
-  const focused = session.activeAgentId
-  let next: Session = {
+  return {
     ...session,
     jobs: session.jobs.map((item) =>
       item.id === jobId ? { ...item, lastNote: note, updatedAt: Date.now() } : item,
     ),
   }
-  if (first) {
-    next = speak(next, job.ownerAgentId, note, focused)
-    next = wakeMouth(next, job.ownerAgentId, 'working')
-  }
-  return next
 }
 
 /**
