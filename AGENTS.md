@@ -86,6 +86,7 @@ Invariants:
 - Mouth compaction (`docs/compaction.md`) — working set = compact summary + recent turns; auto when over char budget; Compact now in Settings; fail-soft Need; Jobs strip untouched; package 0.8.0.
 - Home bind from clone URL — `git@` / `ssh://git@github.com` / `*.git` https clone URLs bind like page URLs; missing checkout still clones into `~/Projects/<repo>` (see `docs/staff.md`, `src/runtime/home.ts`); package 0.8.0.
 - Bezel surface lift (Wave 2 P1) — TypeScript recipes only (`src/chrome/surface.ts`, step-row, activity takeover, composer `#` picker, titlebar clearance). No bezel crate, no `@gpuix/react@0.8.0`, no liquid glass. Settings/inspector read live tokens. Package 0.8.0.
+- Mouth stream + initiator ledger (Wave 4 P0) — feed `mouth-stream` phases decide→act→done/refuse for side effects; action ledger `initiatorKind` from kickoff (`person`←user, routine/peer-hop/channel/webhook/deployment/unknown); computer/host/MCP share `recordSideEffect`; no `@ag-ui/*` / CopilotKit; sisters stay separate; no secrets in feed; package 0.8.0.
 - Bezel light appearance (Wave 2 P2) — designed light (Settings → Window → Appearance; not invert of graphite); Brand-complete Settings (remaining CARD/FIELD via useChrome; update modal scrim); ToggleGroup, EmptyState, Sheet extracted. Still vendored `@gpuix/react` (Wave 3.2 is 0.6.2 + matched native). Package 0.8.0.
 
 ## Safety

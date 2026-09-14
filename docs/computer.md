@@ -95,3 +95,21 @@ bun scripts/prove-box-screen.ts
 ```
 
 Writes `artifacts/box-screen.png`. That file is gitignored.
+
+## Action ledger + mouth stream
+
+Computer and host tool permits go through one record helper before the seam
+runs (`recordSideEffect` in `src/runtime/mouth-stream.ts`). Each durable row
+in `action_events` carries:
+
+| Field | Honesty |
+| --- | --- |
+| `tool` / `intent` | Tool name + short verb — never argv or typed text |
+| `path` | Path or URL host only |
+| `secretChars` | Length of typed text when present — never the text |
+| `decision` | `permit` \| `refuse` |
+| `initiatorKind` | `person` \| `routine` \| `peer-hop` \| `channel` \| `webhook` \| `deployment` \| `unknown` |
+
+MCP stub calls (`callMcpTool`) use the same helper. Mouth feed paints matching
+`mouth-stream` phases (`docs/mouth-stream.md`). Jobs remain out of chat.
+

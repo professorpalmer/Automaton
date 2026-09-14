@@ -202,6 +202,18 @@ export type FeedItem =
       storeHint?: string
       at?: number
     }
+  | {
+      kind: 'mouth-stream'
+      id: string
+      agentId: AgentId
+      /** decide → act → done / refuse (Automaton-native; not AG-UI SDK). */
+      phase: 'decide' | 'act' | 'done' | 'refuse'
+      tool: string
+      intent: string
+      /** Path / host / MCP id only — never secrets or stdout. */
+      detail?: string
+      at?: number
+    }
 
 export type SteerLine = {
   text: string
@@ -1537,6 +1549,7 @@ export function previousPaintedFeedItem(items: FeedItem[], index: number): FeedI
     const prior = items[cursor]
     if (!prior) continue
     if (prior.kind === 'agent_note') continue
+    if (prior.kind === 'mouth-stream') continue
     if (prior.kind === 'relay' && prior.lane === 'from') continue
     return prior
   }

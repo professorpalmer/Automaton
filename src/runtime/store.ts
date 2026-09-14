@@ -16,6 +16,7 @@ import {
 import { normalizeSession, type Session } from '../session'
 import type { Attachment, AttachmentInput } from './attachments'
 import type { ActionDecision, ActionEvent } from './computer-tools'
+import { asInitiatorKind } from './mouth-stream'
 import {
   asArtifactKind,
   asClaimFreshness,
@@ -208,10 +209,15 @@ function ensureSchema(db: Database): void {
       reason TEXT NOT NULL,
       path TEXT,
       secret_chars INTEGER,
+      initiator_kind TEXT NOT NULL DEFAULT 'unknown',
       at INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS action_events_owner_at ON action_events (owner_agent_id, at, id);
   `)
+  const actionCols = tableColumns(db, 'action_events')
+  if (!actionCols.has('initiator_kind')) {
+    db.exec(`ALTER TABLE action_events ADD COLUMN initiator_kind TEXT NOT NULL DEFAULT 'unknown'`)
+  }
   const eventCols = tableColumns(db, 'goal_events')
   if (!eventCols.has('authority')) {
     db.exec(`
@@ -392,6 +398,7 @@ type ActionEventRow = {
   reason: string
   path: string | null
   secret_chars: number | null
+  initiator_kind: string | null
   at: number
 }
 
@@ -415,7 +422,8 @@ function asActionEvent(row: unknown): ActionEvent | null {
     typeof rec.secretChars === 'number' && Number.isFinite(rec.secretChars) && rec.secretChars >= 0
       ? Math.floor(rec.secretChars)
       : undefined
-  return { id, ownerAgentId, tool, intent, decision, reason, path, secretChars, at }
+  const initiatorKind = asInitiatorKind(rec.initiatorKind) ?? 'unknown'
+  return { id, ownerAgentId, tool, intent, decision, reason, path, secretChars, initiatorKind, at }
 }
 
 function actionEventFromRow(row: ActionEventRow): ActionEvent | null {
@@ -428,6 +436,7 @@ function actionEventFromRow(row: ActionEventRow): ActionEvent | null {
     reason: row.reason,
     path: row.path ?? undefined,
     secretChars: row.secret_chars ?? undefined,
+    initiatorKind: row.initiator_kind ?? 'unknown',
     at: row.at,
   })
 }
@@ -717,8 +726,8 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
       if (!parsed) return
       db.run(
         `INSERT OR IGNORE INTO action_events (
-          id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, initiator_kind, at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           parsed.id,
           parsed.ownerAgentId,
@@ -728,6 +737,7 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
           parsed.reason,
           parsed.path ?? null,
           parsed.secretChars ?? null,
+          parsed.initiatorKind,
           parsed.at,
         ],
       )
@@ -738,13 +748,13 @@ export function openStaffStore(path = defaultStorePath()): StaffStore {
         ownerAgentId
           ? (db
               .query(
-                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
+                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, initiator_kind, at
                  FROM action_events WHERE owner_agent_id = ? ORDER BY rowid ASC LIMIT ?`,
               )
               .all(ownerAgentId, cap) as ActionEventRow[])
           : (db
               .query(
-                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, at
+                `SELECT id, owner_agent_id, tool, intent, decision, reason, path, secret_chars, initiator_kind, at
                  FROM action_events ORDER BY rowid ASC LIMIT ?`,
               )
               .all(cap) as ActionEventRow[])

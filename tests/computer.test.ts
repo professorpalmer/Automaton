@@ -472,4 +472,63 @@ describe('action ledger', () => {
     expect(events.map((row) => row.path)).toEqual(['/tmp/secret-file.txt', '/home/box/out.bin'])
     expect(JSON.stringify(events)).not.toContain(body)
   })
+test('initiatorKind stamps person on permit ledger rows', async () => {
+    const events: ActionEvent[] = []
+    const steps: { phase: string; tool: string }[] = []
+    const result = await executeComputerTool(
+      { name: 'box_shell', args: { command: 'echo hi' } },
+      { ...worker, initiatorKind: 'person' },
+      {
+        boxExec: () => ({ status: 0, text: 'hi\n' }),
+        recordAction: (event) => events.push(event),
+        emitMouthStream: (step) => steps.push({ phase: step.phase, tool: step.tool }),
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(events).toHaveLength(1)
+    expect(events[0]?.initiatorKind).toBe('person')
+    expect(events[0]?.decision).toBe('permit')
+    expect(steps.map((row) => row.phase)).toEqual(['decide', 'act', 'done'])
+    expect(JSON.stringify(steps)).not.toContain('echo')
+  })
+
+  test('refuse paints decide → refuse and keeps initiator', async () => {
+    const events: ActionEvent[] = []
+    const steps: string[] = []
+    const result = await executeComputerTool(
+      { name: 'box_computer', args: { x: 1, y: 2 } },
+      {
+        agentId: 'staff',
+        display: 1,
+        holderId: 'staff-mouth',
+        role: 'coordinator',
+        kit: 'coordinator',
+        initiatorKind: 'channel',
+      },
+      {
+        recordAction: (event) => events.push(event),
+        emitMouthStream: (step) => steps.push(step.phase),
+      },
+    )
+    expect(result.refused).toBe(true)
+    expect(events[0]?.initiatorKind).toBe('channel')
+    expect(events[0]?.decision).toBe('refuse')
+    expect(steps).toEqual(['decide', 'refuse'])
+  })
+
+  test('host permit path records initiatorKind deployment', async () => {
+    const events: ActionEvent[] = []
+    const result = await executeComputerTool(
+      { name: 'host_shell', args: { command: 'true' } },
+      { ...worker, role: 'coordinator', kit: 'coordinator', initiatorKind: 'deployment' },
+      {
+        hostAllowed: true,
+        recordAction: (event) => events.push(event),
+      },
+    )
+    expect(result.ok).toBe(true)
+    expect(events[0]?.initiatorKind).toBe('deployment')
+    expect(events[0]?.tool).toBe('host_shell')
+  })
 })
+
