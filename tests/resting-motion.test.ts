@@ -11,7 +11,6 @@ import {
   pumpFrames,
   quantizeMarkPx,
   quantizeSpringValue,
-  resetMarkSpringHoldForTests,
   resetSpringClockForTests,
   shouldSnapMarkSpring,
   shouldSnapSpring,
@@ -44,7 +43,6 @@ describe('gpuix motion-spring lease', () => {
     expect(src).not.toMatch(/setTimeout\(/)
     expect(src).not.toMatch(/Math\.round\(value\)/)
     expect(MARK_PX_PUBLISH_EPS).toBe(0.1)
-    resetMarkSpringHoldForTests()
     expect(blobClockShouldHold(springClockBusy())).toBe(false)
     expect(blobClockShouldHold(true)).toBe(true)
   })
