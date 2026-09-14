@@ -466,7 +466,7 @@ export function blobClock(id: string, opts?: { livelyEyes?: boolean }): BlobCloc
   return {
     phaseOffset: phase * Math.PI * 2,
     breathePeriod: T.blob.breatheMs * (0.75 + breathe * 0.55),
-    wanderMs: T.blob.wanderMs * (lively ? 1.15 + wander * 0.55 : 2.4 + wander * 1.4),
+    wanderMs: T.blob.wanderMs * (lively ? 0.55 + wander * 0.35 : 2.4 + wander * 1.4),
     blinkEveryMs: lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs * (0.5 + blink * 1.0),
     blinkDelayMs: blink0 * (lively ? livelyBlinkEveryMs : T.blob.blinkEveryMs),
     lookStart: blobHash(id, 'look') % BUSY_LOOKS.length,
