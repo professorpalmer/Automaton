@@ -1117,7 +1117,7 @@ export function Settings({
   onClose: () => void
   onPlaneChange?: () => void
   onSkinChange?: () => void
-  /** Mouth-only compact for the focused automaton. Jobs strip untouched. */
+  /** Mouth-only compact for the focused automaton. Jobs pane untouched. */
   onCompactNow?: () => void
 }) {
   const chrome = useChrome()
@@ -1325,7 +1325,7 @@ export function Settings({
           <div testId="settings-compact" style={chrome.card}>
             <div style={{ fontSize: T.type.xs, color: T.tertiary, marginBottom: T.space.sm }}>
               Working set is a compact summary plus recent turns — not the full transcript. Jobs /
-              Puppetmaster artifacts stay on the Jobs strip. Auto-compacts when over the char
+              Puppetmaster artifacts stay in the Jobs pane. Auto-compacts when over the char
               budget; fail-soft keeps the prior set.
             </div>
             <Chip

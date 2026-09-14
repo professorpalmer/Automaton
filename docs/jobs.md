@@ -6,7 +6,7 @@ Land pushes dest and merges dest into main. Promote is done only when
 current origin/dev and origin/main match; pending required checks wait
 on the same job and are not a success or a Staff blocker. Failed
 required checks hard-fail. After the first wait, retries reconcile the
-open dest PR and remotes and do not push HEAD again. The job strip still
+open dest PR and remotes and do not push HEAD again. The Jobs pane still
 shows every running job; dispatch runs at most one promote/ship per
 owner so concurrent GoalRuns cannot race origin/dev. Isolated
 analyze/implement stay concurrent. Ship tags a version already on the
@@ -15,7 +15,7 @@ ids unless the user asked.
 
 ## Board embed
 
-Every durable Jobs-rail entry is a Puppetmaster job. The skinny strip is an
+Every durable Jobs-rail entry is a Puppetmaster job. The Jobs pane (titlebar Jobs) is an
 index only — Jobs never land in chat transcripts. Selecting a durable
 `job_…` pops the stock `puppetmaster dashboard` in host Chrome with
 `?job=<id>&embed=1`. Overview / alias opens the board without a job query.
@@ -75,7 +75,7 @@ required checks stay `waiting_external` on the same running job. Generic
 worker, test, or merge failures stay failed. Staff assesses a sister only
 after every criterion is met. Concurrent GoalRuns persist on the session
 snapshot. The blocker panel is Staff chrome, not a chat message.
-While a job flies, the strip may show `Still running.` A status ask
+While a job flies, the Jobs pane may show `Still running.` A status ask
 restates that line and does not start a new mouth turn. Jobs do not
 pixel-click the shared computer. Take control is the operator on that
 X display.
@@ -84,7 +84,7 @@ X display.
 
 Cloud implement is an **opt-in** alternate transport (public Cloud Agents
 API + optional Origin forge links). It does not replace Puppetmaster jobs
-on the strip. When `CURSOR_API_KEY` is missing or the account blocks Cloud
+in the Jobs pane. When `CURSOR_API_KEY` is missing or the account blocks Cloud
 Agents, Settings/Jobs show **parked / unavailable** — never a fake Cloud
 button. See [`docs/cloud-origin.md`](./cloud-origin.md).
 
@@ -96,7 +96,7 @@ Job watch and `attachExisting` read PM status/refs asynchronously on the
 hot path (no blocking `spawnSync` there). The poll interval is
 `WATCH_POLL_MS` (2500). When Staff hydrates onto a job that is already
 terminal in Puppetmaster, `attachExisting` settles it with `completeJob`
-instead of leaving a flying strip forever.
+instead of leaving a flying job forever.
 
 Land and promote resolve a checkout through `matchMachineProject` and
 related binders. Mentions of tooling (`puppetmaster`, `codegraph`, and

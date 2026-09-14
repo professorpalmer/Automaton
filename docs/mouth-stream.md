@@ -4,7 +4,7 @@ Automaton-native feed events for **side-effect steps** on a mouth turn:
 `decide → act → done`, or `decide → refuse`. Inspired by AG-UI’s tool/step
 stream — **not** an AG-UI SDK, CopilotKit, or animation dependency.
 
-Mouth stream is **mouth chrome**, not Jobs. Jobs stay on the Jobs strip /
+Mouth stream is **mouth chrome**, not Jobs. Jobs stay in the Jobs pane /
 Puppetmaster board (`docs/jobs.md`). Sister threads stay separate: a stream
 row lands only on the automaton that ran the tool.
 

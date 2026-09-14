@@ -324,7 +324,7 @@ export function composerEnterBusy(_mouth: MouthState, _computerBusy = false): bo
   return false
 }
 
-/** Ephemeral feed wait. Not a persisted item. Jobs use the strip, not this. */
+/** Ephemeral feed wait. Not a persisted item. Jobs use the Jobs pane, not this. */
 export function feedThinking(mouth: MouthState, items: FeedItem[]): boolean {
   return (mouth === 'must_first' || mouth === 'answer') && items.length > 0
 }
