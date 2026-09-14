@@ -19,7 +19,7 @@
     "@gpuix/native": "file:vendor/gpuix-native-0.6.2.tgz",
   },
   "packages": {
-    "@gpuix/native": ["@gpuix/native@vendor/gpuix-native-0.6.2.tgz", { "optionalDependencies": { "@gpuix/native-linux-x64-gnu": "0.6.0", "@gpuix/native-win32-x64-msvc": "0.6.0" } }, "sha512-MDn5uvekdyb5pwvwxU2sUCeFf7SGAKpWB4tnEwz8A2BsVEiC6AR/ltvWRY62e6hHLliR7eF+yxC2OFMzuVcc+w=="],
+    "@gpuix/native": ["@gpuix/native@vendor/gpuix-native-0.6.2.tgz", { "optionalDependencies": { "@gpuix/native-linux-x64-gnu": "0.6.0", "@gpuix/native-win32-x64-msvc": "0.6.0" } }, "sha512-UYO7OiewFksPwmLsuMR3xjsRiVZTaKuzNUQ0uHk7PILk7WOh/7Ug/w9mW8FBB04Hc9n/si3W4e37Qj0gEp+EiQ=="],
 
     "@gpuix/native-linux-x64-gnu": ["@gpuix/native-linux-x64-gnu@0.6.0", "", { "os": "linux", "cpu": "x64" }, "sha512-ttcc3K+EBjfS+NW0K8yYJ/hFFfmZox8ulp6o11BGbaUykOuvEgFMxdDrJmohDeYCBwj3Hd2gIKA1Zk14ctVs/Q=="],
 
