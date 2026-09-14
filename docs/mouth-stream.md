@@ -50,7 +50,7 @@ decide→act→done/refuse arc.
 
 ## Out of scope here
 
-- P1 peer provenance / standing role injection
+- P1 peer provenance / standing role — see `docs/rooms.md`, `docs/wave4-openbot-lift.md` (in progress)
 - P2 per-sister Activity strip (ephemeral session activity ≠ ledger)
 - Adopting `@ag-ui/*` or CopilotKit packages
 - Collapsing sister transcripts

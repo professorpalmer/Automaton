@@ -12,7 +12,9 @@ This is **not** Slack / external channels (`docs/channels.md`). Rooms live under
 
 1. Appends a **sent** relay + speaks **Sent.** on the sender thread (ack).
 2. Appends an `agent_note` on the target thread.
-3. Wakes the target mouth with a user turn `kickoff=peer-hop`.
+3. Wakes the target mouth with a user turn `kickoff=peer-hop`, carrying peer provenance:
+   - `originUser` — interactive person started this chain (from sender turn / prior hop)
+   - `hopDepth` — increments from the sender's last user turn (first hop = 1)
 4. Returns immediately — **no live RPC**; the reply arrives later as a normal mouth turn.
 
 Empty text is a no-op (do not auto-ack empty). Peer/room traffic is **mouth** only;
@@ -30,8 +32,8 @@ A room is `{ id, name, memberIds, archived?, createdAt, updatedAt }`.
 | `listRooms` / `createRoom` / `updateRoomMembers` / `renameRoom` | CRUD |
 | `archiveRoom` | Soft pause (prefer over silent drop) |
 | `deleteRoom` | Hard delete from Settings |
-| `postToRoom` | Pure delivery list (excludes sender) |
-| `sendToRoom` | Session fan-out: notes + peer-hop wake per member |
+| `postToRoom` | Pure delivery list (excludes sender); optional `originUser` / `hopDepth` on each delivery |
+| `sendToRoom` | Session fan-out: notes + peer-hop wake per member (stamps provenance) |
 
 `postToRoom` → `sendToRoom` paints each **member on their own thread**. Sisters do
 **not** share one collapsed transcript — every seat keeps a separate feed; room posts
@@ -63,3 +65,5 @@ multi-select visible automata. MVP create lives here (chat phrases can wait).
 | Unknown / archived room | `sendToRoom` no-op; `postToRoom` throws |
 | Sender not a member | `postToRoom` throws |
 | Large fan-out (user path) | Confirm via `needsFanoutConfirm` / `pendingRoomPost` |
+| Peer-hop with `originUser` | Attended for Auto (person still watching) |
+| Peer-hop without `originUser` / routine | Unattended — Auto cannot swallow |

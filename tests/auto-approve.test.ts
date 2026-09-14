@@ -15,6 +15,7 @@ import {
   idleOrphanMouths,
   offerUnattendedApproval,
   send,
+  sendToAgent,
   setAutoApprove,
   turnKickoff,
   waitComputerHost,
@@ -50,6 +51,21 @@ describe('unattended is not Auto', () => {
       expect(outcome.decision).toBe('ask')
       expect(outcome.reason).toBe('unattended')
     }
+  })
+
+  test('peer-hop with originUser is attended (person still watching)', () => {
+    expect(isUnattended('peer-hop', { originUser: true })).toBe(false)
+    expect(isUnattended('peer-hop', { originUser: false })).toBe(true)
+    expect(isUnattended('routine', { originUser: true })).toBe(true)
+    const outcome = decideApproval({
+      action: 'host_read README.md',
+      kickoff: 'peer-hop',
+      originUser: true,
+      autoEnabled: true,
+      brokerAlive: true,
+    })
+    expect(outcome.decision).toBe('auto')
+    expect(outcome.reason).toBe('auto')
   })
 
   test('user-kicked Auto still works', () => {
@@ -120,6 +136,34 @@ describe('unattended is not Auto', () => {
     s = offerUnattendedApproval(setAutoApprove(fresh(), true), 'staff', 'routine')
     expect(openHost(s)?.kind).toBe('widget')
     expect(unattendedApprovalWidget('peer-hop').prompt).toContain('peer hop')
+  })
+
+  test('session: peer-hop with originUser can Auto when enabled', () => {
+    let s = setAutoApprove(fresh(), true)
+    s = send(s, 'Please read README on my Mac')
+    s = sendToAgent(s, 'staff', 'kernel', 'Please read README on my Mac')
+    expect(turnKickoff(s, 'kernel')).toBe('peer-hop')
+    s = bookComputer(s, 'kernel', 'read README')
+    expect(s.computerWorkers![0]!.kickoff).toBe('peer-hop')
+    expect(s.computerWorkers![0]!.originUser).toBe(true)
+    const id = s.computerWorkers![0]!.id
+    s = waitComputerHost(s, id, 'Run this on your Mac?', 'host_read README.md')
+    expect(openHost(s)).toBeUndefined()
+    expect(s.computerWorkers![0]!.hostAllowed).toBe(true)
+    expect(s.computerWorkers![0]!.status).toBe('running')
+  })
+
+  test('session: peer-hop without originUser still cannot Auto', () => {
+    let s = setAutoApprove(fresh(), true)
+    s = sendToAgent(s, 'staff', 'kernel', 'Ghost read README')
+    expect(turnKickoff(s, 'kernel')).toBe('peer-hop')
+    s = bookComputer(s, 'kernel', 'read README')
+    expect(s.computerWorkers![0]!.originUser).toBeUndefined()
+    s = waitComputerHost(s, s.computerWorkers![0]!.id, 'Run this on your Mac?', 'host_read README.md')
+    const host = s.threads.kernel.items.find((item) => item.kind === 'widget' && item.status === 'open')
+    expect(host?.kind).toBe('widget')
+    expect(s.computerWorkers![0]!.hostAllowed).toBeUndefined()
+    expect(s.computerWorkers![0]!.status).toBe('waiting_operator')
   })
 
   test('session: unattended computer cannot Auto; user-kicked Auto skips the card', () => {

@@ -17,6 +17,8 @@ export type PendingApproval = {
   workerId?: string
   action: string
   kickoff: TurnKickoff
+  /** Peer-hop provenance: interactive person still on the chain. */
+  originUser?: boolean
 }
 
 export type ApprovalInput = {
@@ -25,6 +27,11 @@ export type ApprovalInput = {
   autoEnabled: boolean
   brokerAlive: boolean
   grants?: ApprovalGrant[]
+  /**
+   * Peer-hop provenance. When kickoff is peer-hop and originUser is true,
+   * a person started the chain — not "nobody watching".
+   */
+  originUser?: boolean
 }
 
 export type ApprovalOutcome = {
@@ -40,6 +47,11 @@ export type ApprovalOutcome = {
     | 'grant-always'
 }
 
+/**
+ * Kickoffs that are unattended unless peer-hop carries originUser.
+ * P1: "nobody watching" = routine | peer-hop without interactive person;
+ * other non-user kickoffs stay fail-closed (still unattended).
+ */
 export const UNATTENDED_SOURCES = ['webhook', 'routine', 'channel', 'peer-hop', 'intro', 'unknown'] as const
 
 /**
@@ -53,8 +65,21 @@ export function isUserKickoff(kickoff: TurnKickoff): boolean {
   return kickoff === 'user'
 }
 
-export function isUnattended(kickoff: TurnKickoff): boolean {
-  return !isUserKickoff(kickoff)
+/**
+ * Nobody watching = routine | peer-hop without interactive person.
+ * Peer-hop with originUser (person started the chain) is attended.
+ * Other non-user kickoffs remain unattended (fail-closed).
+ */
+export function isUnattended(
+  kickoff: TurnKickoff,
+  provenance?: { originUser?: boolean },
+): boolean {
+  if (isUserKickoff(kickoff)) return false
+  if (kickoff === 'peer-hop' && provenance?.originUser === true) return false
+  if (kickoff === 'routine') return true
+  if (kickoff === 'peer-hop') return true
+  // webhook / channel / intro / unknown — still nobody Auto can trust
+  return true
 }
 
 export function looksSensitive(action: string): boolean {
@@ -87,11 +112,14 @@ export function grantOnce(grants: ApprovalGrant[], scope: string): ApprovalGrant
 /**
  * OpenMaus: Auto must not follow a turn nobody started.
  * Dead broker denies. Destructive still asks. Regex is not the sandbox.
+ * P1: peer-hop with originUser is attended (person still on the chain).
  */
 export function decideApproval(input: ApprovalInput): ApprovalOutcome {
   const grants = input.grants ?? []
   if (!input.brokerAlive) return { decision: 'deny', grants, reason: 'dead-broker' }
-  if (isUnattended(input.kickoff)) return { decision: 'ask', grants, reason: 'unattended' }
+  if (isUnattended(input.kickoff, { originUser: input.originUser })) {
+    return { decision: 'ask', grants, reason: 'unattended' }
+  }
   if (looksSensitive(input.action)) return { decision: 'ask', grants, reason: 'destructive' }
   const consumed = consumeGrant(grants, scopeForAction(input.action))
   if (consumed.kind === 'always') {

@@ -171,6 +171,14 @@ export type FeedItem =
       sisterHop?: { to: AgentId; depth: number }
       /** Unattended wakes (routine/webhook) — turnKickoff reads this. */
       kickoff?: 'user' | 'webhook' | 'routine' | 'channel' | 'peer-hop' | 'intro' | 'unknown'
+      /**
+       * Peer-hop provenance: interactive person started this conversation chain.
+       * Propagated by sendToAgent / postToRoom so Auto can tell "nobody watching"
+       * from a Staff→sister hop that still has a person on the desk.
+       */
+      originUser?: boolean
+      /** Peer-hop depth from the originating turn (1 = first hop). */
+      hopDepth?: number
     }
   | { kind: 'agent_note'; id: string; fromId: AgentId; toId: AgentId; text: string }
   | { kind: 'relay'; id: string; lane: 'sent' | 'from'; peerId: AgentId; text: string }

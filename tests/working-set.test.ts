@@ -12,6 +12,7 @@ import {
   looksLikeRecallRequest,
   looksLikeRefreshRequest,
   queryFirst,
+  standingRoleBlock,
   TAIL,
 } from '../src/runtime/working-set.ts'
 
@@ -320,6 +321,33 @@ describe('mouth working set', () => {
       projects: [],
     })
     expect(messages[0]?.content).toContain('Standing rules: Never mention the sandbox.')
+  })
+
+  test('standing role (name/title/rules) joins every mouth system preamble', () => {
+    resetIdsForTests()
+    const agent = SISTER_AGENTS[0] ?? DEFAULT_AGENTS[0]
+    const block = standingRoleBlock(agent, 'Stay on the product tree.')
+    expect(block).toContain(`Standing role: ${agent.name} —`)
+    expect(block).toContain(agent.title.trim() || agent.id)
+    expect(block).toContain('Standing rules: Stay on the product tree.')
+    expect(block).toContain('applies on every wake')
+    const withRules = buildWorkingSet({
+      agent,
+      thread: emptyThreads(staffWithSisters()).kernel,
+      claims: [],
+      rules: 'Stay on the product tree.',
+      projects: [],
+    })
+    expect(String(withRules[0]?.content)).toContain('Standing role:')
+    expect(String(withRules[0]?.content)).toContain('Standing rules: Stay on the product tree.')
+    const bare = buildWorkingSet({
+      agent,
+      thread: emptyThreads(staffWithSisters()).kernel,
+      claims: [],
+      projects: [],
+    })
+    expect(String(bare[0]?.content)).toContain('Standing rules: (none).')
+    expect(String(bare[0]?.content)).toContain('Standing role:')
   })
 
   test('coordinator kit injects roster and never refuses to inquire', () => {

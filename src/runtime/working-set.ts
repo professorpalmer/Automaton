@@ -185,6 +185,19 @@ export function introFallback(agent: Agent): string {
   return title ? `${agent.name}. ${title}.` : `${agent.name}.`
 }
 
+export function standingRoleBlock(agent: Agent, rules = ''): string {
+  const title = agent.title.trim() || agent.id
+  const parts = [`Standing role: ${agent.name} — ${title}.`]
+  const description = agent.description.trim()
+  if (description) parts.push(description)
+  const standing = rules.trim()
+  parts.push(standing ? `Standing rules: ${standing}` : 'Standing rules: (none).')
+  parts.push(
+    'This standing role applies on every wake. Treat the thread as task-specific instructions within it.',
+  )
+  return parts.join(' ')
+}
+
 export function systemPrompt(
   agent: Agent,
   rules = '',
@@ -222,8 +235,7 @@ export function systemPrompt(
       'Speak briefly. Do not print job ids. Do not ask how you can assist.',
       liveCheck ? liveCue : '',
     ].filter(Boolean)
-    const standing = rules.trim()
-    if (standing) parts.push(`Standing rules: ${standing}`)
+    parts.unshift(standingRoleBlock(agent, rules))
     const skills = skillPromptLayers({
       skills: input.skills,
       pinnedIds: input.skillIds,
@@ -234,8 +246,8 @@ export function systemPrompt(
     return parts.join(' ')
   }
   const parts = [
+    standingRoleBlock(agent, rules),
     `You are ${agent.name}, ${agent.title} in Automaton staff.`,
-    agent.description,
     'Speak briefly. Do not print job ids. Workers stay mute; you are the automaton.',
     WIDGET_CUE,
     recallOk
@@ -250,8 +262,6 @@ export function systemPrompt(
   if (input?.homeRepo) {
     parts.push(`Your home is ${input.homeRepo}. Product work goes there, not Automaton. Do not ask for a repo path.`)
   }
-  const standing = rules.trim()
-  if (standing) parts.push(`Standing rules: ${standing}`)
   const skills = skillPromptLayers({
     skills: input?.skills,
     pinnedIds: input?.skillIds,

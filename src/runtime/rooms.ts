@@ -13,12 +13,21 @@ export type Room = {
   updatedAt: string
 }
 
+export type PeerProvenance = {
+  /** Interactive person started this conversation chain. */
+  originUser?: boolean
+  /** Hop count from the originating turn (1 = first peer hop). */
+  hopDepth?: number
+}
+
 export type RoomDelivery = {
   toId: AgentId
   fromId: AgentId
   roomId: string
   roomName: string
   text: string
+  originUser?: boolean
+  hopDepth?: number
 }
 
 export type PostToRoomResult = {
@@ -226,7 +235,7 @@ export function sanitizePeerRelay(text: string): string {
  */
 export function postToRoom(
   roomId: string,
-  input: { fromId: AgentId; text: string },
+  input: { fromId: AgentId; text: string } & PeerProvenance,
   home = automatonHome(),
 ): PostToRoomResult {
   const room = getRoom(roomId, home)
@@ -240,6 +249,11 @@ export function postToRoom(
     throw new Error('Sender is not a room member.')
   }
   const body = sanitizePeerRelay(text) || text
+  const originUser = input.originUser === true ? true : undefined
+  const hopDepth =
+    typeof input.hopDepth === 'number' && Number.isFinite(input.hopDepth) && input.hopDepth >= 0
+      ? Math.floor(input.hopDepth)
+      : undefined
   const deliveries: RoomDelivery[] = []
   for (const toId of room.memberIds) {
     if (toId === fromId) continue
@@ -249,6 +263,8 @@ export function postToRoom(
       roomId: room.id,
       roomName: room.name,
       text: body,
+      originUser,
+      hopDepth,
     })
   }
   return {
