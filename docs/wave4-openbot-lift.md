@@ -16,6 +16,7 @@
 | Fan-out confirm 3+ | `needsFanoutConfirm` |
 | Kickoff kinds | `user` / `webhook` / `routine` / `channel` / `peer-hop` / `intro` |
 | Unattended ≠ Auto | `src/runtime/auto-approve.ts` |
+| Mouth stream + initiator ledger | `docs/mouth-stream.md` (P0) |
 
 ## Gap (what OpenBot does better)
 
@@ -27,18 +28,19 @@
 
 ## Bands
 
-### P0 — Mouth stream + initiator ledger (start now)
+### P0 — Mouth stream + initiator ledger ✅ done
 - Feed/event model for tool/side-effect steps (Automaton-native; AG-UI-*inspired*, not AG-UI SDK).
 - Action ledger rows carry `initiatorKind`: `person` | `routine` | `peer-hop` | `channel` | `webhook` | `deployment` (map from existing kickoff).
 - Wire computer / host / MCP permit paths through one record helper (extend existing action-ledger tests).
 - Docs: `docs/mouth-stream.md` + ledger honesty in `docs/computer.md`.
-- **Ship:** merge → cut **v0.9.0**.
+- **Ship:** merge → cut **v0.9.0** (coordinator).
 
-### P1 — Peer provenance + standing role
+### P1 — Peer provenance + standing role (in progress)
 - `sendToAgent` / `postToRoom` propagate `originUser` + `hopDepth` on peer-hop wakes.
-- Inject standing role (name/title/rules) on every mouth system preamble.
-- Unattended filter: “nobody watching” = routine | peer-hop without interactive person.
-- **Ship:** merge → cut **v0.10.0**.
+- Inject standing role (name/title/rules) on every mouth system preamble (`standingRoleBlock`).
+- Unattended filter: “nobody watching” = routine | peer-hop without interactive person (`originUser`); other non-user kickoffs stay fail-closed.
+- Docs: `docs/rooms.md`, this file, `AGENTS.md`.
+- **Ship readiness:** later cut **v0.10.0** (do not tag here).
 
 ### P2 — Activity surface
 - Per-sister Activity strip (commands/files this session) next to feed; not a second audit DB.
@@ -50,7 +52,7 @@
 - OpenBot Docker supervisor / SPIRE
 - Multi-framework agent images
 
-## Success for P0
-- PR open + CI green + tests for ledger initiator + at least one stream event kind painted in feed
+## Success for P1
+- PR open + CI green + tests for peer provenance, standing role preamble, and unattended peer-hop with/without `originUser`
 - No CopilotKit deps in `package.json`
 - Sister threads remain separate

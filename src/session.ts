@@ -127,6 +127,8 @@ export type ComputerWorker = {
   hostAllowed?: boolean
   /** Who started the turn that booked this worker. Unattended cannot Auto. */
   kickoff?: TurnKickoff
+  /** Peer-hop provenance: interactive person still on the chain. */
+  originUser?: boolean
 }
 
 export type PendingDelivery = {
@@ -468,6 +470,7 @@ function stamped(
   id?: string,
   sisterHop?: { to: AgentId; depth: number },
   kickoff?: TurnKickoff,
+  provenance?: { originUser?: boolean; hopDepth?: number },
 ): FeedItem {
   return {
     kind: 'msg',
@@ -479,6 +482,11 @@ function stamped(
     at: Date.now(),
     sisterHop,
     kickoff,
+    originUser: provenance?.originUser === true ? true : undefined,
+    hopDepth:
+      typeof provenance?.hopDepth === 'number' && Number.isFinite(provenance.hopDepth)
+        ? Math.max(0, Math.floor(provenance.hopDepth))
+        : undefined,
   }
 }
 
@@ -1011,6 +1019,52 @@ export function turnKickoff(session: Session, agentId: AgentId): TurnKickoff {
   }
   if (hasUserMessage(session, agentId)) return 'user'
   return 'unknown'
+}
+
+/** Last user msg on a thread (for peer-hop provenance). */
+export function lastUserMsg(
+  session: Session,
+  agentId: AgentId,
+): Extract<FeedItem, { kind: 'msg'; from: 'user' }> | null {
+  const row = session.threads[agentId]
+  if (!row) return null
+  for (let i = row.items.length - 1; i >= 0; i -= 1) {
+    const item = row.items[i]
+    if (item?.kind === 'msg' && item.from === 'user') return item
+  }
+  return null
+}
+
+/**
+ * Interactive person on this thread's current turn chain.
+ * True when kickoff is user/channel, or a prior peer-hop carried originUser.
+ */
+export function turnOriginUser(session: Session, agentId: AgentId): boolean {
+  const last = lastUserMsg(session, agentId)
+  if (last?.originUser === true) return true
+  const kickoff = turnKickoff(session, agentId)
+  if (kickoff === 'user' || kickoff === 'channel') return true
+  if (last?.kickoff === 'user' || last?.kickoff === 'channel') return true
+  return false
+}
+
+/**
+ * Provenance stamped onto a peer-hop wake from fromId.
+ * hopDepth increments from the sender's last user turn (0 → 1 on first hop).
+ */
+export function peerProvenanceForHop(
+  session: Session,
+  fromId: AgentId,
+): { originUser: boolean; hopDepth: number } {
+  const last = lastUserMsg(session, fromId)
+  const priorDepth =
+    last && typeof last.hopDepth === 'number' && Number.isFinite(last.hopDepth)
+      ? Math.max(0, Math.floor(last.hopDepth))
+      : 0
+  return {
+    originUser: turnOriginUser(session, fromId),
+    hopDepth: priorDepth + 1,
+  }
 }
 
 export function setAutoApprove(session: Session, enabled: boolean): Session {
@@ -1623,6 +1677,7 @@ export function bookComputer(session: Session, ownerAgentId: AgentId, goal: stri
     goal,
     status: 'running',
     kickoff: turnKickoff(session, ownerAgentId),
+    originUser: turnOriginUser(session, ownerAgentId) ? true : undefined,
   }
   let next = putComputer(session, worker)
   next = setComputerBusy(next, ownerAgentId, true)
@@ -1955,15 +2010,19 @@ export function waitComputerHost(
   const worker = (session.computerWorkers ?? []).find((row) => row.id === workerId)
   if (!worker || worker.status !== 'running') return session
   const kickoff = worker.kickoff ?? turnKickoff(session, worker.ownerAgentId)
+  const originUser =
+    worker.originUser === true || turnOriginUser(session, worker.ownerAgentId) ? true : undefined
   const pending: PendingApproval = {
     id: nextId('appr'),
     workerId,
     action: action || prompt,
     kickoff,
+    originUser,
   }
   const outcome = decideApproval({
     action: pending.action,
     kickoff,
+    originUser,
     autoEnabled: session.autoApprove === true,
     brokerAlive: session.brokerAlive !== false,
     grants: session.approvalGrants,
@@ -2060,6 +2119,7 @@ export function sendToAgent(
   if (fromId === toId) return session
   if (!session.threads[fromId] || !session.threads[toId]) return session
   const note = sanitizePeerRelay(body) || body
+  const provenance = peerProvenanceForHop(session, fromId)
   const focused = session.activeAgentId
   let next = appendRelay(session, fromId, 'sent', toId, note, focused)
   next = speak(next, fromId, 'Sent.', focused)
@@ -2069,7 +2129,16 @@ export function sendToAgent(
     { kind: 'agent_note', id: nextId('item'), fromId, toId, text: note },
     focused,
   )
-  const item = stamped('user', toId, note, undefined, undefined, undefined, 'peer-hop')
+  const item = stamped(
+    'user',
+    toId,
+    note,
+    undefined,
+    undefined,
+    undefined,
+    'peer-hop',
+    provenance,
+  )
   next = append(next, toId, item, focused)
   next = setThread(next, toId, { mouth: 'answer' })
   return next
@@ -2096,9 +2165,14 @@ export function sendToRoom(
   const body = text.trim()
   if (!body) return session
   if (!session.threads[fromId]) return session
+  const provenance = peerProvenanceForHop(session, fromId)
   let posted
   try {
-    posted = postToRoom(roomId, { fromId, text: body }, opts?.home)
+    posted = postToRoom(
+      roomId,
+      { fromId, text: body, originUser: provenance.originUser, hopDepth: provenance.hopDepth },
+      opts?.home,
+    )
   } catch {
     return session
   }
@@ -2138,7 +2212,10 @@ export function sendToRoom(
       { kind: 'agent_note', id: nextId('item'), fromId: row.fromId, toId: row.toId, text: note },
       focused,
     )
-    const item = stamped('user', row.toId, note, undefined, undefined, undefined, 'peer-hop')
+    const item = stamped('user', row.toId, note, undefined, undefined, undefined, 'peer-hop', {
+      originUser: row.originUser === true || provenance.originUser,
+      hopDepth: typeof row.hopDepth === 'number' ? row.hopDepth : provenance.hopDepth,
+    })
     next = append(next, row.toId, item, focused)
     next = setThread(next, row.toId, { mouth: 'answer' })
   }

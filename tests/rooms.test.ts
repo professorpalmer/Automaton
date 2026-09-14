@@ -19,9 +19,12 @@ import { emptyThreads, needsFanoutConfirm, resetIdsForTests, staffWithSisters } 
 import {
   confirmRoomPost,
   dismissRoomPost,
+  peerProvenanceForHop,
+  send,
   sendToAgent,
   sendToRoom,
   turnKickoff,
+  turnOriginUser,
   type Session,
 } from '../src/session'
 
@@ -119,6 +122,38 @@ describe('sendToAgent / sendToRoom session', () => {
     expect(same).toBe(s)
   })
 
+  test('sendToAgent propagates originUser + hopDepth on peer-hop wake', () => {
+    let s = fresh()
+    s = send(s, 'Please look at the open PRs')
+    expect(turnKickoff(s, 'staff')).toBe('user')
+    expect(turnOriginUser(s, 'staff')).toBe(true)
+    const prov = peerProvenanceForHop(s, 'staff')
+    expect(prov).toEqual({ originUser: true, hopDepth: 1 })
+    s = sendToAgent(s, 'staff', 'kernel', 'Please look at the open PRs')
+    const wake = [...s.threads.kernel.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+    expect(wake?.kind === 'msg' && wake.kickoff === 'peer-hop').toBe(true)
+    expect(wake?.kind === 'msg' && wake.originUser === true).toBe(true)
+    expect(wake?.kind === 'msg' && wake.hopDepth === 1).toBe(true)
+    expect(turnOriginUser(s, 'kernel')).toBe(true)
+    // Second hop increments depth and keeps originUser
+    s = sendToAgent(s, 'kernel', 'research', 'Relay the PR look')
+    const second = [...s.threads.research.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+    expect(second?.kind === 'msg' && second.kickoff === 'peer-hop').toBe(true)
+    expect(second?.kind === 'msg' && second.originUser === true).toBe(true)
+    expect(second?.kind === 'msg' && second.hopDepth === 2).toBe(true)
+  })
+
+  test('sendToAgent without interactive person keeps originUser false', () => {
+    let s = fresh()
+    // No user send on staff — peer hop has nobody watching
+    s = sendToAgent(s, 'staff', 'kernel', 'Ghost hop')
+    const wake = [...s.threads.kernel.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+    expect(wake?.kind === 'msg' && wake.kickoff === 'peer-hop').toBe(true)
+    expect(wake?.kind === 'msg' && wake.originUser).toBeUndefined()
+    expect(wake?.kind === 'msg' && wake.hopDepth === 1).toBe(true)
+    expect(turnOriginUser(s, 'kernel')).toBe(false)
+  })
+
   test('sendToRoom posts agent_notes on each member thread separately', () => {
     resetRoomIdsForTests()
     const home = tmpHome()
@@ -127,6 +162,7 @@ describe('sendToAgent / sendToRoom session', () => {
       home,
     )
     let s = fresh()
+    s = send(s, 'Sync the desk')
     s = sendToRoom(s, room.id, 'staff', 'Sync at noon', { home })
     expect(s.threads.staff.items.some((item) => item.kind === 'msg' && item.from === 'agent' && item.text === 'Sent.')).toBe(
       true,
@@ -136,8 +172,17 @@ describe('sendToAgent / sendToRoom session', () => {
     expect(s.threads.kernel.mouth).toBe('answer')
     expect(s.threads.research.mouth).toBe('answer')
     expect(turnKickoff(s, 'kernel')).toBe('peer-hop')
+    const kernelWake = [...s.threads.kernel.items].reverse().find((item) => item.kind === 'msg' && item.from === 'user')
+    expect(kernelWake?.kind === 'msg' && kernelWake.originUser === true && kernelWake.hopDepth === 1).toBe(true)
     // Separate threads — not one collapsed transcript
     expect(s.threads.kernel.items).not.toEqual(s.threads.research.items)
+    // postToRoom itself propagates provenance on deliveries
+    const posted = postToRoom(
+      room.id,
+      { fromId: 'staff', text: 'Again', originUser: true, hopDepth: 3 },
+      home,
+    )
+    expect(posted.deliveries.every((row) => row.originUser === true && row.hopDepth === 3)).toBe(true)
     rmSync(home, { recursive: true, force: true })
   })
 
