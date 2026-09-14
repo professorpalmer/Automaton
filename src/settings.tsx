@@ -31,7 +31,7 @@ import { boxStatus, computerLabel } from './runtime/box'
 import { aboutVersionLines } from './runtime/version'
 import { mouthModelFor, seatModel, writeSeatBinding } from './runtime/plane'
 import { clampFrostWash, patchSkin, readSkin, type Skin, type WindowMode } from './runtime/skin'
-import { EmptyState, ListRow, ToggleGroup, pushToast, type ToastLevel } from './chrome'
+import { EmptyState, ListRow, ShortcutsHelp, ToggleGroup, pushToast, type ToastLevel } from './chrome'
 import {
   BRAND_ACCENT_SWATCHES,
   BRAND_RADIUS_PRESETS,
@@ -240,6 +240,19 @@ function WindowCard({
       {skin.windowMode === 'frosted' ? (
         <WashSlider value={skin.frostWash} onChange={(frostWash) => pick({ frostWash })} />
       ) : null}
+      <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Background notify</div>
+      <div style={{ fontSize: T.type.xs, color: T.ghost }}>
+        Banner when a mouth finishes or needs approval while Automaton is unfocused. Off = Quiet. Kill-switch: AUTOMATON_DISABLE_NOTIFICATIONS.
+      </div>
+      <ToggleGroup<'on' | 'off'>
+        testId="settings-os-notify"
+        value={skin.osNotifyBackground ? 'on' : 'off'}
+        onChange={(id) => pick({ osNotifyBackground: id === 'on' })}
+        options={[
+          { id: 'on', label: 'On', testId: 'settings-os-notify-on' },
+          { id: 'off', label: 'Quiet', testId: 'settings-os-notify-off' },
+        ]}
+      />
       <div testId="settings-brand" style={{ display: 'flex', flexDirection: 'column', gap: T.space.sm }}>
         <div style={{ fontSize: T.type.sm, color: T.secondary }}>Brand</div>
         <div style={{ fontSize: T.type.xs, color: T.tertiary }}>Tint</div>
@@ -1335,6 +1348,9 @@ export function Settings({
         </div>
         <SettingsAnchor id="appearance" focus={focusSection}>
           <WindowCard onSkinChange={onSkinChange} />
+        </SettingsAnchor>
+        <SettingsAnchor id="shortcuts" focus={focusSection}>
+          <ShortcutsHelp />
         </SettingsAnchor>
         <SettingsAnchor id="keys" focus={focusSection}>
         <div testId="settings-keys" style={{ ...chrome.card }}>

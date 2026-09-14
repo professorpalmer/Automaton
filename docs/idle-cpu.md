@@ -20,6 +20,15 @@ Package / Info.plist are **0.7.0** (Wave 2 P2 band cut).
 
 Honesty: do not claim a forever-0% process. Paced GPUIX baseline is ~**1.5%** (vs ~73% with a `setImmediate` spin). Selected Staff may still glance; idle sisters freeze. Report both settle and deep-idle samples.
 
+## Pulse stride honesty (Wave 6 P2)
+
+Loaders that must pulse (MouthWaitBubble, Activity empty dots) use gpuix
+`motion` opacity repeats — **not** a second JS `setInterval` clock. Cadence is
+tiered: default **1.2s** period; **2.4s** (`pulse_lease_slow` recipe) when the
+feed is long (≥40 rows) or Activity is open, so expensive subtree rebuilds
+cost less per second. When the mouth is idle the bubble unmounts and the
+pulse stops. Do not claim forever-0% while a turn is streaming.
+
 ## Park inventory
 
 | Id | Where | What parks |
@@ -29,7 +38,9 @@ Honesty: do not claim a forever-0% process. Paced GPUIX baseline is ~**1.5%** (v
 | `stream-commit` | `src/runtime/feed-pin.ts` | 120ms STREAM_COMMIT coalesce + `FEED_TAIL` pin |
 | `row-fingerprint` | `src/runtime/feed-row.ts` | Fingerprints avoid wholesale rebuilds on last-line growth |
 | `frame-pace` | vendored `@gpuix/react` `startFrameLoop` | 8ms paced AppKit pump (PulseClock lease = spring `onFrame` listeners empty → GPUI can park) |
-| `activity-takeover` | `src/chrome/activity.ts` | Thinking/tool zone paints only while streaming or user-held; no interval / MotionDiv |
+| `activity-takeover` | `src/chrome/activity.ts` | Thinking/tool zone paints only while streaming or user-held; streaming dots may pulse on a leased stride (Wave 6 P2) |
+| `pulse-stride` | `src/motion/pulse.ts` | MouthWait / Activity opacity pulse: 1.2s default, 2.4s slow on expensive surfaces; unmount parks |
+| `os-notify-focus` | `src/runtime/os-notify.ts` | Focus-poll interval arms only after a background banner parks a sister; clears on claim |
 
 Code mirror: `idleParkInventory()` in `src/runtime/idle-health.ts`.
 

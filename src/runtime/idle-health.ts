@@ -52,7 +52,19 @@ export function idleParkInventory(): IdlePark[] {
       id: 'activity-takeover',
       path: 'src/chrome/activity.ts + src/chrome/activity-zone.tsx',
       summary:
-        'Thinking/tool disclosure paints only while streaming or user-held; no MotionDiv / no interval ticks',
+        'Thinking/tool disclosure paints only while streaming or user-held; dots pulse only while streaming (Wave 6 P2 leased stride)',
+    },
+    {
+      id: 'pulse-stride',
+      path: 'src/motion/pulse.ts + MouthWaitBubble / ActivityZone',
+      summary:
+        'Default 1.2s opacity pulse; slow 2.4s stride when feed is long or Activity open; unmount parks (no JS clock)',
+    },
+    {
+      id: 'os-notify-focus',
+      path: 'src/runtime/os-notify.ts',
+      summary:
+        'Background OS notify focus poll arms only after a banner parks a sister; clears on claim — no idle interval',
     },
   ]
 }

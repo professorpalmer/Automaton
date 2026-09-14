@@ -1,5 +1,7 @@
 import React from 'react'
+import { motion } from '@gpuix/react'
 import { thinkingDots } from '../domain'
+import { PULSE_CURVE, pulseDuration, type PulseStride } from '../motion/pulse'
 import type { SessionActivityRow } from '../runtime/session-activity'
 import { activityHeaderSummary } from '../runtime/session-activity'
 import { useTokens } from '../theme'
@@ -12,7 +14,8 @@ import { groupBoxStyle } from './surface'
  * Mouth wait is MouthWaitBubble (bubble slot), not this bar.
  * Auto-opens while streaming with steps; header press takes over. Session commands/files
  * (paths/sizes only for writes) stay as a collapsed strip after the turn —
- * derived from mouth-stream / ledger, not a second audit DB. No MotionDiv.
+ * derived from mouth-stream / ledger, not a second audit DB. Idle parks; streaming
+ * dots may pulse on a leased stride (Wave 6 P2).
  */
 export function ActivityZone({
   streaming,
@@ -20,6 +23,7 @@ export function ActivityZone({
   onHeld,
   traces = [],
   sessionActivity = [],
+  pulseStride = 'default',
 }: {
   streaming: boolean
   held: boolean | null
@@ -27,6 +31,8 @@ export function ActivityZone({
   traces?: readonly StepTrace[]
   /** Ephemeral commands/files this sister session (Wave 4 P2). */
   sessionActivity?: readonly SessionActivityRow[]
+  /** Wave 6 P2 — slow stride when the row paint is expensive. */
+  pulseStride?: PulseStride
 }) {
   const T = useTokens()
   const state: ActivityTakeover = {
@@ -86,7 +92,18 @@ export function ActivityZone({
               </div>
             ) : null}
             {folded.length === 0 && sessionActivity.length === 0 ? (
-              <div style={{ fontSize: T.type.sm, color: T.ghost }}>{streaming ? thinkingDots(3) : 'Parked'}</div>
+              streaming ? (
+                <motion.div
+                  testId="activity-pulse"
+                  animate={{ opacity: [0.4, 1, 0.4] }}
+                  transition={{ duration: pulseDuration(pulseStride), repeat: Infinity, ease: PULSE_CURVE }}
+                  style={{ fontSize: T.type.sm, color: T.ghost }}
+                >
+                  {thinkingDots(3)}
+                </motion.div>
+              ) : (
+                <div style={{ fontSize: T.type.sm, color: T.ghost }}>Parked</div>
+              )
             ) : (
               folded.flatMap((group) =>
                 group.items.map((row, index) => (

@@ -1,14 +1,17 @@
 import React from 'react'
 import { motion } from '@gpuix/react'
 import { thinkingDots } from '../domain'
+import { PULSE_CURVE, pulseDuration, type PulseStride } from '../motion/pulse'
 import { useTokens } from '../theme'
 
 /**
  * Compact mouth wait in the assistant bubble slot — not a full-width Thinking bar.
- * Soft opacity pulse via gpuix motion (no JS clock).
+ * Soft opacity pulse via gpuix motion (no JS clock). Slow stride when the feed
+ * paint is expensive (Wave 6 P2 pulse lease). Unmount parks.
  */
-export function MouthWaitBubble() {
+export function MouthWaitBubble({ stride = 'default' }: { stride?: PulseStride }) {
   const T = useTokens()
+  const duration = pulseDuration(stride)
   return (
     <div
       style={{
@@ -24,7 +27,7 @@ export function MouthWaitBubble() {
       <motion.div
         testId="thinking"
         animate={{ opacity: [0.4, 1, 0.4] }}
-        transition={{ duration: 1.2, repeat: Infinity, ease: 'easeInOut' }}
+        transition={{ duration, repeat: Infinity, ease: PULSE_CURVE }}
         style={{
           maxWidth: T.feed.max,
           alignSelf: 'flex-start',

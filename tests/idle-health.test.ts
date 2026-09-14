@@ -25,6 +25,8 @@ describe('idle park inventory', () => {
       'row-fingerprint',
       'frame-pace',
       'activity-takeover',
+      'pulse-stride',
+      'os-notify-focus',
     ])
     expect(STREAM_COMMIT_MS).toBe(120)
     expect(IDLE_SPRING_SETTLE_HARD_MS).toBe(SETTLE_HARD_MS)
@@ -70,7 +72,7 @@ describe('doctor idle CPU', () => {
     const report = doctorIdleCpu({ forceSkip: true })
     expect(report.status).toBe('skip')
     expect(report.note).toContain('docs/idle-cpu.md')
-    expect(report.parks.length).toBe(6)
+    expect(report.parks.length).toBe(8)
   })
 
   test('WARNs when a live sample is hot', () => {

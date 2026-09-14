@@ -43,6 +43,7 @@ describe('graphite skin', () => {
       frostWash: 12,
       appearance: 'dark',
       brand: DEFAULT_BRAND,
+      osNotifyBackground: false,
     })
     expect(parseSkin({ railWidth: 72, accent: 'violet' })).toEqual({
       railWidth: 72,
@@ -50,6 +51,7 @@ describe('graphite skin', () => {
       frostWash: 12,
       appearance: 'dark',
       brand: DEFAULT_BRAND,
+      osNotifyBackground: false,
     })
   })
 
@@ -63,6 +65,7 @@ describe('graphite skin', () => {
       frostWash: 12,
       appearance: 'dark',
       brand: DEFAULT_BRAND,
+      osNotifyBackground: false,
     })
     rmSync(home, { recursive: true, force: true })
   })
@@ -80,6 +83,12 @@ describe('graphite skin', () => {
     expect(catalogHex('kernel')).toBe(T.catalog.green)
     expect(catalogHex('research')).toBe(T.catalog.blue)
     expect(JSON.stringify(T)).not.toContain('#E2795B')
+  })
+
+  test('osNotifyBackground defaults Quiet and opts in only on true', () => {
+    expect(parseSkin({}).osNotifyBackground).toBe(false)
+    expect(parseSkin({ osNotifyBackground: true }).osNotifyBackground).toBe(true)
+    expect(parseSkin({ osNotifyBackground: 'yes' }).osNotifyBackground).toBe(false)
   })
 
   test('window mode and wash clamp, solid chrome is opaque', () => {
