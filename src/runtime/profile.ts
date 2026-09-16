@@ -21,6 +21,11 @@ export type AgentProfile = {
   homeRepo: string
   homePath: string
   introPlayedAt?: string | null
+  /**
+   * Optional hop allowlist (Wave 7 P1b). Missing = all visible sisters.
+   * Explicit [] = nobody. Settings UI can wait; data + enforce in P1.
+   */
+  mayAddressIds?: string[]
 }
 
 const KITS: AgentKit[] = ['coordinator', 'code', 'lookup', 'blank']
@@ -53,6 +58,7 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
   const skillIds = Array.isArray(row.skillIds)
     ? row.skillIds.filter((item): item is string => typeof item === 'string')
     : []
+  const mayAddressIds = normalizeMayAddressField(row.mayAddressIds)
   return {
     id: typeof row.id === 'string' && row.id ? row.id : fallbackId,
     name: typeof row.name === 'string' ? row.name : 'New automaton',
@@ -71,7 +77,23 @@ export function parseProfile(raw: unknown, fallbackId: string): AgentProfile {
     homePath: typeof row.homePath === 'string' ? row.homePath.trim() : '',
     introPlayedAt:
       typeof row.introPlayedAt === 'string' && row.introPlayedAt.trim() ? row.introPlayedAt : null,
+    ...(mayAddressIds !== undefined ? { mayAddressIds } : {}),
   }
+}
+
+function normalizeMayAddressField(raw: unknown): string[] | undefined {
+  if (raw === undefined || raw === null) return undefined
+  if (!Array.isArray(raw)) return undefined
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const item of raw) {
+    if (typeof item !== 'string') continue
+    const id = item.trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    out.push(id)
+  }
+  return out
 }
 
 export function readProfile(id: string, home = automatonHome()): AgentProfile | null {

@@ -116,7 +116,16 @@ import {
   postToRoom,
   sanitizePeerRelay,
 } from './runtime/rooms'
-import { mouthStreamFeedItem, type MouthStreamStep } from './runtime/mouth-stream'
+import { mouthStreamFeedItem, type ActionEvent, type MouthStreamStep } from './runtime/mouth-stream'
+import {
+  findInFlightMouthStreamArcs,
+  HISTORY_STOP_DETAIL,
+  scrubIncompleteToolPairs,
+} from './runtime/history-sanitize'
+import { hopGrantRefusedEvent, normalizeMayAddressIds } from './runtime/hop-grants'
+
+export { scrubIncompleteToolPairs, findInFlightMouthStreamArcs } from './runtime/history-sanitize'
+export { mayAddress, hopGrantRefusalLine } from './runtime/hop-grants'
 
 export type ComputerWorkerStatus = 'running' | 'complete' | 'failed' | 'waiting_operator'
 
@@ -173,6 +182,8 @@ export type Session = {
   pendingSend?: PendingSend
   /** Room fan-out awaiting needsFanoutConfirm (3+ members) when requireFanoutConfirm. */
   pendingRoomPost?: { roomId: string; fromId: AgentId; text: string; targets: AgentId[]; home?: string } | null
+  /** Action ledger rows queued by pure session seams (hop refuse). App drains via takePendingLedger. */
+  pendingLedger?: ActionEvent[]
 }
 
 /** Old snapshots omit goals and may still carry a worker mandate. */
@@ -1292,12 +1303,70 @@ export function pendingMouthTurns(
   return pending
 }
 
-export function offerSisterHop(session: Session, hop: SisterHop): Session {
+function queuePendingLedger(session: Session, event: ActionEvent): Session {
+  return { ...session, pendingLedger: [...(session.pendingLedger ?? []), event] }
+}
+
+/** Drain queued ledger rows for the durable store. Clears pendingLedger. */
+export function takePendingLedger(session: Session): { session: Session; events: ActionEvent[] } {
+  const events = session.pendingLedger ?? []
+  if (events.length === 0) return { session, events: [] }
+  const { pendingLedger: _drop, ...rest } = session
+  return { session: rest, events: [...events] }
+}
+
+/** Resolve hop allowlist: live agent mirror, else profile on disk. Missing = open. */
+export function resolveMayAddressIds(
+  session: Session,
+  fromId: AgentId,
+  home?: string,
+): string[] | undefined {
+  const live = session.agents.find((agent) => agent.id === fromId)?.mayAddressIds
+  if (live !== undefined) return normalizeMayAddressIds(live)
+  const profile = readProfile(fromId, home)
+  if (!profile || profile.mayAddressIds === undefined) return undefined
+  return normalizeMayAddressIds(profile.mayAddressIds)
+}
+
+/**
+ * Mark in-flight mouth-stream arcs terminal (refuse + Stopped detail).
+ * Does not delete person-visible feed rows. Does not invent successful tool results.
+ */
+export function terminalizeInFlightMouthStreams(
+  session: Session,
+  agentId: AgentId,
+  detail = HISTORY_STOP_DETAIL,
+): Session {
+  if (!session.threads[agentId]) return session
+  const arcs = findInFlightMouthStreamArcs(thread(session, agentId).items)
+  if (arcs.length === 0) return session
+  let next = session
+  const reason = detail.trim() || HISTORY_STOP_DETAIL
+  for (const arc of arcs) {
+    next = appendMouthStream(next, agentId, {
+      phase: 'refuse',
+      tool: arc.tool,
+      intent: arc.intent,
+      detail: reason,
+      bytes: arc.bytes,
+    })
+  }
+  return next
+}
+
+export function offerSisterHop(session: Session, hop: SisterHop, opts?: { home?: string }): Session {
   const focused = session.activeAgentId
   const fromRow = session.threads[hop.from]
   const handed = fromRow ? handedHopsSinceLastUser(fromRow.items) : 0
-  const reason = sisterHopRefusal(hop, visibleAgents(session.agents), handed)
-  if (reason) return speak(session, hop.from, reason, focused)
+  const grants = resolveMayAddressIds(session, hop.from, opts?.home)
+  const reason = sisterHopRefusal(hop, visibleAgents(session.agents), handed, grants)
+  if (reason) {
+    let next = speak(session, hop.from, reason, focused)
+    if (grants !== undefined && !grants.includes(hop.to)) {
+      next = queuePendingLedger(next, hopGrantRefusedEvent({ fromId: hop.from, toId: hop.to }))
+    }
+    return next
+  }
   const name = session.agents.find((agent) => agent.id === hop.to)?.name ?? 'them'
   const marker = { to: hop.to, depth: hop.depth }
   const mandate = formatSisterMandate(hop)
@@ -1440,8 +1509,9 @@ function coordinatorReturn(
 export function stopMouth(session: Session, agentId: AgentId): Session {
   if (!session.threads[agentId]) return session
   const mouth = thread(session, agentId).mouth
-  if (mouth === 'idle') return session
-  return setThread(session, agentId, { mouth: 'idle' })
+  let next = terminalizeInFlightMouthStreams(session, agentId, HISTORY_STOP_DETAIL)
+  if (mouth === 'idle') return next
+  return setThread(next, agentId, { mouth: 'idle' })
 }
 
 /** Composer Stop: idle the focused mouth and abandon every running job in the session. */
@@ -1460,25 +1530,26 @@ export function failMouth(session: Session, agentId: AgentId, spoken: string): S
   const row = thread(session, agentId)
   const last = row.items.at(-1)
   const reason = sanitizeSpeak(spoken).trim()
+  let base = terminalizeInFlightMouthStreams(session, agentId, reason || HISTORY_STOP_DETAIL)
   if (row.mouth === 'answer' && last?.kind === 'relay' && last.lane === 'from') {
-    const name = session.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
-    let next = wakeMouth(session, agentId, 'idle')
+    const name = base.agents.find((agent) => agent.id === last.peerId)?.name ?? 'They'
+    let next = wakeMouth(base, agentId, 'idle')
     next = speak(next, agentId, returnBeat(name, last.text), session.activeAgentId)
     next = setStoppedReason(next, agentId, reason)
     return finishBatch(next, agentId)
   }
-  const from = inboundCoordinatorId(session, agentId)
+  const from = inboundCoordinatorId(base, agentId)
   if (from && row.mouth !== 'idle') {
-    const focused = session.activeAgentId
+    const focused = base.activeAgentId
     const line = reason
-    let next = session
+    let next = base
     if (line) next = speak(next, agentId, line, focused)
     next = wakeMouth(next, agentId, 'idle')
     next = coordinatorReturn(next, from, agentId, line, focused, true)
     next = setStoppedReason(next, agentId, reason)
     return finishBatch(next, agentId)
   }
-  let next = completeMouth(session, agentId, spoken)
+  let next = completeMouth(base, agentId, spoken)
   return setStoppedReason(next, agentId, reason)
 }
 
@@ -1849,7 +1920,15 @@ function finishComputer(
   if (!worker) return session
   if (worker.status !== 'running' && worker.status !== 'waiting_operator') return session
   const focused = session.activeAgentId
-  let next = putComputer(session, { ...worker, status, screenshotPath })
+  let next = session
+  if (status === 'failed') {
+    next = terminalizeInFlightMouthStreams(
+      next,
+      worker.ownerAgentId,
+      sanitizeSpeak(spoken).trim() || HISTORY_STOP_DETAIL,
+    )
+  }
+  next = putComputer(next, { ...worker, status, screenshotPath })
   next = speak(next, worker.ownerAgentId, sanitizeSpeak(spoken), focused)
   next = setComputerBusy(next, worker.ownerAgentId, liveComputerOn(next, worker.ownerAgentId))
   next = wakeMouth(next, worker.ownerAgentId, 'idle')
@@ -2294,11 +2373,19 @@ export function sendToAgent(
   fromId: AgentId,
   toId: AgentId,
   text: string,
+  opts?: { home?: string },
 ): Session {
   const body = text.trim()
   if (!body) return session
   if (fromId === toId) return session
   if (!session.threads[fromId] || !session.threads[toId]) return session
+  const grants = resolveMayAddressIds(session, fromId, opts?.home)
+  if (grants !== undefined && !grants.includes(toId)) {
+    const name = session.agents.find((agent) => agent.id === toId)?.name ?? 'them'
+    let next = speak(session, fromId, `Not allowed to hand that to ${name}.`, session.activeAgentId)
+    next = queuePendingLedger(next, hopGrantRefusedEvent({ fromId, toId }))
+    return next
+  }
   const note = sanitizePeerRelay(body) || body
   const provenance = peerProvenanceForHop(session, fromId)
   const focused = session.activeAgentId
